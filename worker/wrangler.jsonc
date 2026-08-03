@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "yasoya-honten-payments",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-28",
+
+  "vars": {
+    "SQUARE_ENVIRONMENT": "sandbox",
+    "SQUARE_LOCATION_ID": "REPLACE_WITH_SANDBOX_LOCATION_ID",
+    "SQUARE_API_VERSION": "2026-07-15",
+
+    // 公開前は実際の独自ドメインへ置換。
+    // ローカル確認を加える場合はカンマ区切り：
+    // "https://yasoyahonten.example.com,http://127.0.0.1:5500"
+    "ALLOWED_ORIGINS": "https://REPLACE_WITH_YOUR_DOMAIN"
+  }
+}
