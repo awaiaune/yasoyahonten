@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <title>
+        レモンバーム | 八草屋本店
+    </title>
+
+    <meta
+        name="description"
+        content="八草屋本店の乾燥レモンバーム。自然の中で育った植物を、丁寧に乾燥・選別してお届けします。">
+
+
+    <!-- Icon -->
+
+    <link
+        rel="icon"
+        href="../favicon.png">
+
+
+    <!-- Google Fonts -->
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com">
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Shippori+Mincho:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
+
+    <!-- CSS -->
+
+    <link
+        rel="stylesheet"
+        href="../css/style.css">
+
+    <link
+        rel="stylesheet"
+        href="../css/header.css">
+
+    <link
+        rel="stylesheet"
+        href="../css/product-detail.css">
+
+    <link
+        rel="stylesheet"
+        href="../css/footer.css">
+
+<link rel="stylesheet" href="../css/cart.css">
+
+</head>
+
+
+<body>
+
+
+<header class="header" id="header">
+
+   <div class="header-actions">
+
+   <button
+    class="cart-trigger"
+    id="cartTrigger"
+    type="button"
+    aria-label="カートを開く">
+
+        <svg
+            class="cart-icon"
+            viewBox="0 0 24 24"
+            aria-hidden="true">
+
+            <path
+                d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L20 8H7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round">
+            </path>
+
+            <circle
+                cx="10"
+                cy="20"
+                r="1"
+                fill="currentColor">
+            </circle>
+
+            <circle
+                cx="18"
+                cy="20"
+                r="1"
+                fill="currentColor">
+            </circle>
+
+        </svg>
+
+        <span
+    class="cart-count is-empty"
+    id="cartCount"
+    aria-label="カート内の商品数">
+    0
+</span>
+
+    </button>
+
+
+    <button
+        class="menu-btn"
+        id="menuBtn"
+        type="button"
+        aria-label="メニューを開く"
+        aria-expanded="false">
+
+        <span></span>
+        <span></span>
+        <span></span>
+
+    </button>
+
+</div>
+
+
+    <a href="../index.html" class="logo">
+
+        <span class="logo-jp">
+            八草屋本店
+        </span>
+
+        <span class="logo-en">
+            YASOYA HONTEN
+        </span>
+
+    </a>
+
+</header>
+
+
+    <!-- ==================================================
+         Menu
+    ================================================== -->
+
+    <nav
+        class="menu"
+        id="menu"
+        aria-label="メインメニュー">
+
+        <a href="../index.html#mission">
+            八草屋本店について
+        </a>
+
+        <a href="../products.html">
+            植物を見る
+        </a>
+
+        <a href="../project.html">
+            未来へつなげる活動
+        </a>
+
+        <a href="../contact.html">
+            お問い合わせ
+        </a>
+
+    </nav>
+
+
+    <div
+        class="menu-overlay"
+        id="menuOverlay">
+    </div>
+
+
+
+    <main>
+        <section class="product-detail reveal">
+            <div class="product-detail-inner">
+                <h1>LEMONBALM</h1>
+
+                <div class="product-main-image">
+                    <img
+                        src="../images/lemonbalm.jpg"
+                        alt="八草屋本店の乾燥レモンバーム">
+                </div>
+
+                <div class="product-information">
+                    <h2>乾燥レモンバーム</h2>
+
+                    <dl class="product-data">
+                        <div>
+                            <dt>内容量</dt>
+                            <dd>10g</dd>
+                        </div>
+
+                        <div>
+                            <dt>価格</dt>
+                            <dd>
+                                ¥980
+                                <small>税込</small>
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <div class="product-cart-area">
+                        <div class="product-quantity-area">
+                            <label for="productQuantity">数量</label>
+
+                            <select
+                                id="productQuantity"
+                                name="quantity"
+                                class="product-quantity">
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                            </select>
+                        </div>
+
+                        <button
+                            class="product-cart-button"
+                            type="button"
+                            data-add-to-cart
+                            data-product-id="lemonbalm-10g"
+                            data-product-name="乾燥レモンバーム 10g"
+                            data-product-price="980"
+                            data-quantity-selector="#productQuantity">
+                            カートへ入れる
+                        </button>
+                    </div>
+
+                    <p class="product-note">
+                        一つひとつ選別し、少量ずつお届けします。
+                    </p>
+                </div>
+            </div>
+        </section>
+    
+
+    
+
+
+
+        <!-- ==================================================
+             Handling
+        ================================================== -->
+
+        <section class="product-handling reveal">
+
+            <div class="product-handling-inner">
+
+
+                <p class="product-section-en">
+                    HANDLING
+                </p>
+
+
+                <h2>
+                    お取り扱いについて
+                </h2>
+
+
+                <div class="product-handling-body">
+
+                    <p>
+                        直射日光と高温多湿を避け、涼しい場所で保存してください。
+                    </p>
+
+                    <p>
+                        開封後は密封し、できるだけ早めにお使いください。
+                    </p>
+
+                    <p>
+                        自然の中で育った植物のため、色や形には個体差があります。
+                    </p>
+
+                </div>
+
+
+            </div>
+
+        </section>
+
+
+
+        <!-- ==================================================
+             Back To Products
+        ================================================== -->
+
+        <section class="product-back reveal">
+
+            <a
+                href="../products.html"
+                class="product-back-button">
+
+                <span aria-hidden="true">
+                    ←
+                </span>
+
+                植物一覧へ戻る
+
+            </a>
+
+        </section>
+
+
+    </main>
+
+
+<!-- ==================================================
+     Footer
+================================================== -->
+
+<footer class="footer">
+
+
+    <a
+        href="../index.html"
+        class="footer-logo">
+
+        <span>
+            八草屋本店
+        </span>
+
+        <small>
+            YASOYA HONTEN
+        </small>
+
+    </a>
+
+
+    <p class="footer-message">
+
+        自然が自然のまま<br>
+        循環する場所を、次の土地へ。
+
+    </p>
+
+
+    <div class="footer-links">
+
+        <a href="../index.html#mission">
+            八草屋本店について
+        </a>
+
+        <a href="../products.html">
+            植物を見る
+        </a>
+
+        <a href="../project.html">
+            未来へつなげる活動
+        </a>
+
+        <a href="../contact.html">
+            お問い合わせ
+        </a>
+
+    </div>
+
+
+    <div class="footer-legal-links">
+
+        <a href="../tokushoho.html">
+            特定商取引法に基づく表記
+        </a>
+
+        <a href="../privacy-policy.html">
+            プライバシーポリシー
+        </a>
+
+    </div>
+
+
+    <p class="copyright">
+        © YASOYA HONTEN
+    </p>
+
+
+</footer>
+
+
+
+    <script src="../js/script.js"></script>
+    <script src="../js/store-config.js"></script>
+    <script src="../js/cart.js"></script>
+    <script src="../js/cart-drawer.js"></script>
+
+
+</body>
+
+</html>
