@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0">
+
+    <title>
+        お支払い | 八草屋本店
+    </title>
+
+    <meta
+        name="description"
+        content="八草屋本店オンラインストアのお支払い画面。ご注文内容、お届け先、カード情報をご確認いただけます。">
+
+
+    <!-- Icon -->
+
+    <link
+        rel="icon"
+        href="favicon.png">
+
+
+    <!-- Google Fonts -->
+
+    <link
+        rel="preconnect"
+        href="https://fonts.googleapis.com">
+
+    <link
+        rel="preconnect"
+        href="https://fonts.gstatic.com"
+        crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&family=Shippori+Mincho:wght@400;500;600;700&display=swap"
+        rel="stylesheet">
+
+
+    <!-- CSS -->
+
+    <link
+        rel="stylesheet"
+        href="css/style.css">
+
+    <link
+        rel="stylesheet"
+        href="css/header.css">
+
+    <link
+        rel="stylesheet"
+        href="css/cart.css">
+
+    <link
+        rel="stylesheet"
+        href="css/checkout.css">
+
+    <link
+        rel="stylesheet"
+        href="css/footer.css">
+
+
+    <!-- Square Web Payments SDK / Sandbox -->
+
+    <script src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
+
+</head>
+
+
+<body>
+
+
+    <!-- ==================================================
+         Header
+    ================================================== -->
+
+    <header class="header" id="header">
+
+        <div class="header-actions">
+
+            <button
+                class="cart-trigger"
+                id="cartTrigger"
+                type="button"
+                aria-label="カートを開く"
+                aria-controls="cartDrawer"
+                aria-expanded="false">
+
+                <svg
+                    class="cart-icon"
+                    viewBox="0 0 24 24"
+                    aria-hidden="true">
+
+                    <path
+                        d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L20 8H7"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round">
+                    </path>
+
+                    <circle
+                        cx="10"
+                        cy="20"
+                        r="1"
+                        fill="currentColor">
+                    </circle>
+
+                    <circle
+                        cx="18"
+                        cy="20"
+                        r="1"
+                        fill="currentColor">
+                    </circle>
+
+                </svg>
+
+                <span
+                    class="cart-count is-empty"
+                    id="cartCount"
+                    aria-label="カート内の商品数">
+                    0
+                </span>
+
+            </button>
+
+
+            <button
+                class="menu-btn"
+                id="menuBtn"
+                type="button"
+                aria-label="メニューを開く"
+                aria-controls="menu"
+                aria-expanded="false">
+
+                <span></span>
+                <span></span>
+                <span></span>
+
+            </button>
+
+        </div>
+
+
+        <a
+            href="index.html"
+            class="logo">
+
+            <span class="logo-jp">
+                八草屋本店
+            </span>
+
+            <span class="logo-en">
+                YASOYA HONTEN
+            </span>
+
+        </a>
+
+    </header>
+
+
+    <!-- ==================================================
+         Menu
+    ================================================== -->
+
+    <nav
+        class="menu"
+        id="menu"
+        aria-label="メインメニュー">
+
+        <a href="index.html#mission">
+            八草屋本店について
+        </a>
+
+        <a href="products.html">
+            植物を見る
+        </a>
+
+        <a href="project.html">
+            未来へつなげる活動
+        </a>
+
+        <a href="contact.html">
+            お問い合わせ
+        </a>
+
+    </nav>
+
+
+    <div
+        class="menu-overlay"
+        id="menuOverlay">
+    </div>
+
+
+    <!-- ==================================================
+         Cart Drawer
+    ================================================== -->
+
+    <div
+        class="cart-overlay"
+        id="cartOverlay">
+    </div>
+
+
+    <aside
+        class="cart-drawer"
+        id="cartDrawer"
+        aria-label="ショッピングカート"
+        aria-hidden="true">
+
+        <div class="cart-drawer-header">
+
+            <p class="cart-drawer-title">
+                CART
+            </p>
+
+            <button
+                class="cart-close"
+                id="cartClose"
+                type="button"
+                aria-label="カートを閉じる">
+                ×
+            </button>
+
+        </div>
+
+
+        <div
+            class="cart-items"
+            id="cartItems">
+        </div>
+
+
+        <div class="cart-drawer-footer">
+
+            <div class="cart-subtotal-row">
+
+                <span>
+                    小計
+                </span>
+
+                <strong id="cartSubtotal">
+                    ¥0
+                </strong>
+
+            </div>
+
+            <a
+                class="cart-checkout"
+                id="cartCheckout"
+                href="checkout.html">
+                お支払いへ進む
+            </a>
+
+        </div>
+
+    </aside>
+
+
+    <!-- ==================================================
+         Checkout
+    ================================================== -->
+
+    <main class="checkout-page">
+
+        <div class="checkout-inner">
+
+            <h1 class="checkout-title">
+                CHECKOUT
+            </h1>
+
+
+            <div class="checkout-layout">
+
+                <form
+                    class="checkout-form"
+                    id="paymentForm">
+
+                    <section class="checkout-section">
+
+                        <h2>
+                            お届け先
+                        </h2>
+
+
+                        <div class="checkout-fields">
+
+                            <div class="checkout-field">
+
+                                <label for="familyName">
+                                    姓
+                                </label>
+
+                                <input
+                                    id="familyName"
+                                    name="familyName"
+                                    type="text"
+                                    autocomplete="family-name"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="givenName">
+                                    名
+                                </label>
+
+                                <input
+                                    id="givenName"
+                                    name="givenName"
+                                    type="text"
+                                    autocomplete="given-name"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="email">
+                                    メールアドレス
+                                </label>
+
+                                <input
+                                    id="email"
+                                    name="email"
+                                    type="email"
+                                    autocomplete="email"
+                                    inputmode="email"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="phone">
+                                    電話番号
+                                </label>
+
+                                <input
+                                    id="phone"
+                                    name="phone"
+                                    type="tel"
+                                    autocomplete="tel"
+                                    inputmode="tel"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="postalCode">
+                                    郵便番号
+                                </label>
+
+                                <input
+                                    id="postalCode"
+                                    name="postalCode"
+                                    type="text"
+                                    autocomplete="postal-code"
+                                    inputmode="numeric"
+                                    placeholder="例：444-0000"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="state">
+                                    都道府県
+                                </label>
+
+                                <input
+                                    id="state"
+                                    name="state"
+                                    type="text"
+                                    autocomplete="address-level1"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="city">
+                                    市区町村
+                                </label>
+
+                                <input
+                                    id="city"
+                                    name="city"
+                                    type="text"
+                                    autocomplete="address-level2"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="address1">
+                                    町名・番地
+                                </label>
+
+                                <input
+                                    id="address1"
+                                    name="address1"
+                                    type="text"
+                                    autocomplete="address-line1"
+                                    required>
+
+                            </div>
+
+
+                            <div class="checkout-field">
+
+                                <label for="address2">
+                                    建物名・部屋番号
+                                </label>
+
+                                <input
+                                    id="address2"
+                                    name="address2"
+                                    type="text"
+                                    autocomplete="address-line2">
+
+                            </div>
+
+                        </div>
+
+                    </section>
+
+
+                    <section class="checkout-section">
+
+                        <h2>
+                            カード情報
+                        </h2>
+
+                        <div id="card-container"></div>
+
+                    </section>
+
+
+                    <button
+                        class="checkout-submit"
+                        id="paymentButton"
+                        type="submit">
+                        PAY NOW
+                    </button>
+
+
+                    <p
+                        class="checkout-status"
+                        id="paymentStatus"
+                        role="alert"
+                        aria-live="polite">
+                    </p>
+
+                </form>
+
+
+                <aside class="checkout-summary">
+
+                    <h2>
+                        YOUR SELECTION
+                    </h2>
+
+
+                    <div id="checkoutSummaryItems"></div>
+
+
+                    <div class="checkout-summary-totals">
+
+                        <div class="checkout-summary-total">
+
+                            <span>
+                                小計
+                            </span>
+
+                            <strong id="checkoutSubtotal">
+                                —
+                            </strong>
+
+                        </div>
+
+
+                        <div class="checkout-summary-total">
+
+                            <span>
+                                送料
+                            </span>
+
+                            <strong id="checkoutShipping">
+                                —
+                            </strong>
+
+                        </div>
+
+
+                        <div class="checkout-summary-total is-grand">
+
+                            <span>
+                                合計
+                            </span>
+
+                            <strong id="checkoutTotal">
+                                —
+                            </strong>
+
+                        </div>
+
+                    </div>
+
+
+                    <a
+                        class="checkout-back"
+                        href="products.html">
+                        ← 植物一覧へ戻る
+                    </a>
+
+                </aside>
+
+            </div>
+
+        </div>
+
+    </main>
+
+
+    <!-- ==================================================
+         Footer
+    ================================================== -->
+
+    <footer class="footer">
+
+        <a
+            href="index.html"
+            class="footer-logo">
+
+            <span>
+                八草屋本店
+            </span>
+
+            <small>
+                YASOYA HONTEN
+            </small>
+
+        </a>
+
+
+        <p class="footer-message">
+            自然が自然のまま<br>
+            循環する場所を、次の土地へ。
+        </p>
+
+
+        <div class="footer-links">
+
+            <a href="index.html#mission">
+                八草屋本店について
+            </a>
+
+            <a href="products.html">
+                植物を見る
+            </a>
+
+            <a href="project.html">
+                未来へつなげる活動
+            </a>
+
+            <a href="contact.html">
+                お問い合わせ
+            </a>
+
+        </div>
+
+
+        <div class="footer-legal-links">
+
+            <a href="tokushoho.html">
+                特定商取引法に基づく表記
+            </a>
+
+            <a href="privacy-policy.html">
+                プライバシーポリシー
+            </a>
+
+        </div>
+
+
+        <p class="copyright">
+            © YASOYA HONTEN
+        </p>
+
+    </footer>
+
+
+    <!-- JavaScript -->
+
+    <script src="js/script.js"></script>
+    <script src="js/store-config.js"></script>
+    <script src="js/cart.js"></script>
+    <script src="js/cart-drawer.js"></script>
+    <script src="js/checkout.js"></script>
+
+</body>
+
+</html>
