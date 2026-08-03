@@ -2,7 +2,7 @@
     "use strict";
 
     const STORAGE_KEY = "yasoya_honten_cart_v1";
-    const MAX_QUANTITY = 10;
+    const MAX_QUANTITY = 3;
 
     const money = new Intl.NumberFormat("ja-JP", {
         style: "currency",
