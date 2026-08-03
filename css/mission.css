@@ -1,0 +1,316 @@
+/* ==================================================
+   Our Mission
+================================================== */
+
+.mission {
+
+    background: var(--color-bg);
+
+}
+
+
+/* ==================================================
+   Mission Content
+================================================== */
+
+.mission-content {
+
+    display: grid;
+
+    gap: 30px;
+
+}
+
+
+/* 左側のメッセージ */
+
+.mission-main {
+
+    margin: 0;
+
+    font-size:
+        clamp(0.78rem, 3vw, 0.9rem);
+
+    font-weight: 400;
+
+    line-height: 2.15;
+    letter-spacing: 0.11em;
+
+    color: var(--color-text);
+
+}
+
+
+/* 右側の本文 */
+
+.mission-body {
+
+    width: 100%;
+    max-width: 620px;
+
+}
+
+
+.mission-body p {
+
+    margin: 0 0 16px;
+
+    font-size:
+        clamp(0.72rem, 2.7vw, 0.82rem);
+
+    font-weight: 400;
+
+    line-height: 2.15;
+    letter-spacing: 0.085em;
+
+    color: var(--color-text-soft);
+
+}
+
+
+.mission-body p:last-child {
+
+    margin-bottom: 0;
+
+}
+
+
+
+/* ==========================================
+   Mission Link
+========================================== */
+
+.mission-product-link {
+
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;   /* 文字を右揃え */
+
+    width: fit-content;
+    margin: 40px 0 0 auto;   /* 要素自体を右へ */
+
+    text-align: right;        /* テキストも右揃え */
+
+    gap: 3px;
+
+    text-decoration: none;
+
+    transition:
+        opacity .35s ease,
+        transform .35s ease;
+
+}
+
+
+/* 日本語 */
+
+.mission-product-link .jp {
+
+    font-size: 0.72rem;
+    font-weight: 400;
+
+    letter-spacing: 0.14em;
+    line-height: 1.6;
+
+    color: var(--color-text);
+
+}
+
+
+/* 英語 */
+
+.mission-product-link .en {
+
+    font-family: var(--font-en);
+
+    font-size: 0.58rem;
+
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+
+    color: var(--color-text-soft);
+
+    transition:
+        transform .35s ease;
+
+}
+
+
+/* Hover */
+
+.mission-product-link:hover {
+
+    opacity: .65;
+
+}
+
+.mission-product-link:hover .en {
+
+    transform: translateX(6px);
+
+}
+
+
+/* ==================================================
+   Mission Visual
+================================================== */
+
+.mission-visual {
+
+    width: 100%;
+
+    margin:
+        52px
+        0
+        0;
+
+}
+
+
+.mission-visual-image {
+
+    position: relative;
+
+    width: 100%;
+
+    overflow: hidden;
+
+    background: #dedbd1;
+
+}
+
+
+/* 写真に薄い色味を重ねる */
+
+.mission-visual-image::after {
+
+    content: "";
+
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    background:
+        rgba(40, 43, 35, 0.045);
+
+}
+
+
+.mission-visual-image img {
+
+    width: 100%;
+
+    aspect-ratio: 4 / 3;
+
+    object-fit: cover;
+    object-position: center;
+
+    filter:
+        saturate(0.68)
+        contrast(0.9)
+        brightness(0.96);
+
+    transition:
+        transform 1.1s var(--ease-main);
+
+}
+
+
+.mission-visual:hover img {
+
+    transform: scale(1.015);
+
+}
+
+
+/* 英文キャプション */
+
+.mission-visual figcaption {
+
+    margin: 10px 0 0;
+
+    font-family: var(--font-en);
+
+    font-size: 0.55rem;
+    line-height: 1.6;
+
+    letter-spacing: 0.18em;
+
+    color: var(--color-text-soft);
+
+    opacity: 0.6;
+
+}
+
+
+/* ==================================================
+   Tablet / PC
+================================================== */
+
+@media (min-width: 768px) {
+
+    .mission-content {
+
+        grid-template-columns:
+            minmax(260px, 0.8fr)
+            minmax(400px, 1.2fr);
+
+        gap: 80px;
+
+        align-items: start;
+
+    }
+
+
+    .mission-main {
+
+        font-size: 0.9rem;
+
+    }
+
+
+    .mission-body p {
+
+        font-size: 0.8rem;
+
+    }
+
+
+    .mission-visual {
+
+        width: 92%;
+
+        margin:
+            70px
+            auto
+            0;
+
+    }
+
+
+    .mission-visual-image img {
+
+        aspect-ratio: 16 / 9;
+
+        max-height: 620px;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Large PC
+================================================== */
+
+@media (min-width: 1200px) {
+
+    .mission-visual {
+
+        width: 88%;
+
+    }
+
+}

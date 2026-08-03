@@ -1,0 +1,709 @@
+/* ==================================================
+   Products Page
+================================================== */
+
+
+/* ==================================================
+   Products Page Hero
+================================================== */
+
+.products-page-hero {
+
+    width: 100%;
+
+    padding:
+        calc(var(--header-height) + 110px)
+        var(--side-padding)
+        90px;
+
+    background:
+        var(--color-bg);
+
+}
+
+
+.products-page-inner {
+
+    width: 100%;
+    max-width: var(--content-width);
+
+    margin: 0 auto;
+
+    text-align: center;
+
+}
+
+
+
+/* ==================================================
+   Products Page Heading
+================================================== */
+
+.products-page-hero h1 {
+
+    margin:
+        0
+        0
+        26px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        clamp(1.45rem, 6vw, 2.15rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.22em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+
+/* Introduction */
+
+.products-page-intro {
+
+    margin: 0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.72rem, 2.8vw, 0.86rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        2.15;
+
+    letter-spacing:
+        0.11em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* ==================================================
+   Products List
+================================================== */
+
+.products-page-list {
+
+    width: 100%;
+
+    padding:
+        0
+        var(--side-padding)
+        120px;
+
+    background:
+        var(--color-bg);
+
+}
+
+
+.products-page-list .product-list {
+
+    width: 100%;
+    max-width: var(--content-width);
+
+    margin: 0 auto;
+
+}
+
+
+
+/* ==================================================
+   Product Card
+================================================== */
+
+.products-page-list .product-card {
+
+    display: block;
+
+    width: 100%;
+
+    margin:
+        0
+        0
+        70px;
+
+    text-decoration: none;
+
+    color:
+        inherit;
+
+}
+
+
+.products-page-list .product-card:last-child {
+
+    margin-bottom: 0;
+
+}
+
+
+
+/* ==================================================
+   Product Image
+================================================== */
+
+.products-page-list .product-image {
+
+    position: relative;
+
+    width: 100%;
+
+    overflow: hidden;
+
+    background:
+        var(--color-bg-light);
+
+}
+
+
+.products-page-list .product-image img {
+
+    display: block;
+
+    width: 100%;
+    height: auto;
+
+    aspect-ratio:
+        4 / 3;
+
+    object-fit:
+        cover;
+
+    transition:
+        transform
+        0.8s
+        var(--ease-main);
+
+}
+
+
+.products-page-list .product-card:hover
+.product-image img {
+
+    transform:
+        scale(1.025);
+
+}
+
+
+
+/* ==================================================
+   Product Information
+================================================== */
+
+.products-page-list .product-info {
+
+    display: flex;
+
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 24px;
+
+    padding:
+        20px
+        2px
+        0;
+
+    text-align: left;
+
+}
+
+
+.products-page-list .product-info > div {
+
+    min-width: 0;
+
+}
+
+
+
+/* Product Number */
+
+.products-page-list .product-number {
+
+    display: block;
+
+    margin:
+        0
+        0
+        7px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.67rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.18em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* Product Name */
+
+.products-page-list .product-info h2 {
+
+    margin:
+        0
+        0
+        4px;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(1rem, 4vw, 1.35rem);
+
+    font-weight:
+        500;
+
+    line-height:
+        1.55;
+
+    letter-spacing:
+        0.1em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+
+/* Product English Name */
+
+.products-page-list .product-en {
+
+    margin: 0;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.68rem;
+
+    font-weight:
+        400;
+
+    line-height:
+        1.4;
+
+    letter-spacing:
+        0.16em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* Product Arrow */
+
+.products-page-list .product-arrow {
+
+    flex-shrink: 0;
+
+    display: inline-flex;
+
+    align-items: center;
+    justify-content: center;
+
+    width: 38px;
+    height: 38px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        1.05rem;
+
+    line-height:
+        1;
+
+    color:
+        var(--color-text);
+
+    transition:
+        transform
+        0.45s
+        var(--ease-main);
+
+}
+
+
+.products-page-list .product-card:hover
+.product-arrow {
+
+    transform:
+        translateX(5px);
+
+}
+
+
+
+/* ==================================================
+   Product Status
+================================================== */
+
+.product-status {
+
+    position: absolute;
+
+    top: 16px;
+    left: 16px;
+
+    display: inline-flex;
+
+    align-items: center;
+    justify-content: center;
+
+    min-height: 31px;
+
+    padding:
+        7px
+        13px;
+
+    border:
+        1px solid
+        rgba(34, 35, 31, 0.14);
+
+    background:
+        rgba(248, 245, 238, 0.92);
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        0.64rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.12em;
+
+    color:
+        var(--color-text);
+
+    backdrop-filter:
+        blur(6px);
+
+    -webkit-backdrop-filter:
+        blur(6px);
+
+}
+
+
+
+/* 販売中 */
+
+.status-on-sale::before {
+
+    content: "";
+
+    display: block;
+
+    width: 5px;
+    height: 5px;
+
+    margin-right: 8px;
+
+    border-radius:
+        50%;
+
+    background:
+        currentColor;
+
+}
+
+
+
+/* 収穫準備中 */
+
+.status-preparing::before {
+
+    content: "";
+
+    display: block;
+
+    width: 5px;
+    height: 5px;
+
+    margin-right: 8px;
+
+    border:
+        1px solid
+        currentColor;
+
+    border-radius:
+        50%;
+
+}
+
+
+
+/* 今季終了 */
+
+.status-season-ended {
+
+    color:
+        var(--color-text-soft);
+
+    opacity:
+        0.86;
+
+}
+
+
+
+/* ==================================================
+   Products Season Message
+================================================== */
+
+.products-season {
+
+    width: 100%;
+
+    padding:
+        90px
+        var(--side-padding)
+        105px;
+
+    background:
+        var(--color-bg-light);
+
+}
+
+
+.products-season-inner {
+
+    width: 100%;
+    max-width: var(--text-width);
+
+    margin: 0 auto;
+
+    text-align: center;
+
+}
+
+
+.products-season-en {
+
+    margin:
+        0
+        0
+        25px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.7rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.2em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.products-season-text {
+
+    margin:
+        0
+        0
+        25px;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(1rem, 4.4vw, 1.3rem);
+
+    font-weight:
+        500;
+
+    line-height:
+        2;
+
+    letter-spacing:
+        0.11em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+.products-season-description {
+
+    margin: 0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.72rem, 2.8vw, 0.84rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        2.1;
+
+    letter-spacing:
+        0.09em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* ==================================================
+   Tablet
+================================================== */
+
+@media screen and (min-width: 768px) {
+
+    .products-page-hero {
+
+        padding:
+            calc(var(--header-height) + 155px)
+            var(--side-padding)
+            120px;
+
+    }
+
+
+    .products-page-hero h1 {
+
+        margin-bottom:
+            30px;
+
+    }
+
+
+    .products-page-list {
+
+        padding-bottom:
+            160px;
+
+    }
+
+
+    .products-page-list .product-card {
+
+        margin-bottom:
+            105px;
+
+    }
+
+
+    .products-page-list .product-info {
+
+        padding-top:
+            25px;
+
+    }
+
+
+    .product-status {
+
+        top: 22px;
+        left: 22px;
+
+        min-height: 35px;
+
+        padding:
+            9px
+            17px;
+
+        font-size:
+            0.69rem;
+
+    }
+
+
+    .products-season {
+
+        padding:
+            130px
+            var(--side-padding)
+            145px;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Desktop
+================================================== */
+
+@media screen and (min-width: 1100px) {
+
+    .products-page-list .product-image img {
+
+        max-height:
+            620px;
+
+        aspect-ratio:
+            16 / 9;
+
+        object-fit:
+            cover;
+
+    }
+
+
+    .products-page-list .product-info {
+
+        padding:
+            28px
+            4

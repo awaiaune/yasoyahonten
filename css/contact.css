@@ -1,0 +1,455 @@
+/* ==================================================
+   Contact
+================================================== */
+
+
+/* ==================================================
+   Contact Layout
+================================================== */
+
+.contact {
+
+    display:
+        flex;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    width:
+        100%;
+
+    min-height:
+        calc(100svh - var(--header-height));
+
+    padding:
+        calc(var(--header-height) + 85px)
+        var(--side-padding)
+        110px;
+
+    background:
+        var(--color-bg);
+
+}
+
+
+.contact-inner {
+
+    width:
+        100%;
+
+    max-width:
+        620px;
+
+    margin:
+        0 auto;
+
+    text-align:
+        center;
+
+}
+
+
+
+/* ==================================================
+   Contact Heading
+================================================== */
+
+.contact-en {
+
+    margin:
+        0
+        0
+        30px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.68rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.3em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.contact h1 {
+
+    margin:
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(1.35rem, 5.5vw, 1.9rem);
+
+    font-weight:
+        500;
+
+    line-height:
+        1.7;
+
+    letter-spacing:
+        0.14em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+
+/* ==================================================
+   Contact Description
+================================================== */
+
+.contact-description {
+
+    margin:
+        48px
+        0
+        55px;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.7rem, 2.8vw, 0.82rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        2.2;
+
+    letter-spacing:
+        0.085em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* ==================================================
+   Mail Link
+================================================== */
+
+.contact-mail {
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    align-items:
+        center;
+
+    justify-content:
+        center;
+
+    gap:
+        14px;
+
+    width:
+        min(100%, 520px);
+
+    margin:
+        0 auto;
+
+    padding:
+        34px
+        24px;
+
+    border-top:
+        1px solid
+        var(--color-line);
+
+    border-bottom:
+        1px solid
+        var(--color-line);
+
+    color:
+        var(--color-text);
+
+    text-decoration:
+        none;
+
+    -webkit-tap-highlight-color:
+        transparent;
+
+    transition:
+        background
+        0.4s
+        var(--ease-main),
+        border-color
+        0.4s
+        var(--ease-main);
+
+}
+
+
+.contact-mail-label {
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.7rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.3em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.contact-mail-address {
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        clamp(0.86rem, 3.3vw, 1rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        1.4;
+
+    letter-spacing:
+        0.055em;
+
+    color:
+        var(--color-text);
+
+    overflow-wrap:
+        anywhere;
+
+}
+
+
+.contact-mail:hover {
+
+    background:
+        rgba(34, 35, 31, 0.025);
+
+    border-color:
+        rgba(34, 35, 31, 0.22);
+
+}
+
+
+.contact-mail:active {
+
+    background:
+        rgba(34, 35, 31, 0.05);
+
+}
+
+
+.contact-mail:focus-visible {
+
+    outline:
+        1px solid
+        var(--color-text);
+
+    outline-offset:
+        6px;
+
+}
+
+
+
+/* ==================================================
+   Contact Note
+================================================== */
+
+.contact-note {
+
+    margin:
+        38px
+        0
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.62rem, 2.4vw, 0.7rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        1.9;
+
+    letter-spacing:
+        0.075em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.contact-note-break {
+
+    display:
+        none;
+
+}
+
+
+
+/* ==================================================
+   Tablet
+================================================== */
+
+@media screen and (min-width: 768px) {
+
+    .contact {
+
+        min-height:
+            760px;
+
+        padding-top:
+            calc(var(--header-height) + 125px);
+
+        padding-bottom:
+            140px;
+
+    }
+
+
+    .contact-description {
+
+        margin-top:
+            55px;
+
+        margin-bottom:
+            65px;
+
+    }
+
+
+    .contact-mail {
+
+        padding-top:
+            38px;
+
+        padding-bottom:
+            38px;
+
+    }
+
+
+    .contact-note {
+
+        margin-top:
+            44px;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Small Screens
+================================================== */
+
+@media screen and (max-width: 380px) {
+
+    .contact {
+
+        padding-left:
+            20px;
+
+        padding-right:
+            20px;
+
+    }
+
+
+    .contact-description {
+
+        margin-top:
+            42px;
+
+        margin-bottom:
+            48px;
+
+    }
+
+
+    .contact-mail {
+
+        padding:
+            30px
+            14px;
+
+    }
+
+
+    .contact-mail-address {
+
+        font-size:
+            0.82rem;
+
+        letter-spacing:
+            0.035em;
+
+    }
+
+
+    .contact-note-break {
+
+        display:
+            block;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Reduced Motion
+================================================== */
+
+@media
+(prefers-reduced-motion: reduce) {
+
+    .contact-mail {
+
+        transition:
+            none;
+
+    }
+
+}

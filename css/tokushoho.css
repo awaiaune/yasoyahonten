@@ -1,0 +1,411 @@
+/* ==================================================
+   Legal Notice
+================================================== */
+
+
+/* ==================================================
+   Layout
+================================================== */
+
+.legal-page {
+
+    width:
+        100%;
+
+    padding:
+        calc(var(--header-height) + 90px)
+        var(--side-padding)
+        120px;
+
+    background:
+        var(--color-bg);
+
+}
+
+
+.legal-inner {
+
+    width:
+        100%;
+
+    max-width:
+        720px;
+
+    margin:
+        0 auto;
+
+}
+
+
+
+/* ==================================================
+   Heading
+================================================== */
+
+.legal-heading {
+
+    margin:
+        0
+        0
+        85px;
+
+    text-align:
+        center;
+
+}
+
+
+.legal-heading-en {
+
+    margin:
+        0
+        0
+        30px;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.65rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1;
+
+    letter-spacing:
+        0.28em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.legal-heading h1 {
+
+    margin:
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(1.15rem, 4.8vw, 1.55rem);
+
+    font-weight:
+        500;
+
+    line-height:
+        1.8;
+
+    letter-spacing:
+        0.12em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+.legal-intro {
+
+    max-width:
+        500px;
+
+    margin:
+        40px
+        auto
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.65rem, 2.5vw, 0.74rem);
+
+    line-height:
+        2.1;
+
+    letter-spacing:
+        0.075em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* ==================================================
+   Legal List
+================================================== */
+
+.legal-list {
+
+    margin:
+        0;
+
+    padding:
+        0;
+
+    border-top:
+        1px solid
+        var(--color-line);
+
+}
+
+
+.legal-item {
+
+    display:
+        grid;
+
+    gap:
+        18px;
+
+    padding:
+        30px
+        0;
+
+    border-bottom:
+        1px solid
+        var(--color-line);
+
+}
+
+
+.legal-item dt {
+
+    margin:
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        0.64rem;
+
+    font-weight:
+        500;
+
+    line-height:
+        1.8;
+
+    letter-spacing:
+        0.1em;
+
+    color:
+        var(--color-text);
+
+}
+
+
+.legal-item dd {
+
+    margin:
+        0;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        clamp(0.64rem, 2.45vw, 0.73rem);
+
+    font-weight:
+        400;
+
+    line-height:
+        2;
+
+    letter-spacing:
+        0.065em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.legal-item dd a {
+
+    color:
+        inherit;
+
+    text-decoration:
+        none;
+
+    border-bottom:
+        1px solid
+        var(--color-line);
+
+}
+
+
+.legal-note {
+
+    display:
+        block;
+
+    margin-top:
+        10px;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+
+/* ==================================================
+   Contact
+================================================== */
+
+.legal-contact {
+
+    padding:
+        80px
+        0
+        0;
+
+    text-align:
+        center;
+
+}
+
+
+.legal-contact p {
+
+    margin:
+        0
+        0
+        26px;
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        0.65rem;
+
+    line-height:
+        2;
+
+    letter-spacing:
+        0.075em;
+
+    color:
+        var(--color-text-soft);
+
+}
+
+
+.legal-contact a {
+
+    display:
+        inline-block;
+
+    padding:
+        10px
+        4px;
+
+    border-bottom:
+        1px solid
+        var(--color-text);
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        0.68rem;
+
+    letter-spacing:
+        0.24em;
+
+    color:
+        var(--color-text);
+
+    text-decoration:
+        none;
+
+}
+
+
+
+/* ==================================================
+   Tablet
+================================================== */
+
+@media screen and (min-width: 768px) {
+
+    .legal-page {
+
+        padding-top:
+            calc(var(--header-height) + 125px);
+
+        padding-bottom:
+            150px;
+
+    }
+
+
+    .legal-heading {
+
+        margin-bottom:
+            110px;
+
+    }
+
+
+    .legal-item {
+
+        grid-template-columns:
+            175px
+            minmax(0, 1fr);
+
+        gap:
+            45px;
+
+        padding:
+            34px
+            0;
+
+    }
+
+
+    .legal-contact {
+
+        padding-top:
+            100px;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Small Screens
+================================================== */
+
+@media screen and (max-width: 380px) {
+
+    .legal-page {
+
+        padding-left:
+            20px;
+
+        padding-right:
+            20px;
+
+    }
+
+
+    .legal-heading {
+
+        margin-bottom:
+            70px;
+
+    }
+
+}

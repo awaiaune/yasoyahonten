@@ -1,0 +1,184 @@
+/* ==================================================
+   For The Future
+================================================== */
+
+.future {
+
+    background: var(--color-bg-light);
+
+}
+
+
+/* ==================================================
+   Future Layout
+================================================== */
+
+.future-layout {
+
+    display: grid;
+
+    gap: 30px;
+
+}
+
+
+/* 最初の一文 */
+
+.future-intro {
+
+    max-width: 520px;
+
+}
+
+
+.future-intro p {
+
+    margin: 0;
+
+    font-size:
+        clamp(0.84rem, 3.2vw, 0.98rem);
+
+    line-height: 2.15;
+    letter-spacing: 0.11em;
+
+    color: var(--color-text);
+
+}
+
+
+/* 本文 */
+
+.future-body {
+
+    width: 100%;
+    max-width: 640px;
+
+}
+
+
+.future-body p {
+
+    margin: 0 0 17px;
+
+    font-size:
+        clamp(0.72rem, 2.75vw, 0.84rem);
+
+    line-height: 2.15;
+    letter-spacing: 0.09em;
+
+    color: var(--color-text-soft);
+
+}
+
+
+.future-body p:last-of-type {
+
+    margin-bottom: 0;
+
+}
+
+
+/* ==================================================
+   Project Link
+================================================== */
+
+.text-link {
+
+    width: 100%;
+
+    margin-top: 34px;
+    padding: 17px 0;
+
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    border-top:
+        1px solid var(--color-line);
+
+    border-bottom:
+        1px solid var(--color-line);
+
+    transition:
+        opacity 0.3s ease;
+
+}
+
+
+.text-link span {
+
+    font-size: 0.76rem;
+    line-height: 1.6;
+
+    letter-spacing: 0.14em;
+
+}
+
+
+.text-link i {
+
+    font-family: var(--font-en);
+
+    font-size: 1rem;
+    font-style: normal;
+
+    transition:
+        transform 0.35s var(--ease-main);
+
+}
+
+
+.text-link:hover {
+
+    opacity: 0.7;
+
+}
+
+
+.text-link:hover i {
+
+    transform: translateX(6px);
+
+}
+
+
+/* ==================================================
+   PC
+================================================== */
+
+@media (min-width: 768px) {
+
+    .future-layout {
+
+        grid-template-columns:
+            minmax(280px, 0.85fr)
+            minmax(420px, 1.15fr);
+
+        gap: 80px;
+
+        align-items: start;
+
+    }
+
+
+    .future-intro p {
+
+        font-size: 0.96rem;
+
+    }
+
+
+    .future-body p {
+
+        font-size: 0.82rem;
+
+    }
+
+
+    .text-link {
+
+        margin-top: 38px;
+
+    }
+
+}

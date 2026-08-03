@@ -1,0 +1,274 @@
+/* ==================================================
+   Cart
+================================================== */
+
+/* ==================================================
+   Cart Trigger
+================================================== */
+
+.cart-trigger {
+
+    position: relative;
+
+    flex: 0 0 auto;
+
+    width: 27px;
+    height: 27px;
+
+    margin: 0;
+    padding: 4px;
+
+    border: 0;
+
+    background: transparent;
+
+    color:
+        var(--color-text);
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    opacity: 1;
+    visibility: visible;
+
+    cursor: pointer;
+
+}
+
+
+/* カートアイコン */
+
+.cart-icon {
+
+    display: block;
+
+    width: 20px;
+    height: 20px;
+
+    flex: 0 0 auto;
+
+    overflow: visible;
+
+}
+
+
+/* ==================================================
+   Cart Count
+================================================== */
+
+.cart-count {
+
+    position: absolute;
+
+    top: -2px;
+    right: -3px;
+
+    z-index: 2;
+
+    min-width: 13px;
+    height: 13px;
+
+    padding: 0 3px;
+
+    border-radius: 999px;
+
+    background:
+        var(--color-text);
+
+    color:
+        var(--color-bg-light);
+
+    font-family:
+        var(--font-en);
+
+    font-size: 0.5rem;
+    font-weight: 500;
+
+    line-height: 13px;
+
+    text-align: center;
+
+    pointer-events: none;
+
+}
+
+
+/* カートが空なら数字を隠す */
+
+.cart-count.is-empty {
+
+    display: none;
+
+}
+
+.cart-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1900;
+    visibility: hidden;
+    opacity: 0;
+    background: rgba(20, 20, 17, 0.34);
+    transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+.cart-overlay.is-open {
+    visibility: visible;
+    opacity: 1;
+}
+
+.cart-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 2000;
+    width: min(92vw, 430px);
+    height: 100dvh;
+    padding: 28px 24px;
+    overflow-y: auto;
+    transform: translateX(105%);
+    background: #f8f5ee;
+    box-shadow: -18px 0 42px rgba(0, 0, 0, 0.08);
+    transition: transform 0.42s cubic-bezier(.22, 1, .36, 1);
+}
+
+.cart-drawer.is-open {
+    transform: translateX(0);
+}
+
+.cart-drawer-head,
+.cart-line,
+.cart-total-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.cart-drawer-head {
+    padding-bottom: 24px;
+    border-bottom: 1px solid rgba(34, 35, 31, 0.15);
+}
+
+.cart-eyebrow {
+    margin: 0;
+    font-family: "Cormorant Garamond", serif;
+    font-size: 0.82rem;
+    letter-spacing: 0.18em;
+}
+
+.cart-close {
+    border: 0;
+    padding: 8px;
+    background: transparent;
+    font-size: 1.3rem;
+    cursor: pointer;
+}
+
+.cart-items {
+    padding: 4px 0;
+}
+
+.cart-empty {
+    margin: 0;
+    padding: 56px 0;
+    color: #6e7069;
+    font-size: 0.8rem;
+    line-height: 2;
+    text-align: center;
+}
+
+.cart-line {
+    align-items: flex-start;
+    padding: 22px 0;
+    border-bottom: 1px solid rgba(34, 35, 31, 0.11);
+}
+
+.cart-line-name {
+    margin: 0 0 7px;
+    font-size: 0.83rem;
+    line-height: 1.7;
+}
+
+.cart-line-price {
+    margin: 0;
+    color: #686a64;
+    font-size: 0.72rem;
+}
+
+.cart-line-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.cart-qty-button,
+.cart-remove {
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.cart-qty-button {
+    width: 28px;
+    height: 28px;
+    border: 1px solid rgba(34, 35, 31, 0.2);
+}
+
+.cart-remove {
+    display: block;
+    margin-top: 8px;
+    margin-left: auto;
+    padding: 2px 0;
+    color: #777971;
+    font-size: 0.66rem;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.cart-summary {
+    padding-top: 24px;
+}
+
+.cart-total-row {
+    margin-bottom: 12px;
+    font-size: 0.78rem;
+}
+
+.cart-total-row.is-total {
+    margin-top: 20px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(34, 35, 31, 0.16);
+    font-size: 0.92rem;
+}
+
+.cart-checkout-button {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    min-height: 52px;
+    margin-top: 24px;
+    border: 1px solid #22231f;
+    background: #22231f;
+    color: #fff;
+    font-size: 0.76rem;
+    letter-spacing: 0.12em;
+    text-decoration: none;
+    transition: background 0.25s ease, color 0.25s ease;
+}
+
+.cart-checkout-button:hover {
+    background: transparent;
+    color: #22231f;
+}
+
+.cart-checkout-button[aria-disabled="true"] {
+    opacity: 0.35;
+    pointer-events: none;
+}
+
+body.cart-open {
+    overflow: hidden;
+}
+
+
