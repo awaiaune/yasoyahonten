@@ -1,221 +1,98 @@
-# YASOYA HONTEN ONLINE STORE
+# 八草屋本店 Worker v2.0
 
-静的HTML + Vanilla JS + Square Web Payments SDK + Cloudflare Workerで動く、八草屋本店用ECスターターです。
+Square決済とResend注文メールを処理するCloudflare Workerです。
 
-## 重要
-
-- `SQUARE_ACCESS_TOKEN` はHTML、JavaScript、GitHubへ絶対に書かないでください。
-- Sandboxでは実在する個人情報や本物のカード情報を使わないでください。
-- 商品価格は `worker/src/catalog.js` が最終的な正解です。フロント側の価格は表示用です。
-- 初期価格・送料は仮値です。公開前に必ず変更してください。
-
-## フォルダ
+## 同梱内容
 
 ```text
-css/
-  cart.css
-  checkout.css
-
-js/
-  store-config.js
-  cart.js
-  cart-drawer.js
-  checkout.js
-
-products/
-  goldenrod.html
-
-checkout.html
-thanks.html
-
 worker/
-  src/
-    index.js
-    catalog.js
-  wrangler.jsonc
-  .dev.vars.example
-  .gitignore
+├── src/
+│   ├── index.js       決済・メール・API本体
+│   └── catalog.js     商品、価格、上限、送料
+├── wrangler.jsonc     Cloudflare設定
+├── package.json
+└── .gitignore
+
+site/js/checkout.js     購入者情報をWorkerへ送る最新版
 ```
 
-## STEP 1：商品情報を決める
+## 現在の商品設定
 
-次の2ファイルで、商品IDを必ず一致させます。
+- レモンバーム 10g：980円、最大10個
+- ヨモギ 10g：980円、最大10個
+- セイタカアワダチソウ 10g：980円、最大10個
+- 送料：350円
+- 商品合計3,000円以上：送料無料
 
-- 商品ページの `data-product-id`
-- `worker/src/catalog.js` のキー
+## GitHubへ置く場所
 
-例：
+既存サイトのリポジトリへ、次のように追加します。
 
-```html
-data-product-id="goldenrod-10g"
+```text
+サイトのルート/
+├── index.html
+├── js/
+│   └── checkout.js   ← 同梱版へ置換
+└── worker/           ← フォルダごと追加
 ```
 
-```js
-"goldenrod-10g": {
-  name: "乾燥セイタカアワダチソウ",
-  price: 980
-}
-```
+## Cloudflare Workerに必要なSecrets
 
-価格・在庫・購入上限はWorker側を正とします。
+Cloudflare DashboardのWorkerで、以下をSecretとして登録します。
 
-## STEP 2：既存ページへカート共通部品を追加
+- `SQUARE_ACCESS_TOKEN`
+- `RESEND_API_KEY`
 
-各ページの `</body>` 直前へ以下を追加します。
+SecretはGitHubや`wrangler.jsonc`へ絶対に書かないでください。
 
-```html
-<link rel="stylesheet" href="../css/cart.css">
+## `wrangler.jsonc`で確認する値
 
-<script src="../js/store-config.js"></script>
-<script src="../js/cart.js"></script>
-<script src="../js/cart-drawer.js"></script>
-```
-
-ルート直下ページなら `../` を外してください。
-
-ヘッダー内には次を追加します。
-
-```html
-<button class="cart-trigger" id="cartTrigger" type="button" aria-label="カートを開く">
-  CART
-  <span class="cart-count" id="cartCount">0</span>
-</button>
-```
-
-`products/goldenrod.html` の実装例は同梱済みです。
-
-## STEP 3：Cloudflare WorkerをSandboxで公開
-
-Cloudflare Dashboardだけでもできますが、Wranglerを使う場合：
-
-```bash
-cd worker
-npm create cloudflare@latest
-```
-
-既存ファイルを使う場合はWranglerをインストールして：
-
-```bash
-npm install
-npx wrangler login
-```
-
-`worker/wrangler.jsonc` の以下を変更します。
-
-- `ALLOWED_ORIGINS`
+- `SQUARE_ENVIRONMENT`
 - `SQUARE_LOCATION_ID`
-- 必要ならWorker名
+- `ALLOWED_ORIGINS`
+- `RESEND_FROM_EMAIL`
+- `ORDER_NOTIFICATION_EMAIL`
+- `REPLY_TO_EMAIL`
+- `SITE_URL`
 
-SandboxアクセストークンをSecret登録：
+Resendで認証したドメインが`send.awaiaune.com`なら、送信元は例えば以下です。
 
-```bash
-npx wrangler secret put SQUARE_ACCESS_TOKEN
+```text
+八草屋本店 <order@send.awaiaune.com>
 ```
 
-表示された入力欄にSandbox Access Tokenを貼ります。
+## CloudflareとGitHubを連携する設定
 
-公開：
+Cloudflare Workerの設定画面からGitHubリポジトリを接続します。
 
-```bash
-npx wrangler deploy
-```
+- Production branch：サイトで使用しているブランチ（通常`main`）
+- Root directory：`worker`
+- Build command：空欄でOK
+- Deploy command：`npx wrangler deploy`
 
-表示されたWorker URLを控えます。
+接続後は、GitHubの`worker/`内を更新してCommitすると、Workerが自動デプロイされます。
 
-## STEP 4：フロント設定
+## 最初のテスト
 
-`js/store-config.js` に以下を設定します。
+1. GitHubへアップロードしてCommit
+2. CloudflareのBuildが成功したことを確認
+3. `/api/health`を開く
+4. `version`が`2.0.0`になっていることを確認
+5. Sandboxでテスト購入
+6. Square API Logsで`COMPLETED`を確認
+7. 管理者メールと購入者メールの両方を確認
 
-```js
-window.YASOYA_STORE_CONFIG = {
-  environment: "sandbox",
-  squareApplicationId: "あなたのSandbox Application ID",
-  squareLocationId: "あなたのSandbox Location ID",
-  workerBaseUrl: "https://あなたのWorker.workers.dev"
-};
-```
+## 本番切替
 
-Application IDとLocation IDは公開情報としてブラウザ側に置けます。
-Access Tokenは置けません。
+本番へ切り替える際は、SandboxとProductionを混在させないでください。
 
-## STEP 5：Sandboxテスト
+- `worker/wrangler.jsonc`
+  - `SQUARE_ENVIRONMENT`: `production`
+  - `SQUARE_LOCATION_ID`: Production Location ID
+- Cloudflare Secret
+  - `SQUARE_ACCESS_TOKEN`: Production Access Tokenへ上書き
+- `js/store-config.js`
+  - Production Application ID
+  - Production Location ID
 
-`checkout.html` をHTTPサーバー経由で開きます。
-HTMLを直接ダブルクリックした `file://` では、Square SDKやCORSの検証が正常に進まない場合があります。
-
-GitHub Pagesへ仮公開するか、VS Code Live Serverなどを使用してください。
-
-SandboxではSquare公式のテストカードだけを使います。本物のカードは使用できません。
-
-成功すると：
-
-1. Square Web Payments SDKがカードをトークン化
-2. Workerへ商品ID・数量・トークンを送信
-3. Workerが価格を再計算
-4. WorkerがSquare Payments APIへ送信
-5. `thanks.html` へ移動
-
-## STEP 6：本番切替
-
-本番前に必ず以下を変更します。
-
-### `js/store-config.js`
-
-```js
-environment: "production",
-squareApplicationId: "Production Application ID",
-squareLocationId: "Production Location ID",
-workerBaseUrl: "本番Worker URL"
-```
-
-### `worker/wrangler.jsonc`
-
-```json
-"SQUARE_ENVIRONMENT": "production",
-"SQUARE_LOCATION_ID": "Production Location ID",
-"ALLOWED_ORIGINS": "https://あなたの独自ドメイン"
-```
-
-本番アクセストークンをSecretへ上書き：
-
-```bash
-npx wrangler secret put SQUARE_ACCESS_TOKEN
-```
-
-再公開：
-
-```bash
-npx wrangler deploy
-```
-
-SandboxとProductionのApplication ID、Location ID、Access Tokenを混在させないでください。
-
-## STEP 7：公開前チェック
-
-- 商品名・内容量・税込価格
-- Workerの商品価格
-- 送料ルール
-- 在庫切れ時の挙動
-- 購入上限
-- 特商法表示
-- プライバシーポリシー
-- 返品・キャンセル規定
-- 注文確認方法
-- スマートフォン表示
-- Sandbox決済成功
-- Sandbox決済失敗
-- 二重クリック防止
-- 独自ドメインだけCORS許可
-- Productionで少額の実決済と返金テスト
-
-## 現在の仕様
-
-- localStorageカート
-- 右側スライド式カート
-- 商品数量変更
-- Worker側価格再計算
-- 固定送料
-- Squareカード決済
-- 決済ボタン二重送信防止
-- Sandbox / Production切替
-- 許可ドメイン限定CORS
+本番公開前に、少額の実決済と返金テストを行ってください。
