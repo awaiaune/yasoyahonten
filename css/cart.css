@@ -271,4 +271,10 @@ body.cart-open {
     overflow: hidden;
 }
 
+.cart-qty-button:disabled {
 
+    opacity: 0.25;
+
+    cursor: not-allowed;
+
+}
