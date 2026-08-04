@@ -36,3 +36,5 @@ export const SHIPPING = Object.freeze({
 export function calculateShipping(subtotal) {
     return subtotal >= SHIPPING.freeThreshold ? 0 : SHIPPING.flatRate;
 }
+
+// test
