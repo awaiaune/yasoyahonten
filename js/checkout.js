@@ -117,23 +117,28 @@
     async function submitPayment(event) {
         event.preventDefault();
 
+        const form = event.currentTarget;
         const button = document.getElementById("paymentButton");
         const status = document.getElementById("paymentStatus");
 
-        if (!serverQuote || !card) return;
+        if (!serverQuote || !card || !form.reportValidity()) {
+            return;
+        }
 
         button.disabled = true;
         button.textContent = "PROCESSING";
         status.textContent = "";
 
         try {
+            const contact = formContact();
+
             const verificationDetails = {
                 amount: String(serverQuote.total),
                 currencyCode: "JPY",
                 intent: "CHARGE",
                 customerInitiated: true,
                 sellerKeyedIn: false,
-                billingContact: formContact()
+                billingContact: contact
             };
 
             const tokenResult = await card.tokenize(verificationDetails);
@@ -149,14 +154,16 @@
                 method: "POST",
                 body: JSON.stringify({
                     sourceId: tokenResult.token,
-                    items: getCartPayload()
+                    items: getCartPayload(),
+                    contact
                 })
             });
 
             window.YasoyaCart.clear();
 
             const paymentId = encodeURIComponent(paymentResult.paymentId || "");
-            location.href = `thanks.html?payment=${paymentId}`;
+            const order = encodeURIComponent(paymentResult.orderReference || "");
+            location.href = `thanks.html?payment=${paymentId}&order=${order}`;
         } catch (error) {
             console.error(error);
             status.textContent = error.message || "決済に失敗しました。";
@@ -167,6 +174,12 @@
 
     document.addEventListener("DOMContentLoaded", async () => {
         const status = document.getElementById("paymentStatus");
+
+        if (!config?.workerBaseUrl || !config?.squareApplicationId || !config?.squareLocationId) {
+            status.textContent = "決済設定を読み込めませんでした。";
+            document.getElementById("paymentButton").disabled = true;
+            return;
+        }
 
         try {
             await loadQuote();
