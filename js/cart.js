@@ -2,7 +2,7 @@
     "use strict";
 
     const STORAGE_KEY = "yasoya_honten_cart_v1";
-    const MAX_QUANTITY = 3;
+    const MAX_QUANTITY = 10;
 
     const money = new Intl.NumberFormat("ja-JP", {
         style: "currency",
@@ -44,25 +44,53 @@
         }));
     }
 
-    function add(item) {
-        const nextItem = normalizeItem(item);
-        if (!nextItem) throw new Error("商品情報が正しくありません。");
 
-        const cart = read();
-        const existing = cart.find((entry) => entry.id === nextItem.id);
 
-        if (existing) {
-            existing.quantity = Math.min(
+
+function add(item) {
+
+    const nextItem = normalizeItem(item);
+
+    if (!nextItem) {
+        throw new Error("商品情報が正しくありません。");
+    }
+
+
+    const cart = read();
+
+    const existing =
+        cart.find(
+            (entry) => entry.id === nextItem.id
+        );
+
+
+    if (existing) {
+
+        existing.quantity =
+            Math.min(
                 MAX_QUANTITY,
                 existing.quantity + nextItem.quantity
             );
-        } else {
-            cart.push(nextItem);
-        }
 
-        write(cart);
-        return cart;
+    } else {
+
+        cart.push({
+            ...nextItem,
+            quantity:
+                Math.min(
+                    MAX_QUANTITY,
+                    nextItem.quantity
+                )
+        });
+
     }
+
+
+    write(cart);
+
+    return cart;
+
+}
 
     function setQuantity(id, quantity) {
         const cart = read();

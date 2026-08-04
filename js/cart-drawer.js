@@ -112,7 +112,14 @@
                         <div class="cart-line-controls">
                             <button class="cart-qty-button" data-action="decrease" type="button" aria-label="数量を減らす">−</button>
                             <span>${item.quantity}</span>
-                            <button class="cart-qty-button" data-action="increase" type="button" aria-label="数量を増やす">＋</button>
+                           <button
+    class="cart-qty-button"
+    data-action="increase"
+    type="button"
+    aria-label="数量を増やす"
+    ${item.quantity >= 10 ? "disabled" : ""}>
+    ＋
+</button>
                         </div>
                         <button class="cart-remove" data-action="remove" type="button">削除</button>
                     </div>
@@ -178,22 +185,82 @@
         });
 
         document.addEventListener("click", (event) => {
-            const addButton = event.target.closest("[data-add-to-cart]");
-            if (!addButton) return;
 
-            const quantitySelector = document.querySelector(
-                addButton.dataset.quantitySelector || "#productQuantity"
+    const addButton =
+        event.target.closest("[data-add-to-cart]");
+
+    if (!addButton) {
+        return;
+    }
+
+
+    const quantitySelector =
+        document.querySelector(
+            addButton.dataset.quantitySelector ||
+            "#productQuantity"
+        );
+
+
+    const productId =
+        addButton.dataset.productId;
+
+    const selectedQuantity =
+        Number(quantitySelector?.value || 1);
+
+
+    const existingItem =
+        window.YasoyaCart
+            .read()
+            .find(
+                (item) =>
+                    item.id === productId
             );
 
-            window.YasoyaCart.add({
-                id: addButton.dataset.productId,
-                name: addButton.dataset.productName,
-                price: Number(addButton.dataset.productPrice),
-                quantity: Number(quantitySelector?.value || 1)
-            });
 
-            openDrawer();
-        });
+    const currentQuantity =
+        existingItem?.quantity || 0;
+
+
+    const remainingQuantity =
+        10 - currentQuantity;
+
+
+    if (remainingQuantity <= 0) {
+
+        openDrawer();
+
+        return;
+
+    }
+
+
+    window.YasoyaCart.add({
+
+        id:
+            productId,
+
+        name:
+            addButton.dataset.productName,
+
+        price:
+            Number(
+                addButton.dataset.productPrice
+            ),
+
+        quantity:
+            Math.min(
+                selectedQuantity,
+                remainingQuantity
+            )
+
+    });
+
+
+    openDrawer();
+
+});
+
+
 
         window.addEventListener("yasoya:cart-change", render);
         document.addEventListener("keydown", (event) => {
