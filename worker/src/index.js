@@ -1,3 +1,4 @@
+//test2
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
 
 const JSON_HEADERS = {
