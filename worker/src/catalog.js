@@ -1,17 +1,11 @@
 /*
- * このファイルが価格・販売可否の最終的な正解です。
- * フロントの data-product-price は表示用にすぎません。
+ * 八草屋本店の商品カタログ
  *
- * 価格は円単位の整数です。JPYには小数を使用しません。
+ * ここに書かれた価格・販売可否・購入上限が、サーバー側の最終的な正解です。
+ * 商品ページ内の data-product-price は表示用であり、決済金額には使用しません。
  */
-export const CATALOG = Object.freeze({
-    "goldenrod-10g": Object.freeze({
-        name: "乾燥セイタカアワダチソウ 10g",
-        price: 980,
-        active: true,
-        maxQuantity: 10
-    }),
 
+export const CATALOG = Object.freeze({
     "lemonbalm-10g": Object.freeze({
         name: "乾燥レモンバーム 10g",
         price: 980,
@@ -19,18 +13,26 @@ export const CATALOG = Object.freeze({
         maxQuantity: 10
     }),
 
-    "yomogi-10g": Object.freeze({
+    "mugwort-10g": Object.freeze({
         name: "乾燥ヨモギ 10g",
+        price: 980,
+        active: true,
+        maxQuantity: 10
+    }),
+
+    "goldenrod-10g": Object.freeze({
+        name: "乾燥セイタカアワダチソウ 10g",
         price: 980,
         active: true,
         maxQuantity: 10
     })
 });
 
-/*
- * 仮の送料です。公開前に必ず実運用へ合わせて変更してください。
- * 例：全国一律350円、3,000円以上無料。
- */
+export const SHIPPING = Object.freeze({
+    flatRate: 350,
+    freeThreshold: 3000
+});
+
 export function calculateShipping(subtotal) {
-    return subtotal >= 3000 ? 0 : 350;
+    return subtotal >= SHIPPING.freeThreshold ? 0 : SHIPPING.flatRate;
 }
