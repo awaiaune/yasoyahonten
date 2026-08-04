@@ -13,7 +13,7 @@ export const CATALOG = Object.freeze({
         maxQuantity: 10
     }),
 
-    "mugwort-10g": Object.freeze({
+    "yomogi-10g": Object.freeze({
         name: "乾燥ヨモギ 10g",
         price: 980,
         active: true,
