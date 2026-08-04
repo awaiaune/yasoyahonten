@@ -1,12 +1,13 @@
 {
-  "name": "yasoya-honten-payments",
-  "version": "1.0.0",
-  "private": true,
-  "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
-  },
-  "devDependencies": {
-    "wrangler": "^4.0.0"
-  }
+    "name": "yasoya-honten-worker",
+    "version": "2.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev"
+    },
+    "devDependencies": {
+        "wrangler": "^4.0.0"
+    }
 }
