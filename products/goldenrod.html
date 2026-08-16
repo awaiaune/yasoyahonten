@@ -129,58 +129,119 @@
                 <div class="product-information">
                     <h2>乾燥セイタカアワダチソウ</h2>
 
-                    <dl class="product-data">
-                        <div>
-                            <dt>内容量</dt>
-                            <dd>10g</dd>
-                        </div>
+                   <div class="product-variants" aria-label="商品の種類を選択">
 
-                        <div>
-                            <dt>価格</dt>
-                            <dd>
-                                ¥980
-                                <small>税込</small>
-                            </dd>
-                        </div>
-                    </dl>
+    <label class="product-variant is-selected">
+        <input
+            type="radio"
+            name="goldenrodVariant"
+            value="leaf"
+            data-product-id="goldenrod-leaf-10g"
+            data-product-name="乾燥セイタカアワダチソウ 葉 10g"
+            data-product-amount="10g"
+            data-product-price="980"
+            checked>
 
-                    <div class="product-cart-area">
-                        <div class="product-quantity-area">
-                            <label for="productQuantity">数量</label>
+        <span class="product-variant-main">
+            <strong>葉</strong>
+            <small>ティーやフェイシャルスチームに</small>
+        </span>
 
-                            <select
-                                id="productQuantity"
-                                name="quantity"
-                                class="product-quantity">
-                                <option value="1">1</option>
-                                <option value="2">2</option>
-                                <option value="3">3</option>
-<option value="4">4</option>
-                                <option value="5">5</option>
-                                <option value="6">6</option>
-<option value="7">7</option>
-                                <option value="8">8</option>
-                                
-                                <option value="9">9</option>
-                                <option value="10">10</option>
-                            </select>
-                        </div>
+        <span class="product-variant-price">
+            ¥980
+        </span>
+    </label>
 
-                        <button
-                            class="product-cart-button"
-                            type="button"
-                            data-add-to-cart
-                            data-product-id="goldenrod-10g"
-                            data-product-name="乾燥セイタカアワダチソウ 10g"
-                            data-product-price="980"
-                            data-quantity-selector="#productQuantity">
-                            カートへ入れる
-                        </button>
-                    </div>
 
-                    <p class="product-note">
-                        一つひとつ選別し、少量ずつお届けします。
-                    </p>
+    <label class="product-variant">
+        <input
+            type="radio"
+            name="goldenrodVariant"
+            value="leaf-stem"
+            data-product-id="goldenrod-leaf-stem-20g"
+            data-product-name="乾燥セイタカアワダチソウ 葉と茎 20g"
+            data-product-amount="20g"
+            data-product-price="980">
+
+        <span class="product-variant-main">
+            <strong>葉と茎</strong>
+            <small>薬草風呂やフェイシャルスチームに</small>
+        </span>
+
+        <span class="product-variant-price">
+            ¥980
+        </span>
+    </label>
+
+</div>
+
+
+<dl class="product-data">
+
+    <div>
+        <dt>内容量</dt>
+        <dd id="productAmount">10g</dd>
+    </div>
+
+    <div>
+        <dt>価格</dt>
+        <dd>
+            <span id="productPrice">¥980</span>
+            <small>税込</small>
+        </dd>
+    </div>
+
+</dl>
+
+
+<div class="product-cart-area">
+
+    <div class="product-quantity-area">
+
+        <label for="productQuantity">
+            数量
+        </label>
+
+        <select
+            id="productQuantity"
+            name="quantity"
+            class="product-quantity">
+
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+
+        </select>
+
+    </div>
+
+
+    <button
+        class="product-cart-button"
+        type="button"
+        data-add-to-cart
+        data-product-id="goldenrod-leaf-10g"
+        data-product-name="乾燥セイタカアワダチソウ 葉 10g"
+        data-product-price="980"
+        data-quantity-selector="#productQuantity">
+
+        カートへ入れる
+
+    </button>
+
+</div>
+
+
+<p class="product-note">
+    用途に合わせて、葉のみ、または葉と茎をお選びいただけます。
+</p>
                 </div>
             </div>
         </section>
