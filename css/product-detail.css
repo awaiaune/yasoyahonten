@@ -744,6 +744,76 @@
 }
 
 
+/* ==================================================
+   Product Variants
+================================================== */
+
+.product-variants {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin: 0 0 25px;
+}
+
+.product-variant {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 20px;
+    padding: 18px 17px;
+    border: 1px solid var(--color-line);
+    background: transparent;
+    cursor: pointer;
+    transition:
+        border-color 0.3s var(--ease-main),
+        background-color 0.3s var(--ease-main);
+}
+
+.product-variant.is-selected {
+    border-color: var(--color-text);
+    background: var(--color-bg-light);
+}
+
+.product-variant input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.product-variant-main {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.product-variant-main strong {
+    font-family: var(--font-jp);
+    font-size: 0.82rem;
+    font-weight: 500;
+    line-height: 1.5;
+    letter-spacing: 0.1em;
+    color: var(--color-text);
+}
+
+.product-variant-main small {
+    font-family: var(--font-jp);
+    font-size: 0.59rem;
+    line-height: 1.8;
+    letter-spacing: 0.055em;
+    color: var(--color-text-soft);
+}
+
+.product-variant-price {
+    font-family: var(--font-en);
+    font-size: 0.84rem;
+    line-height: 1;
+    letter-spacing: 0.06em;
+    color: var(--color-text);
+}
+
 
 /* ==================================================
    Reduced Motion
