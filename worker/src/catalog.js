@@ -20,12 +20,19 @@ export const CATALOG = Object.freeze({
         maxQuantity: 10
     }),
 
-    "goldenrod-10g": Object.freeze({
-        name: "乾燥セイタカアワダチソウ 10g",
-        price: 980,
-        active: true,
-        maxQuantity: 10
-    })
+    "goldenrod-leaf-10g": Object.freeze({
+    name: "乾燥セイタカアワダチソウ 葉 10g",
+    price: 980,
+    active: true,
+    maxQuantity: 10
+}),
+
+"goldenrod-leaf-stem-20g": Object.freeze({
+    name: "乾燥セイタカアワダチソウ 葉と茎 20g",
+    price: 980,
+    active: true,
+    maxQuantity: 10
+})
 });
 
 export const SHIPPING = Object.freeze({
