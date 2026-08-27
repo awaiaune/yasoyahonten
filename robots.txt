@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+Disallow: /checkout.html
+Disallow: /thanks.html
+Disallow: /worker/
+
+Sitemap: https://yasoyahonten.awaiaune.com/sitemap.xml
