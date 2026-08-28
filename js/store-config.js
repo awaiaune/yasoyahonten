@@ -1,7 +1,7 @@
 window.YASOYA_STORE_CONFIG = Object.freeze({
     environment: "production",
 
-    // 公開可能なIDです。Sandbox Credentials画面の値へ置換してください。
+    // 公開可能なIDです。
     squareApplicationId: "sq0idp-JYrGicMfKr-ILhZeLS9Xsw",
     squareLocationId: "LQ693S4H2NBZ8",
 
