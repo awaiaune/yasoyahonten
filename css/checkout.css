@@ -180,23 +180,48 @@
 
 
 /* ==================================================
-   Payment Notice
+   Checkout Payment Notice
 ================================================== */
 
-.checkout-payment-notice {
-    width: 100%;
-    max-width: 480px;
+.checkout-notice-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
 
-    margin: 0 auto 36px;
-    padding: 22px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 24px;
+
+    background: rgba(0, 0, 0, 0.28);
+
+    opacity: 0;
+    visibility: hidden;
+
+    transition:
+        opacity 0.35s ease,
+        visibility 0.35s ease;
+}
+
+.checkout-notice-overlay.is-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.checkout-notice-modal {
+    width: 100%;
+    max-width: 360px;
+
+    padding: 32px 24px 26px;
 
     text-align: center;
 
-    border: 1px solid rgba(0, 0, 0, 0.12);
+    background: var(--color-bg);
 }
 
-.checkout-payment-notice-title {
-    margin: 0 0 10px;
+.checkout-notice-title {
+    margin: 0 0 18px;
 
     font-family: var(--font-jp);
     font-size: 0.9rem;
@@ -207,7 +232,7 @@
     color: var(--color-text);
 }
 
-.checkout-payment-notice-text {
+.checkout-notice-text {
     margin: 0;
 
     font-family: var(--font-jp);
@@ -216,4 +241,19 @@
     line-height: 2;
 
     color: var(--color-text);
+}
+
+.checkout-notice-close {
+    margin-top: 26px;
+    padding: 10px 22px;
+
+    border: 1px solid currentColor;
+    background: transparent;
+
+    font-family: var(--font-jp);
+    font-size: 0.6rem;
+    letter-spacing: 0.12em;
+
+    color: var(--color-text);
+    cursor: pointer;
 }
