@@ -76,6 +76,43 @@
 
 <body>
 
+    <!-- Checkout Payment Notice -->
+
+<div
+    class="checkout-notice-overlay is-visible"
+    id="checkoutNotice"
+    aria-hidden="false">
+
+    <div
+        class="checkout-notice-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="checkoutNoticeTitle">
+
+        <p
+            class="checkout-notice-title"
+            id="checkoutNoticeTitle">
+            お支払いについて
+        </p>
+
+        <p class="checkout-notice-text">
+            現在JCBは審査中のため<br>
+            ご利用いただけません。<br><br>
+            Visa・Mastercard・American Express・UnionPay<br>
+            をご利用いただけます。
+        </p>
+
+        <button
+            class="checkout-notice-close"
+            id="checkoutNoticeClose"
+            type="button">
+            確認しました
+        </button>
+
+    </div>
+
+</div>
+
 
     <!-- ==================================================
          Header
@@ -278,29 +315,6 @@
                 CHECKOUT
             </h1>
 
-
-
-<!-- Payment Notice -->
-
-<div class="checkout-payment-notice">
-
-    <p class="checkout-payment-notice-title">
-        お支払いについて
-    </p>
-
-    <p class="checkout-payment-notice-text">
-        現在JCBは審査中のためご利用いただけません。<br>
-        Visa・Mastercard・American Express・UnionPayを<br>
-        ご利用いただけます。
-    </p>
-
-</div>
-
-
-
-            
-
-            
 
             <div class="checkout-layout">
 
