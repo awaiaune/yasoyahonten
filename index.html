@@ -91,6 +91,43 @@
 
 <body>
 
+    <!-- Payment Notice -->
+
+<div
+    class="payment-notice-overlay"
+    id="paymentNotice"
+    aria-hidden="true">
+
+    <div
+        class="payment-notice-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="paymentNoticeTitle">
+
+        <p
+            class="payment-notice-title"
+            id="paymentNoticeTitle">
+            お支払いについて
+        </p>
+
+        <p class="payment-notice-text">
+            現在JCBは審査中のため<br>
+            ご利用いただけません。<br><br>
+            Visa・Mastercard・American Express・UnionPay<br>
+            をご利用いただけます。
+        </p>
+
+        <button
+            class="payment-notice-close"
+            id="paymentNoticeClose"
+            type="button">
+            確認しました
+        </button>
+
+    </div>
+
+</div>
+
 
     <!-- ==================================================
          Header
