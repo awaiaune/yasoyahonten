@@ -815,9 +815,9 @@
 }
 
 .product-description {
+    margin: 0 0 18px;
     font-size: 0.72rem;
     line-height: 1.8;
-    margin-top: 0;
 }
 
 /* ==================================================
