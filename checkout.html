@@ -649,6 +649,20 @@
 
     <!-- JavaScript -->
 
+    <script>
+document.addEventListener("DOMContentLoaded", () => {
+    const notice = document.getElementById("checkoutNotice");
+    const closeButton = document.getElementById("checkoutNoticeClose");
+
+    if (!notice || !closeButton) return;
+
+    closeButton.addEventListener("click", () => {
+        notice.classList.remove("is-visible");
+        notice.setAttribute("aria-hidden", "true");
+    });
+});
+    </script>
+
     <script src="js/script.js"></script>
     <script src="js/store-config.js"></script>
     <script src="js/cart.js"></script>
