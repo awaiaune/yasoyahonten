@@ -6,8 +6,8 @@
     "workers_dev": true,
 
     "vars": {
-        "SQUARE_ENVIRONMENT": "sandbox",
-        "SQUARE_LOCATION_ID": "LHD4ZZ1ZYPHD1",
+        "SQUARE_ENVIRONMENT": "production",
+        "SQUARE_LOCATION_ID": "LQ693S4H2NBZ8",
         "SQUARE_API_VERSION": "2026-07-15",
         "ALLOWED_ORIGINS": "https://yasoyahonten.awaiaune.com",
 
