@@ -9,13 +9,59 @@
         name="viewport"
         content="width=device-width, initial-scale=1.0">
 
-    <title>
-        植物を見る | 八草屋本店
-    </title>
+
+    <title>ハーブティー・乾燥ハーブ | 八草屋本店</title>
+
 
     <meta
         name="description"
-        content="八草屋本店が、土地と季節の巡りに合わせて届ける植物をご紹介します。レモンバーム、ヨモギ、セイタカアワダチソウなど、自然の中で育った植物を乾燥・選別してお届けします。">
+        content="自然の中で育ったレモンバーム、ヨモギ、セイタカアワダチソウを丁寧に乾燥・選別。ハーブティーや薬草風呂、フェイシャルスチームとして楽しめる植物を八草屋本店からお届けします。">
+
+
+    <link
+        rel="canonical"
+        href="https://yasoyahonten.awaiaune.com/products.html">
+
+
+    <!-- ==================================================
+         商品一覧 構造化データ
+    ================================================== -->
+
+    <script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "ハーブティー・乾燥ハーブ | 八草屋本店",
+    "description": "自然の中で育った植物を丁寧に乾燥・選別した、八草屋本店のハーブティー・乾燥ハーブ一覧です。",
+    "url": "https://yasoyahonten.awaiaune.com/products.html",
+    "mainEntity": {
+        "@type": "ItemList",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "乾燥レモンバーム 10g",
+                "url": "https://yasoyahonten.awaiaune.com/products/lemonbalm.html"
+            },
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "乾燥ヨモギ 10g",
+                "url": "https://yasoyahonten.awaiaune.com/products/yomogi.html"
+            },
+            {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "乾燥セイタカアワダチソウ",
+                "url": "https://yasoyahonten.awaiaune.com/products/goldenrod.html"
+            }
+        ]
+    }
+}
+    </script>
+
+
+    <!-- Icon -->
 
     <link
         rel="icon"
@@ -56,7 +102,9 @@
         rel="stylesheet"
         href="css/products-page.css">
 
-<link rel="stylesheet" href="css/cart.css">
+    <link
+        rel="stylesheet"
+        href="css/cart.css">
 
     <link
         rel="stylesheet"
@@ -68,73 +116,90 @@
 
 <body>
 
+
+<!-- ==================================================
+     Header
+================================================== -->
+
 <header class="header" id="header">
 
-   <div class="header-actions">
 
-   <button
-    class="cart-trigger"
-    id="cartTrigger"
-    type="button"
-    aria-label="カートを開く">
-
-        <svg
-            class="cart-icon"
-            viewBox="0 0 24 24"
-            aria-hidden="true">
-
-            <path
-                d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L20 8H7"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round">
-            </path>
-
-            <circle
-                cx="10"
-                cy="20"
-                r="1"
-                fill="currentColor">
-            </circle>
-
-            <circle
-                cx="18"
-                cy="20"
-                r="1"
-                fill="currentColor">
-            </circle>
-
-        </svg>
-
-        <span
-    class="cart-count is-empty"
-    id="cartCount"
-    aria-label="カート内の商品数">
-    0
-</span>
-
-    </button>
+    <div class="header-actions">
 
 
-    <button
-        class="menu-btn"
-        id="menuBtn"
-        type="button"
-        aria-label="メニューを開く"
-        aria-expanded="false">
-
-        <span></span>
-        <span></span>
-        <span></span>
-
-    </button>
-
-</div>
+        <button
+            class="cart-trigger"
+            id="cartTrigger"
+            type="button"
+            aria-label="カートを開く">
 
 
-    <a href="index.html" class="logo">
+            <svg
+                class="cart-icon"
+                viewBox="0 0 24 24"
+                aria-hidden="true">
+
+                <path
+                    d="M3 4h2l2.1 10.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L20 8H7"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round">
+                </path>
+
+                <circle
+                    cx="10"
+                    cy="20"
+                    r="1"
+                    fill="currentColor">
+                </circle>
+
+                <circle
+                    cx="18"
+                    cy="20"
+                    r="1"
+                    fill="currentColor">
+                </circle>
+
+            </svg>
+
+
+            <span
+                class="cart-count is-empty"
+                id="cartCount"
+                aria-label="カート内の商品数">
+
+                0
+
+            </span>
+
+
+        </button>
+
+
+
+        <button
+            class="menu-btn"
+            id="menuBtn"
+            type="button"
+            aria-label="メニューを開く"
+            aria-expanded="false">
+
+            <span></span>
+            <span></span>
+            <span></span>
+
+        </button>
+
+
+    </div>
+
+
+
+    <a
+        href="index.html"
+        class="logo">
 
         <span class="logo-jp">
             八草屋本店
@@ -146,60 +211,65 @@
 
     </a>
 
+
 </header>
 
 
 
+<!-- ==================================================
+     Menu
+================================================== -->
 
-    <!-- =========================
-         Menu
-    ========================== -->
-
-    <nav
-        class="menu"
-        id="menu"
-        aria-label="メインメニュー">
-
-        <a href="index.html#mission">
-            八草屋本店について
-        </a>
-
-        <a href="products.html">
-            植物を見る
-        </a>
-
-        <a href="project.html">
-            未来へつなげる活動
-        </a>
-
-        <a href="contact.html">
-            お問い合わせ
-        </a>
-
-    </nav>
+<nav
+    class="menu"
+    id="menu"
+    aria-label="メインメニュー">
 
 
-    <div
-        class="menu-overlay"
-        id="menuOverlay">
-    </div>
+    <a href="index.html#mission">
+        八草屋本店について
+    </a>
+
+    <a href="products.html">
+        植物を見る
+    </a>
+
+    <a href="project.html">
+        未来へつなげる活動
+    </a>
+
+    <a href="contact.html">
+        お問い合わせ
+    </a>
+
+
+</nav>
+
+
+<div
+    class="menu-overlay"
+    id="menuOverlay">
+</div>
 
 
 
-    <main>
+<main>
 
 
-<!-- =========================
+<!-- ==================================================
      Products Page Hero
-========================== -->
+================================================== -->
 
 <section class="products-page-hero reveal">
 
+
     <div class="products-page-inner">
+
 
         <h1>
             PRODUCTS
         </h1>
+
 
         <p class="products-page-intro">
 
@@ -208,241 +278,293 @@
 
         </p>
 
+
+        <p class="products-page-description">
+
+            ハーブティーや日々の暮らしに楽しめる植物を、<br>
+            丁寧に乾燥・選別してお届けします。
+
+        </p>
+
+
     </div>
+
 
 </section>
 
 
-        <!-- =========================
-             Products List
-        ========================== -->
 
-        <section
-            class="products products-page-list">
+<!-- ==================================================
+     Products List
+================================================== -->
 
+<section
+    class="products products-page-list">
 
-            <div class="product-list">
 
+    <div class="product-list">
 
-                <!-- =========================
-                     Lemon Balm
-                ========================== -->
 
-                <a
-                    href="products/lemonbalm.html"
-                    class="product-card reveal">
 
+        <!-- ==================================================
+             Lemon Balm
+        ================================================== -->
 
-                    <div class="product-image">
+        <a
+            href="products/lemonbalm.html"
+            class="product-card reveal">
 
-                        <img
-                            src="images/lemonbalm.jpg"
-                            alt="乾燥させたレモンバーム"
-                            loading="lazy">
 
+            <div class="product-image">
 
-                        <span
-                            class="product-status status-preparing">
 
-                            収穫準備中
+                <img
+                    src="images/lemonbalm.jpg"
+                    alt="ハーブティーとして楽しめる乾燥レモンバーム"
+                    loading="lazy">
 
-                        </span>
 
-                    </div>
+                <span
+                    class="product-status status-on-sale">
 
+                    販売中
 
-                    <div class="product-info">
-
-
-                        <div>
-
-                            <span class="product-number">
-                                01
-                            </span>
-
-                            <h2>
-                                レモンバーム
-                            </h2>
-
-                            <p class="product-en">
-                                LEMON BALM
-                            </p>
-
-                        </div>
-
-
-                        <span class="product-arrow">
-                            →
-                        </span>
-
-
-                    </div>
-
-                </a>
-
-
-
-                <!-- =========================
-                     Yomogi
-                ========================== -->
-
-                <a
-                    href="products/yomogi.html"
-                    class="product-card reveal">
-
-
-                    <div class="product-image">
-
-                        <img
-                            src="images/yomogi.jpg"
-                            alt="乾燥させたヨモギ"
-                            loading="lazy">
-
-
-                        <span
-                            class="product-status status-on-sale">
-
-                            収穫準備中
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="product-info">
-
-
-                        <div>
-
-                            <span class="product-number">
-                                02
-                            </span>
-
-                            <h2>
-                                ヨモギ
-                            </h2>
-
-                            <p class="product-en">
-                                JAPANESE MUGWORT
-                            </p>
-
-                        </div>
-
-
-                        <span class="product-arrow">
-                            →
-                        </span>
-
-
-                    </div>
-
-                </a>
-
-
-
-                <!-- =========================
-                     Goldenrod
-                ========================== -->
-
-                <a
-                    href="products/goldenrod.html"
-                    class="product-card reveal">
-
-
-                    <div class="product-image">
-
-                        <img
-                            src="images/goldenrod.jpg"
-                            alt="乾燥させたセイタカアワダチソウ"
-                            loading="lazy">
-
-
-                        <span
-                            class="product-status status-season-ended">
-
-                            収穫準備中
-
-                        </span>
-
-                    </div>
-
-
-                    <div class="product-info">
-
-
-                        <div>
-
-                            <span class="product-number">
-                                03
-                            </span>
-
-                            <h2>
-                                セイタカアワダチソウ
-                            </h2>
-
-                            <p class="product-en">
-                                GOLDENROD
-                            </p>
-
-                        </div>
-
-
-                        <span class="product-arrow">
-                            →
-                        </span>
-
-
-                    </div>
-
-                </a>
+                </span>
 
 
             </div>
 
 
-        </section>
+
+            <div class="product-info">
 
 
-
-        <!-- =========================
-             Products Message
-        ========================== -->
-
-        <section
-            class="products-season reveal">
+                <div>
 
 
-            <div class="products-season-inner">
+                    <span class="product-number">
+                        01
+                    </span>
 
 
-                <p class="products-season-en">
-                    WITH THE SEASONS
-                </p>
+                    <h2>
+                        レモンバーム
+                    </h2>
 
 
-                <p class="products-season-text">
-
-                    植物が育つ季節に収穫し、<br>
-                    その土地から届いた分だけを届ける。
-
-                </p>
+                    <p class="product-en">
+                        LEMON BALM
+                    </p>
 
 
-                <p class="products-season-description">
+                </div>
 
-                    収穫の時期や自然の状態によって、<br>
-                    お届けできる植物と数量は変わります。
 
-                </p>
+                <span
+                    class="product-arrow"
+                    aria-hidden="true">
+
+                    →
+
+                </span>
 
 
             </div>
 
 
-        </section>
+        </a>
 
 
-    </main>
+
+        <!-- ==================================================
+             Yomogi
+        ================================================== -->
+
+        <a
+            href="products/yomogi.html"
+            class="product-card reveal">
+
+
+            <div class="product-image">
+
+
+                <img
+                    src="images/yomogi.jpg"
+                    alt="ヨモギ茶として楽しめる乾燥ヨモギ"
+                    loading="lazy">
+
+
+                <span
+                    class="product-status status-on-sale">
+
+                    販売中
+
+                </span>
+
+
+            </div>
+
+
+
+            <div class="product-info">
+
+
+                <div>
+
+
+                    <span class="product-number">
+                        02
+                    </span>
+
+
+                    <h2>
+                        ヨモギ
+                    </h2>
+
+
+                    <p class="product-en">
+                        JAPANESE MUGWORT
+                    </p>
+
+
+                </div>
+
+
+                <span
+                    class="product-arrow"
+                    aria-hidden="true">
+
+                    →
+
+                </span>
+
+
+            </div>
+
+
+        </a>
+
+
+
+        <!-- ==================================================
+             Goldenrod
+        ================================================== -->
+
+        <a
+            href="products/goldenrod.html"
+            class="product-card reveal">
+
+
+            <div class="product-image">
+
+
+                <img
+                    src="images/goldenrod.jpg"
+                    alt="ハーブティーや薬草風呂に使える乾燥セイタカアワダチソウ"
+                    loading="lazy">
+
+
+                <span
+                    class="product-status status-on-sale">
+
+                    販売中
+
+                </span>
+
+
+            </div>
+
+
+
+            <div class="product-info">
+
+
+                <div>
+
+
+                    <span class="product-number">
+                        03
+                    </span>
+
+
+                    <h2>
+                        セイタカアワダチソウ
+                    </h2>
+
+
+                    <p class="product-en">
+                        GOLDENROD
+                    </p>
+
+
+                </div>
+
+
+                <span
+                    class="product-arrow"
+                    aria-hidden="true">
+
+                    →
+
+                </span>
+
+
+            </div>
+
+
+        </a>
+
+
+    </div>
+
+
+</section>
+
+
+
+<!-- ==================================================
+     Products Message
+================================================== -->
+
+<section
+    class="products-season reveal">
+
+
+    <div class="products-season-inner">
+
+
+        <p class="products-season-en">
+            WITH THE SEASONS
+        </p>
+
+
+        <p class="products-season-text">
+
+            植物が育つ季節に収穫し、<br>
+            その土地から届いた分だけを届ける。
+
+        </p>
+
+
+        <p class="products-season-description">
+
+            レモンバーム、ヨモギ、セイタカアワダチソウなど、<br>
+            自然の中で育った植物を乾燥・選別しています。<br><br>
+
+            収穫の時期や自然の状態によって、<br>
+            お届けできる植物と数量は変わります。
+
+        </p>
+
+
+    </div>
+
+
+</section>
+
+
+</main>
+
 
 
 <!-- ==================================================
@@ -518,9 +640,10 @@
 
 
 
-    <script src="js/script.js"></script>
-    <script src="js/cart.js"></script>
-    <script src="js/cart-drawer.js"></script>
+<script src="js/script.js"></script>
+<script src="js/cart.js"></script>
+<script src="js/cart-drawer.js"></script>
+
 
 </body>
 
