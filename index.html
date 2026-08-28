@@ -803,6 +803,29 @@
 
     <!-- JavaScript -->
 
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+    const notice = document.getElementById("paymentNotice");
+    const closeButton = document.getElementById("paymentNoticeClose");
+
+    if (!notice || !closeButton) return;
+
+    const storageKey = "yasoya_jcb_notice_2026";
+
+    if (!localStorage.getItem(storageKey)) {
+        notice.classList.add("is-visible");
+        notice.setAttribute("aria-hidden", "false");
+    }
+
+    closeButton.addEventListener("click", () => {
+        notice.classList.remove("is-visible");
+        notice.setAttribute("aria-hidden", "true");
+
+        localStorage.setItem(storageKey, "seen");
+    });
+});
+</script>
+    
     <script src="js/script.js"></script>
     <script src="js/cart.js"></script>
     <script src="js/cart-drawer.js"></script>
