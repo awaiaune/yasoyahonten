@@ -814,6 +814,11 @@
     color: var(--color-text);
 }
 
+.product-description {
+    font-size: 0.72rem;
+    line-height: 1.8;
+    margin-top: 0;
+}
 
 /* ==================================================
    Reduced Motion
