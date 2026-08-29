@@ -114,6 +114,7 @@ try {
                     status: payment.status,
                     amount: quote.total,
                     orderReference,
+                    inventoryAdjusted,
                     emailQueued: Boolean(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL)
                 }, 200, origin, allowedOrigins);
             }
