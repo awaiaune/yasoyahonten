@@ -30,14 +30,21 @@ export default {
                 }, 200, origin, allowedOrigins);
             }
 
+            
             if (request.method === "POST" && url.pathname === "/api/quote") {
-                assertAllowedOrigin(origin, allowedOrigins);
-                const body = await readJson(request);
-                const quote = buildQuote(body.items);
+    assertAllowedOrigin(origin, allowedOrigins);
+    const body = await readJson(request);
+    const quote = buildQuote(body.items);
 
-                return corsJson(quote, 200, origin, allowedOrigins);
+    const inventory = await assertSquareInventoryAvailable(env, quote);
+
+    return corsJson({
+        ...quote,
+        inventory
+    }, 200, origin, allowedOrigins);
             }
 
+            
             if (request.method === "POST" && url.pathname === "/api/payments") {
                 assertAllowedOrigin(origin, allowedOrigins);
                 const body = await readJson(request);
@@ -46,6 +53,8 @@ export default {
                 const contact = validateContact(body.contact);
                 const quote = buildQuote(body.items);
                 const orderReference = makeOrderReference();
+
+                await assertSquareInventoryAvailable(env, quote);
 
                 const payment = await createSquarePayment({
                     env,
@@ -59,6 +68,28 @@ export default {
                     console.error("Unexpected Square payment status:", payment.status, payment.id);
                     throw new HttpError(502, "決済状態を確認できませんでした。お問い合わせください。");
                 }
+
+                let inventoryAdjusted = false;
+
+try {
+    await decrementSquareInventory({
+        env,
+        quote,
+        orderReference,
+        paymentId: payment.id
+    });
+
+    inventoryAdjusted = true;
+} catch (inventoryError) {
+    console.error(
+        "CRITICAL: Payment completed but inventory adjustment failed:",
+        {
+            paymentId: payment.id,
+            orderReference,
+            error: inventoryError
+        }
+    );
+}
 
                 // メール失敗で決済自体を失敗扱いにしないため、レスポンス後に送信します。
                 if (env.RESEND_API_KEY && env.RESEND_FROM_EMAIL) {
@@ -226,11 +257,190 @@ function validateContact(rawContact) {
     };
 }
 
-async function createSquarePayment({ env, sourceId, quote, contact, orderReference }) {
-    const environment = env.SQUARE_ENVIRONMENT || "sandbox";
-    const baseUrl = environment === "production"
+function squareBaseUrl(env) {
+    return (env.SQUARE_ENVIRONMENT || "sandbox") === "production"
         ? "https://connect.squareup.com"
         : "https://connect.squareupsandbox.com";
+}
+
+
+function squareHeaders(env) {
+    if (!env.SQUARE_ACCESS_TOKEN) {
+        throw new Error("SQUARE_ACCESS_TOKEN is missing.");
+    }
+
+    return {
+        "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
+        "Content-Type": "application/json",
+        "Square-Version": env.SQUARE_API_VERSION || "2026-07-15"
+    };
+}
+
+
+function getSquareVariationId(item) {
+    const product = CATALOG[item.id];
+    const variationId = String(product?.squareVariationId || "").trim();
+
+    if (!variationId || variationId.startsWith("SET_SQUARE_VARIATION_ID_")) {
+        throw new Error(`Square在庫連携が未設定です: ${item.id}`);
+    }
+
+    return variationId;
+}
+
+
+async function retrieveSquareInventory(env, quote) {
+    if (!env.SQUARE_LOCATION_ID) {
+        throw new Error("SQUARE_LOCATION_ID is missing.");
+    }
+
+    const requested = quote.items.map((item) => ({
+        item,
+        variationId: getSquareVariationId(item)
+    }));
+
+    const response = await fetch(
+        `${squareBaseUrl(env)}/v2/inventory/counts/batch-retrieve`,
+        {
+            method: "POST",
+            headers: squareHeaders(env),
+            body: JSON.stringify({
+                catalog_object_ids: requested.map(
+                    ({ variationId }) => variationId
+                ),
+                location_ids: [env.SQUARE_LOCATION_ID],
+                states: ["IN_STOCK"]
+            })
+        }
+    );
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+        console.error("Square inventory retrieve error:", result);
+        throw new HttpError(
+            502,
+            "在庫情報を確認できませんでした。時間をおいてもう一度お試しください。"
+        );
+    }
+
+    const stockByVariationId = new Map();
+
+    for (const count of result.counts || []) {
+        if (
+            count.state === "IN_STOCK" &&
+            count.location_id === env.SQUARE_LOCATION_ID
+        ) {
+            const quantity = Number(count.quantity);
+
+            if (Number.isFinite(quantity)) {
+                stockByVariationId.set(
+                    count.catalog_object_id,
+                    quantity
+                );
+            }
+        }
+    }
+
+    return requested.map(({ item, variationId }) => ({
+        id: item.id,
+        name: item.name,
+        requestedQuantity: item.quantity,
+        availableQuantity: Math.max(
+            0,
+            Math.floor(
+                stockByVariationId.get(variationId) || 0
+            )
+        ),
+        squareVariationId: variationId
+    }));
+}
+
+
+async function assertSquareInventoryAvailable(env, quote) {
+    const inventory = await retrieveSquareInventory(env, quote);
+
+    for (const stock of inventory) {
+        if (stock.availableQuantity < stock.requestedQuantity) {
+            if (stock.availableQuantity <= 0) {
+                throw new HttpError(
+                    409,
+                    `${stock.name}は現在売り切れです。`
+                );
+            }
+
+            throw new HttpError(
+                409,
+                `${stock.name}の在庫は残り${stock.availableQuantity}点です。数量を変更してください。`
+            );
+        }
+    }
+
+    return inventory.map((stock) => ({
+        id: stock.id,
+        availableQuantity: stock.availableQuantity
+    }));
+}
+
+
+async function decrementSquareInventory({
+    env,
+    quote,
+    orderReference,
+    paymentId
+}) {
+    if (!env.SQUARE_LOCATION_ID) {
+        throw new Error("SQUARE_LOCATION_ID is missing.");
+    }
+
+    const occurredAt = new Date().toISOString();
+
+    const changes = quote.items.map((item) => ({
+        type: "ADJUSTMENT",
+        adjustment: {
+            reference_id: `${orderReference}:${paymentId}`.slice(0, 255),
+            catalog_object_id: getSquareVariationId(item),
+            from_state: "IN_STOCK",
+            to_state: "SOLD",
+            from_location_id: env.SQUARE_LOCATION_ID,
+            to_location_id: env.SQUARE_LOCATION_ID,
+            quantity: String(item.quantity),
+            occurred_at: occurredAt
+        }
+    }));
+
+    const response = await fetch(
+        `${squareBaseUrl(env)}/v2/inventory/changes/batch-create`,
+        {
+            method: "POST",
+            headers: squareHeaders(env),
+            body: JSON.stringify({
+                idempotency_key: `yh-inventory-${paymentId}`.slice(0, 128),
+                changes
+            })
+        }
+    );
+
+    const result = await response.json().catch(() => ({}));
+
+    if (
+        !response.ok ||
+        (Array.isArray(result.errors) && result.errors.length > 0)
+    ) {
+        console.error("Square inventory adjustment error:", result);
+
+        throw new Error(
+            result?.errors?.[0]?.detail ||
+            result?.errors?.[0]?.code ||
+            "Square inventory adjustment failed."
+        );
+    }
+
+    return result;
+}
+
+async function createSquarePayment({ env, sourceId, quote, contact, orderReference }) {
+    const baseUrl = squareBaseUrl(env);
 
     if (!env.SQUARE_ACCESS_TOKEN) {
         throw new Error("SQUARE_ACCESS_TOKEN is missing.");
