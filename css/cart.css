@@ -278,3 +278,24 @@ body.cart-open {
     cursor: not-allowed;
 
 }
+
+
+/* ==================================================
+   Cart Inventory Status
+================================================== */
+
+.cart-line-stock {
+    margin: 7px 0 0;
+    color: #6e7069;
+    font-size: 0.66rem;
+    line-height: 1.6;
+}
+
+.cart-line-stock.is-low {
+    font-weight: 600;
+}
+
+.cart-line-stock.is-sold-out,
+.cart-line-stock.is-error {
+    font-weight: 600;
+}
