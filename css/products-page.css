@@ -707,3 +707,20 @@
         padding:
             28px
             4
+
+/* 在庫切れ */
+.status-sold-out {
+    color: #8a3328;
+    border-color: rgba(138, 51, 40, 0.22);
+    background: rgba(248, 245, 238, 0.96);
+}
+
+.status-sold-out::before {
+    content: "";
+    display: block;
+    width: 5px;
+    height: 5px;
+    margin-right: 8px;
+    border-radius: 50%;
+    background: currentColor;
+}
