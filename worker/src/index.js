@@ -31,6 +31,35 @@ export default {
             }
 
             
+            if (request.method === "POST" && url.pathname === "/api/inventory") {
+                assertAllowedOrigin(origin, allowedOrigins);
+                const body = await readJson(request);
+                const rawIds = Array.isArray(body.ids) ? body.ids : [];
+
+                if (rawIds.length === 0 || rawIds.length > MAX_ITEM_TYPES) {
+                    throw new HttpError(400, "在庫を確認する商品が正しくありません。");
+                }
+
+                const ids = [...new Set(rawIds.map((id) => String(id || "").trim()))];
+                const items = ids.map((id) => {
+                    const product = CATALOG[id];
+                    if (!product || !product.active) {
+                        throw new HttpError(400, "販売できない商品が含まれています。");
+                    }
+                    return { id, name: product.name, quantity: 1, price: product.price, lineTotal: product.price };
+                });
+
+                const inventory = await retrieveSquareInventory(env, { items });
+
+                return corsJson({
+                    inventory: inventory.map(({ id, name, availableQuantity }) => ({
+                        id,
+                        name,
+                        availableQuantity
+                    }))
+                }, 200, origin, allowedOrigins);
+            }
+
             if (request.method === "POST" && url.pathname === "/api/quote") {
     assertAllowedOrigin(origin, allowedOrigins);
     const body = await readJson(request);
