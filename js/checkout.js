@@ -34,10 +34,36 @@
                 body?.error?.message ||
                 body?.message ||
                 "通信に失敗しました。";
-            throw new Error(message);
+            const error = new Error(message);
+            error.status = response.status;
+            throw error;
         }
 
         return body;
+    }
+
+    function showInventoryError(message) {
+        const alert = document.getElementById("checkoutInventoryAlert");
+        const messageRoot = document.getElementById("checkoutInventoryMessage");
+        if (messageRoot) messageRoot.textContent = message;
+        if (alert) alert.hidden = false;
+
+        const cart = window.YasoyaCart.read();
+        const itemsRoot = document.getElementById("checkoutSummaryItems");
+        if (itemsRoot) {
+            itemsRoot.innerHTML = cart.map((item) => `
+                <div class="checkout-summary-line is-inventory-error">
+                    <span>${escapeHtml(item.name)} × ${item.quantity}<small class="checkout-summary-inventory-note">在庫数を確認してください</small></span>
+                    <strong>—</strong>
+                </div>
+            `).join("");
+        }
+        ["checkoutSubtotal", "checkoutShipping", "checkoutTotal"].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = "要確認";
+        });
+        const button = document.getElementById("paymentButton");
+        if (button) button.disabled = true;
     }
 
     async function loadQuote() {
@@ -189,8 +215,12 @@
                 .addEventListener("submit", submitPayment);
         } catch (error) {
             console.error(error);
-            status.textContent = error.message;
-            document.getElementById("paymentButton").disabled = true;
+            if (error.status === 409) {
+                showInventoryError(error.message);
+            } else {
+                status.textContent = error.message;
+                document.getElementById("paymentButton").disabled = true;
+            }
         }
     });
 })();
