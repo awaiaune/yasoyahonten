@@ -13,7 +13,7 @@
 
         "RESEND_FROM_EMAIL": "八草屋本店 <order@send.awaiaune.com>",
         "ORDER_NOTIFICATION_EMAIL": "yasoyahonten@gmail.com",
-        "REPLY_TO_EMAIL": "yasoyahonten@gmail.com",
+        "REPLY_TO_EMAIL": "contact@awaiaune.com",
         "SITE_URL": "https://yasoyahonten.awaiaune.com"
     }
 }
