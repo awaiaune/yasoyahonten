@@ -257,3 +257,23 @@
     color: var(--color-text);
     cursor: pointer;
 }
+
+
+/* ==================================================
+   Inventory Alert
+================================================== */
+.checkout-inventory-alert {
+    margin: -28px 0 42px;
+    padding: 18px 20px;
+    border: 1px solid #8a3328;
+    background: rgba(138, 51, 40, 0.045);
+    font-size: 0.76rem;
+    line-height: 1.8;
+}
+.checkout-inventory-alert[hidden] { display: none; }
+.checkout-inventory-alert strong,
+.checkout-inventory-alert span { display: block; }
+.checkout-inventory-alert strong { margin-bottom: 4px; font-weight: 600; }
+.checkout-inventory-alert a { display: inline-block; margin-top: 8px; color: inherit; text-underline-offset: 4px; }
+.checkout-summary-line.is-inventory-error { color: #8a3328; }
+.checkout-summary-inventory-note { display: block; margin-top: 3px; font-size: 0.68rem; }
