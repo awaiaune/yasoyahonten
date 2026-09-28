@@ -77,75 +77,50 @@ export default {
             if (request.method === "POST" && url.pathname === "/api/payments") {
                 assertAllowedOrigin(origin, allowedOrigins);
                 const body = await readJson(request);
-
-                const sourceId = requireString(body.sourceId, "決済トークンがありません。", 500);
-                const contact = validateContact(body.contact);
-                const quote = buildQuote(body.items);
-                const orderReference = makeOrderReference();
-
-                await assertSquareInventoryAvailable(env, quote);
-
-                const payment = await createSquarePayment({
-                    env,
-                    sourceId,
-                    quote,
-                    contact,
-                    orderReference
+                if (!env.PURCHASE_COORDINATOR) {
+                    throw new Error("PURCHASE_COORDINATOR binding is missing.");
+                }
+                // 全購入を1つのDurable Objectで直列化。
+                // 「在庫確認→決済→在庫減算」が同時に走らないため、残り1点の二重販売を防ぎます。
+                const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
+                const stub = env.PURCHASE_COORDINATOR.get(id);
+                const coordinated = await stub.fetch("https://purchase.internal/pay", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body)
                 });
-
-                if (payment.status !== "COMPLETED") {
-                    console.error("Unexpected Square payment status:", payment.status, payment.id);
-                    throw new HttpError(502, "決済状態を確認できませんでした。お問い合わせください。");
+                const result = await coordinated.json().catch(() => ({}));
+                if (!coordinated.ok) {
+                    throw new HttpError(coordinated.status, result?.error?.message || "決済を完了できませんでした。");
                 }
+                return corsJson(result, 200, origin, allowedOrigins);
+            }
 
-                let inventoryAdjusted = false;
-
-try {
-    await decrementSquareInventory({
-        env,
-        quote,
-        orderReference,
-        paymentId: payment.id
-    });
-
-    inventoryAdjusted = true;
-} catch (inventoryError) {
-    console.error(
-        "CRITICAL: Payment completed but inventory adjustment failed:",
-        {
-            paymentId: payment.id,
-            orderReference,
-            error: inventoryError
-        }
-    );
-}
-
-                // メール失敗で決済自体を失敗扱いにしないため、レスポンス後に送信します。
-                if (env.RESEND_API_KEY && env.RESEND_FROM_EMAIL) {
-                    ctx.waitUntil(
-                        sendOrderEmails({
-                            env,
-                            payment,
-                            quote,
-                            contact,
-                            orderReference
-                        }).catch((error) => {
-                            console.error("Order email error:", error);
-                        })
-                    );
-                } else {
-                    console.warn("Email is not configured. RESEND_API_KEY or RESEND_FROM_EMAIL is missing.");
+            if (url.pathname.startsWith("/api/admin/")) {
+                assertAdmin(request, env);
+                if (request.method === "GET" && url.pathname === "/api/admin/orders") {
+                    const status = url.searchParams.get("status") || "pending";
+                    return corsJson({ orders: await listOrders(env, status) }, 200, origin, allowedOrigins);
                 }
-
-                return corsJson({
-                    ok: true,
-                    paymentId: payment.id,
-                    status: payment.status,
-                    amount: quote.total,
-                    orderReference,
-                    inventoryAdjusted,
-                    emailQueued: Boolean(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL)
-                }, 200, origin, allowedOrigins);
+                if (request.method === "GET" && url.pathname.startsWith("/api/admin/orders/")) {
+                    const ref = decodeURIComponent(url.pathname.split("/").pop());
+                    const order = await getOrder(env, ref);
+                    if (!order) throw new HttpError(404, "注文が見つかりません。");
+                    return corsJson({ order }, 200, origin, allowedOrigins);
+                }
+                if (request.method === "POST" && /\/api\/admin\/orders\/[^/]+\/ship$/.test(url.pathname)) {
+                    const parts = url.pathname.split("/");
+                    const ref = decodeURIComponent(parts[4]);
+                    const body = await readJson(request);
+                    const order = await getOrder(env, ref);
+                    if (!order) throw new HttpError(404, "注文が見つかりません。");
+                    if (order.status === "shipped") throw new HttpError(409, "この注文は発送済みです。");
+                    const shippingMethod = requireString(body.shippingMethod, "発送方法を選択してください。", 80);
+                    const trackingNumber = String(body.trackingNumber || "").trim().slice(0, 100);
+                    await sendShippingEmail(env, order, shippingMethod, trackingNumber);
+                    await markOrderShipped(env, ref, shippingMethod, trackingNumber);
+                    return corsJson({ ok: true }, 200, origin, allowedOrigins);
+                }
             }
 
             return corsJson({
@@ -859,7 +834,7 @@ function corsHeaders(origin, allowedOrigins) {
         headers.set("Access-Control-Allow-Origin", origin);
         headers.set("Vary", "Origin");
         headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        headers.set("Access-Control-Allow-Headers", "Content-Type");
+        headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
         headers.set("Access-Control-Max-Age", "86400");
     }
 
@@ -889,6 +864,116 @@ function escapeHtml(value) {
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+}
+
+
+async function ensureOrdersTable(env) {
+    if (!env.ORDERS_DB) throw new Error("ORDERS_DB binding is missing.");
+    await env.ORDERS_DB.prepare(`CREATE TABLE IF NOT EXISTS orders (
+        order_reference TEXT PRIMARY KEY,
+        payment_id TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        subtotal INTEGER NOT NULL,
+        shipping INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        items_json TEXT NOT NULL,
+        contact_json TEXT NOT NULL,
+        inventory_adjusted INTEGER NOT NULL DEFAULT 0,
+        shipping_method TEXT,
+        tracking_number TEXT,
+        shipped_at TEXT
+    )`).run();
+    await env.ORDERS_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC)`).run();
+}
+
+async function saveOrder(env, { payment, quote, contact, orderReference, inventoryAdjusted }) {
+    await ensureOrdersTable(env);
+    await env.ORDERS_DB.prepare(`INSERT OR IGNORE INTO orders
+        (order_reference,payment_id,created_at,status,subtotal,shipping,total,items_json,contact_json,inventory_adjusted)
+        VALUES (?,?,?,?,?,?,?,?,?,?)`)
+        .bind(orderReference, payment.id, payment.created_at || new Date().toISOString(), "pending",
+            quote.subtotal, quote.shipping, quote.total, JSON.stringify(quote.items), JSON.stringify(contact), inventoryAdjusted ? 1 : 0)
+        .run();
+}
+
+function rowToOrder(row) {
+    if (!row) return null;
+    return { ...row, items: JSON.parse(row.items_json || "[]"), contact: JSON.parse(row.contact_json || "{}"), inventoryAdjusted: Boolean(row.inventory_adjusted) };
+}
+
+async function listOrders(env, status) {
+    await ensureOrdersTable(env);
+    const wanted = status === "shipped" ? "shipped" : "pending";
+    const { results = [] } = await env.ORDERS_DB.prepare(`SELECT * FROM orders WHERE status=? ORDER BY created_at DESC LIMIT 200`).bind(wanted).all();
+    return results.map(rowToOrder);
+}
+
+async function getOrder(env, ref) {
+    await ensureOrdersTable(env);
+    return rowToOrder(await env.ORDERS_DB.prepare(`SELECT * FROM orders WHERE order_reference=?`).bind(ref).first());
+}
+
+async function markOrderShipped(env, ref, shippingMethod, trackingNumber) {
+    await ensureOrdersTable(env);
+    await env.ORDERS_DB.prepare(`UPDATE orders SET status='shipped', shipping_method=?, tracking_number=?, shipped_at=? WHERE order_reference=?`)
+        .bind(shippingMethod, trackingNumber || null, new Date().toISOString(), ref).run();
+}
+
+function assertAdmin(request, env) {
+    if (!env.ADMIN_TOKEN) throw new Error("ADMIN_TOKEN secret is missing.");
+    const auth = request.headers.get("Authorization") || "";
+    if (auth !== `Bearer ${env.ADMIN_TOKEN}`) throw new HttpError(401, "管理者認証が必要です。");
+}
+
+async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
+    if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) throw new HttpError(503, "メール送信設定がありません。");
+    const c = order.contact;
+    const siteUrl = env.SITE_URL || "https://yasoyahonten.awaiaune.com";
+    const trackingHtml = trackingNumber ? `<p style="margin:8px 0;"><strong>お問い合わせ番号：</strong>${escapeHtml(trackingNumber)}</p>` : "";
+    const trackingText = trackingNumber ? `\nお問い合わせ番号：${trackingNumber}` : "";
+    const html = `<!doctype html><html><body style="margin:0;background:#f4f1e9;color:#22231f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"><div style="max-width:620px;margin:0 auto;padding:32px 18px;"><div style="background:#fff;padding:30px 24px;border:1px solid #ded8cc;"><p style="font-size:12px;letter-spacing:.18em;margin:0 0 8px;">YASOYA HONTEN</p><h1 style="font-size:23px;font-weight:500;margin:0 0 28px;">商品を発送しました</h1><p>${escapeHtml(c.familyName)} ${escapeHtml(c.givenName)} 様</p><p>このたびは八草屋本店をご利用いただき、ありがとうございます。<br>ご注文の商品を発送いたしました。</p><div style="margin:24px 0;padding:18px;background:#f8f6f0;"><p style="margin:8px 0;"><strong>注文番号：</strong>${escapeHtml(order.order_reference)}</p><p style="margin:8px 0;"><strong>発送方法：</strong>${escapeHtml(shippingMethod)}</p>${trackingHtml}</div><p>商品がお手元に届くまで、今しばらくお待ちください。</p><p style="margin-top:30px;">八草屋本店<br>${escapeHtml(siteUrl)}</p></div></div></body></html>`;
+    const text = `${c.familyName} ${c.givenName} 様\n\nこのたびは八草屋本店をご利用いただき、ありがとうございます。\nご注文の商品を発送いたしました。\n\n注文番号：${order.order_reference}\n発送方法：${shippingMethod}${trackingText}\n\n商品がお手元に届くまで、今しばらくお待ちください。\n\n八草屋本店\n${siteUrl}`;
+    await sendResendEmail(env, { from: env.RESEND_FROM_EMAIL, to: [c.email], reply_to: env.REPLY_TO_EMAIL || env.ORDER_NOTIFICATION_EMAIL, subject: `商品を発送しました｜八草屋本店 ${order.order_reference}`, html, text }, `shipping-${order.payment_id}`);
+}
+
+export class PurchaseCoordinator {
+    constructor(ctx, env) { this.ctx = ctx; this.env = env; this.queue = Promise.resolve(); }
+    async fetch(request) {
+        const body = await request.json().catch(() => ({}));
+        const job = this.queue.then(() => this.process(body), () => this.process(body));
+        this.queue = job.catch(() => {});
+        return job;
+    }
+    async process(body) {
+        try {
+            const sourceId = requireString(body.sourceId, "決済トークンがありません。", 500);
+            const contact = validateContact(body.contact);
+            const quote = buildQuote(body.items);
+            const orderReference = makeOrderReference();
+            // このObject内のPromiseキューにより、購入処理全体を1件ずつ直列実行する。
+            await assertSquareInventoryAvailable(this.env, quote);
+            const payment = await createSquarePayment({ env: this.env, sourceId, quote, contact, orderReference });
+            if (payment.status !== "COMPLETED") throw new HttpError(502, "決済状態を確認できませんでした。お問い合わせください。");
+            let inventoryAdjusted = false;
+            try {
+                await decrementSquareInventory({ env: this.env, quote, orderReference, paymentId: payment.id });
+                inventoryAdjusted = true;
+            } catch (e) {
+                console.error("CRITICAL: Payment completed but inventory adjustment failed:", { paymentId: payment.id, orderReference, error: e });
+            }
+            // 決済済み注文は、メールより先に受注DBへ永続化。
+            await saveOrder(this.env, { payment, quote, contact, orderReference, inventoryAdjusted });
+            if (this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) {
+                this.ctx.waitUntil(sendOrderEmails({ env: this.env, payment, quote, contact, orderReference }).catch(e => console.error("Order email error:", e)));
+            }
+            return Response.json({ ok:true, paymentId:payment.id, status:payment.status, amount:quote.total, orderReference, inventoryAdjusted, emailQueued:Boolean(this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) });
+        } catch (error) {
+            console.error(error);
+            const status = error instanceof HttpError ? error.status : 500;
+            return Response.json({ error:{ message:error instanceof HttpError ? error.message : "サーバーで問題が発生しました。" } }, { status });
+        }
+    }
 }
 
 class HttpError extends Error {
