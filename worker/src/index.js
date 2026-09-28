@@ -927,14 +927,53 @@ function assertAdmin(request, env) {
 }
 
 async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
-    if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) throw new HttpError(503, "メール送信設定がありません。");
+    if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
+        throw new HttpError(503, "メール送信設定がありません。");
+    }
+
     const c = order.contact;
     const siteUrl = env.SITE_URL || "https://yasoyahonten.awaiaune.com";
-    const trackingHtml = trackingNumber ? `<p style="margin:8px 0;"><strong>お問い合わせ番号：</strong>${escapeHtml(trackingNumber)}</p>` : "";
-    const trackingText = trackingNumber ? `\nお問い合わせ番号：${trackingNumber}` : "";
-    const html = `<!doctype html><html><body style="margin:0;background:#f4f1e9;color:#22231f;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"><div style="max-width:620px;margin:0 auto;padding:32px 18px;"><div style="background:#fff;padding:30px 24px;border:1px solid #ded8cc;"><p style="font-size:12px;letter-spacing:.18em;margin:0 0 8px;">YASOYA HONTEN</p><h1 style="font-size:23px;font-weight:500;margin:0 0 28px;">商品を発送しました</h1><p>${escapeHtml(c.familyName)} ${escapeHtml(c.givenName)} 様</p><p>このたびは八草屋本店をご利用いただき、ありがとうございます。<br>ご注文の商品を発送いたしました。</p><div style="margin:24px 0;padding:18px;background:#f8f6f0;"><p style="margin:8px 0;"><strong>注文番号：</strong>${escapeHtml(order.order_reference)}</p><p style="margin:8px 0;"><strong>発送方法：</strong>${escapeHtml(shippingMethod)}</p>${trackingHtml}</div><p>商品がお手元に届くまで、今しばらくお待ちください。</p><p style="margin-top:30px;">八草屋本店<br>${escapeHtml(siteUrl)}</p></div></div></body></html>`;
-    const text = `${c.familyName} ${c.givenName} 様\n\nこのたびは八草屋本店をご利用いただき、ありがとうございます。\nご注文の商品を発送いたしました。\n\n注文番号：${order.order_reference}\n発送方法：${shippingMethod}${trackingText}\n\n商品がお手元に届くまで、今しばらくお待ちください。\n\n八草屋本店\n${siteUrl}`;
-    await sendResendEmail(env, { from: env.RESEND_FROM_EMAIL, to: [c.email], reply_to: env.REPLY_TO_EMAIL || env.ORDER_NOTIFICATION_EMAIL, subject: `商品を発送しました｜八草屋本店 ${order.order_reference}`, html, text }, `shipping-${order.payment_id}`);
+    const trackingHtml = trackingNumber
+        ? `<p style="margin:0 0 8px;"><strong>お問い合わせ番号：</strong>${escapeHtml(trackingNumber)}</p>`
+        : "";
+    const trackingText = trackingNumber
+        ? `\nお問い合わせ番号：${trackingNumber}`
+        : "";
+
+    const html = emailShell(`
+        <p style="margin:0 0 22px;line-height:2;">
+            ${escapeHtml(c.familyName)} ${escapeHtml(c.givenName)} 様<br><br>
+            このたびは八草屋本店をご利用いただき、ありがとうございます。<br>
+            ご注文の商品を発送いたしました。
+        </p>
+
+        <p style="margin:0 0 8px;"><strong>注文番号：</strong>${escapeHtml(order.order_reference)}</p>
+        <p style="margin:0 0 8px;"><strong>発送方法：</strong>${escapeHtml(shippingMethod)}</p>
+        ${trackingHtml}
+
+        <p style="margin:28px 0;line-height:2;">
+            商品がお手元に届くまで、今しばらくお待ちください。
+        </p>
+
+        <p style="margin:0;color:#6d6f68;font-size:12px;line-height:1.8;">
+            <a href="${escapeHtml(siteUrl)}" style="color:#22231f;">${escapeHtml(siteUrl)}</a>
+        </p>
+    `);
+
+    const text = `${c.familyName} ${c.givenName} 様\n\nこのたびは八草屋本店をご利用いただき、ありがとうございます。\nご注文の商品を発送いたしました。\n\n注文番号：${order.order_reference}\n発送方法：${shippingMethod}${trackingText}\n\n商品がお手元に届くまで、今しばらくお待ちください。\n\n八草屋本店\nYASOYA HONTEN\n${siteUrl}`;
+
+    await sendResendEmail(
+        env,
+        {
+            from: env.RESEND_FROM_EMAIL,
+            to: [c.email],
+            reply_to: env.REPLY_TO_EMAIL || env.ORDER_NOTIFICATION_EMAIL,
+            subject: `商品を発送しました｜八草屋本店 ${order.order_reference}`,
+            html,
+            text
+        },
+        `shipping-${order.payment_id}`
+    );
 }
 
 export class PurchaseCoordinator {
