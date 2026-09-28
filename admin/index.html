@@ -1,0 +1,8 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>注文管理｜八草屋本店</title><link rel="stylesheet" href="../css/admin.css"></head><body>
+<header><p>YASOYA HONTEN</p><h1>注文管理</h1></header>
+<main>
+<section id="login" class="card"><h2>管理者認証</h2><p>Cloudflareに設定した管理トークンを入力してください。</p><input id="token" type="password" autocomplete="current-password" placeholder="管理トークン"><button id="loginBtn">ログイン</button><p id="loginError" class="error"></p></section>
+<section id="app" hidden><div class="toolbar"><button class="tab active" data-status="pending">発送待ち <span id="pendingCount"></span></button><button class="tab" data-status="shipped">発送済み</button><button id="logout" class="sub">ログアウト</button></div><p id="status"></p><div id="orders"></div></section>
+</main>
+<dialog id="detail"><button id="close" class="close">×</button><div id="detailBody"></div></dialog>
+<script src="../js/store-config.js"></script><script src="../js/admin.js"></script></body></html>
