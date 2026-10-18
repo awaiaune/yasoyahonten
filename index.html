@@ -85,6 +85,7 @@
     <link rel="stylesheet" href="css/products.css">
     <link rel="stylesheet" href="css/cart.css">
     <link rel="stylesheet" href="css/footer.css">
+    <link rel="stylesheet" href="css/editorial.css">
 
 </head>
 
@@ -261,76 +262,22 @@
              Hero
         ================================================== -->
 
-        <section class="hero">
-
-            <div class="hero-background">
-
-                <img
-                    src="images/hero.jpg"
-                    alt="八草屋本店が届ける自然の中で育った植物">
-
-            </div>
-
-
-            <div class="hero-overlay"></div>
-
-
-            <div class="hero-content">
-
-                <div class="hero-copy">
-
-                    <!--
-                    <p>
-                        自然のままを、<br>
-                        暮らしへ。
-                    </p>
-
-                    <div class="hero-question">
-
-                        <p>
-                            土地の中で育った植物を、
-                        </p>
-
-                        <p>
-                            丁寧に乾燥・選別して届けます。
-                        </p>
-
-                    </div>
-
-                    <p>
-                        季節の中で出会えたものを、<br>
-                        出会えた分だけ。
-                    </p>
-                    -->
-
-                    <p class="hero-message">
-                        自然のままに<br>
-                        PLANTS FROM THE LAND
-                    </p>
-
-                </div>
-
-            </div>
-
-
-            <a
-                href="#products"
-                class="scroll-guide"
-                aria-label="植物を見る">
-
-                <!--
-                <span>
-                    PRODUCTS
-                </span>
-                -->
-
-                <i></i>
-
-            </a>
-
+        <section class="editorial-hero" aria-label="八草屋本店の紹介">
+          <div class="editorial-hero-image"><img src="images/mission.jpg" alt="自然の中で育つ植物" fetchpriority="high"></div>
+          <div class="editorial-hero-shade"></div>
+          <div class="editorial-hero-inner">
+            <p class="editorial-kicker">YASOYA HONTEN<span>BOTANICALS FROM JAPAN</span></p>
+            <h1>自然のままに<span>PLANTS FROM THE LAND</span></h1>
+            <div class="editorial-hero-bottom"><p>土地に育まれた草花を、<br>暮らしの一杯へ。</p><a href="#products" class="editorial-round-link" aria-label="植物を探す">↓</a></div>
+          </div>
+          <span class="editorial-side-note">THE QUIET BEAUTY OF NATURE</span>
         </section>
-
-
+        <section class="editorial-intro" aria-label="ブランドメッセージ">
+          <p class="editorial-eyebrow">A LITTLE MOMENT WITH NATURE</p>
+          <h2>いつものお茶に、<br><em>自然のひとときを。</em></h2>
+          <p>季節の移ろいとともに育った植物を、<br>ひとつひとつ手摘みし、丁寧に乾燥させました。<br>香りを楽しむ、小さな時間を。</p>
+          <a href="#mission" class="editorial-inline-link">八草屋本店について <span>↗</span></a>
+        </section>
 
         <!-- ==================================================
              Products
@@ -342,6 +289,7 @@
 
 
             <div class="products-heading">
+                <span class="editorial-products-count">01 — 03 / SEASONAL SELECTION</span>
 
                 <p class="section-en">
                     PRODUCTS
@@ -362,7 +310,7 @@
 
 
 
-            <div class="product-list">
+            <div class="product-list editorial-product-list">
 
 
                 <!-- Lemon Balm -->
@@ -494,6 +442,7 @@
 
 
 
+            <p class="editorial-products-note">自然の中で出会えたものを、出会えた分だけ。</p>
             <div class="products-link-wrap">
 
                 <a
@@ -826,6 +775,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 </script>
     
+    <script src="js/editorial.js" defer></script>
     <script src="js/script.js"></script>
     <script src="js/cart.js"></script>
     <script src="js/cart-drawer.js"></script>
