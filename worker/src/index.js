@@ -1,4 +1,5 @@
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
+import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
 
 const JSON_HEADERS = {
     "Content-Type": "application/json; charset=utf-8",
@@ -74,7 +75,7 @@ export default {
             }
 
             
-            if (request.method === "POST" && url.pathname === "/api/payments") {
+            if (request.method === "POST" && ["/api/payments", "/api/payments/status"].includes(url.pathname)) {
                 assertAllowedOrigin(origin, allowedOrigins);
                 const body = await readJson(request);
                 if (!env.PURCHASE_COORDINATOR) {
@@ -84,7 +85,7 @@ export default {
                 // 「在庫確認→決済→在庫減算」が同時に走らないため、残り1点の二重販売を防ぎます。
                 const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
                 const stub = env.PURCHASE_COORDINATOR.get(id);
-                const coordinated = await stub.fetch("https://purchase.internal/pay", {
+                const coordinated = await stub.fetch(url.pathname.endsWith("/status") ? "https://purchase.internal/status" : "https://purchase.internal/pay", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body)
@@ -93,11 +94,22 @@ export default {
                 if (!coordinated.ok) {
                     throw new HttpError(coordinated.status, result?.error?.message || "決済を完了できませんでした。");
                 }
-                return corsJson(result, 200, origin, allowedOrigins);
+                return corsJson(result, coordinated.status, origin, allowedOrigins);
             }
 
             if (url.pathname.startsWith("/api/admin/")) {
                 assertAdmin(request, env);
+                if (url.pathname === "/api/admin/payment-attempts" || /^\/api\/admin\/payment-attempts\/[a-f0-9-]+\/recover$/.test(url.pathname)) {
+                    const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
+                    const stub = env.PURCHASE_COORDINATOR.get(id);
+                    const recovery = url.pathname.endsWith("/recover");
+                    if ((recovery && request.method !== "POST") || (!recovery && request.method !== "GET")) throw new HttpError(405, "Method not allowed.");
+                    const attemptId = recovery ? url.pathname.split("/")[4] : null;
+                    const response = await stub.fetch(`https://purchase.internal/${recovery ? "recover" : "warnings"}`, {
+                        method: "POST", body: JSON.stringify({ attemptId })
+                    });
+                    return corsJson(await response.json(), response.status, origin, allowedOrigins);
+                }
                 if (request.method === "GET" && url.pathname === "/api/admin/orders") {
                     const status = url.searchParams.get("status") || "pending";
                     return corsJson({ orders: await listOrders(env, status) }, 200, origin, allowedOrigins);
@@ -294,6 +306,41 @@ function getSquareVariationId(item) {
 }
 
 
+async function squareFetch(env, url, options = {}) {
+    options = { ...options, signal: options.signal || AbortSignal.timeout(5000) };
+    if (env.LOCAL_SQUARE) {
+        if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Square binding is not allowed here.");
+        return env.LOCAL_SQUARE.fetch(url, options);
+    }
+    return fetch(url, options);
+}
+
+async function lookupSquarePayment(env, record) {
+    if (record.payment?.id) {
+        const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments/${encodeURIComponent(record.payment.id)}`, { headers: squareHeaders(env) });
+        if (!response.ok) throw new Error("Payment lookup unavailable");
+        return (await response.json()).payment;
+    }
+    // Square has no assumed 'retrieve by idempotency key' endpoint. Absence from this
+    // bounded scan is NOT proof of no charge: keep unknown and never charge again.
+    let cursor; const matches = []; const deadline = Date.now() + 5000;
+    for (let page = 0; page < 20; page++) {
+        if (Date.now() >= deadline) throw new Error("Payment reconciliation time budget exceeded");
+        const query = new URLSearchParams({ begin_time: new Date(Date.parse(record.createdAt) - 300000).toISOString(), limit: "100" });
+        if (cursor) query.set("cursor", cursor);
+        const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments?${query}`, { headers: squareHeaders(env), signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now()))) });
+        if (!response.ok) throw new Error("Payment reconciliation unavailable");
+        const result = await response.json();
+        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference));
+        cursor = result.cursor;
+        if (!cursor) {
+            if (matches.length > 1) throw new Error("Multiple matching payments");
+            return matches[0] || null;
+        }
+    }
+    throw new Error("Payment reconciliation scan incomplete");
+}
+
 async function retrieveSquareInventory(env, quote) {
     if (!env.SQUARE_LOCATION_ID) {
         throw new Error("SQUARE_LOCATION_ID is missing.");
@@ -304,7 +351,7 @@ async function retrieveSquareInventory(env, quote) {
         variationId: getSquareVariationId(item)
     }));
 
-    const response = await fetch(
+    const response = await squareFetch(env,
         `${squareBaseUrl(env)}/v2/inventory/counts/batch-retrieve`,
         {
             method: "POST",
@@ -392,13 +439,14 @@ async function decrementSquareInventory({
     env,
     quote,
     orderReference,
-    paymentId
+    paymentId,
+    inventoryOperation
 }) {
     if (!env.SQUARE_LOCATION_ID) {
         throw new Error("SQUARE_LOCATION_ID is missing.");
     }
 
-    const occurredAt = new Date().toISOString();
+    const occurredAt = inventoryOperation.occurredAt;
 
     const changes = quote.items.map((item) => ({
         type: "ADJUSTMENT",
@@ -414,13 +462,13 @@ async function decrementSquareInventory({
         }
     }));
 
-    const response = await fetch(
+    const response = await squareFetch(env,
         `${squareBaseUrl(env)}/v2/inventory/changes/batch-create`,
         {
             method: "POST",
             headers: squareHeaders(env),
             body: JSON.stringify({
-                idempotency_key: `yh-inventory-${paymentId}`.slice(0, 128),
+                idempotency_key: inventoryOperation.key,
                 changes
             })
         }
@@ -434,17 +482,15 @@ async function decrementSquareInventory({
     ) {
         console.error("Square inventory adjustment error:", result);
 
-        throw new Error(
-            result?.errors?.[0]?.detail ||
-            result?.errors?.[0]?.code ||
-            "Square inventory adjustment failed."
-        );
+        const error = new Error("Square inventory adjustment failed.");
+        error.permanent = response.status === 409;
+        throw error;
     }
 
     return result;
 }
 
-async function createSquarePayment({ env, sourceId, quote, contact, orderReference }) {
+async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey }) {
     const baseUrl = squareBaseUrl(env);
 
     if (!env.SQUARE_ACCESS_TOKEN) {
@@ -457,7 +503,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
 
     const requestBody = {
         source_id: sourceId,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: paymentKey,
         amount_money: {
             amount: quote.total,
             currency: quote.currency
@@ -486,7 +532,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
         requestBody.buyer_phone_number = normalizedPhone;
     }
 
-    const response = await fetch(`${baseUrl}/v2/payments`, {
+    const response = await squareFetch(env, `${baseUrl}/v2/payments`, {
         method: "POST",
         headers: {
             "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
@@ -558,7 +604,12 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
 }
 
 async function sendResendEmail(env, payload, idempotencyKey) {
-    const response = await fetch("https://api.resend.com/emails", {
+    const transport = env.LOCAL_RESEND ? (url, options) => {
+        if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
+        return env.LOCAL_RESEND.fetch(url, options);
+    } : fetch;
+    const response = await transport("https://api.resend.com/emails", {
+        signal: AbortSignal.timeout(5000),
         method: "POST",
         headers: {
             "Authorization": `Bearer ${env.RESEND_API_KEY}`,
@@ -895,6 +946,10 @@ async function saveOrder(env, { payment, quote, contact, orderReference, invento
         .bind(orderReference, payment.id, payment.created_at || new Date().toISOString(), "pending",
             quote.subtotal, quote.shipping, quote.total, JSON.stringify(quote.items), JSON.stringify(contact), inventoryAdjusted ? 1 : 0)
         .run();
+    const row = await env.ORDERS_DB.prepare("SELECT payment_id FROM orders WHERE order_reference=?").bind(orderReference).first();
+    if (row?.payment_id !== payment.id) throw new Error("Order/payment projection conflict");
+    await env.ORDERS_DB.prepare("UPDATE orders SET inventory_adjusted=? WHERE order_reference=? AND payment_id=?")
+        .bind(inventoryAdjusted ? 1 : 0, orderReference, payment.id).run();
 }
 
 function rowToOrder(row) {
@@ -977,42 +1032,72 @@ async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
 }
 
 export class PurchaseCoordinator {
-    constructor(ctx, env) { this.ctx = ctx; this.env = env; this.queue = Promise.resolve(); }
-    async fetch(request) {
-        const body = await request.json().catch(() => ({}));
-        const job = this.queue.then(() => this.process(body), () => this.process(body));
+    constructor(ctx, env) {
+        this.ctx = ctx; this.env = env; this.queue = Promise.resolve();
+        this.ledger = new PurchaseLedger(ctx.storage, {
+            location: env.SQUARE_LOCATION_ID,
+            validate: body => {
+                requireString(body.sourceId, "決済トークンがありません。", 500);
+                body.attemptId = validateAttemptId(body.attemptId);
+                const quote = buildQuote(body.items);
+                quote.items.sort((a, b) => a.id.localeCompare(b.id));
+                return { quote, stockKeys: quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item)}`), contact: validateContact(body.contact) };
+            },
+            stockKeys: quote => quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item)}`),
+            notify: async record => {
+                if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL) return false;
+                await sendResendEmail(env, {
+                    from: env.RESEND_FROM_EMAIL, to: [env.ORDER_NOTIFICATION_EMAIL],
+                    subject: `【要確認】注文 ${record.orderReference}`,
+                    text: `注文番号: ${record.orderReference}\n状態: ${record.warning}\n対象: ${record.quote.items.map(i => i.id).join(", ")}\n再課金せず管理者APIで状況を確認してください。`
+                }, `purchase-review-${record.id}`);
+                return true;
+            },
+            reference: makeOrderReference,
+            stock: quote => assertSquareInventoryAvailable(env, quote),
+            charge: (record, sourceId) => createSquarePayment({ env, ...record, sourceId }),
+            lookup: record => lookupSquarePayment(env, record),
+            decrement: record => decrementSquareInventory({ env, ...record, paymentId: record.payment.id }),
+            project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
+            email: async record => {
+                if (env.RESEND_API_KEY && env.RESEND_FROM_EMAIL) {
+                    this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
+                    return true;
+                }
+                return false;
+            }
+        });
+    }
+    serialize(action) {
+        const job = this.queue.then(action, action);
         this.queue = job.catch(() => {});
         return job;
     }
-    async process(body) {
-        try {
-            const sourceId = requireString(body.sourceId, "決済トークンがありません。", 500);
-            const contact = validateContact(body.contact);
-            const quote = buildQuote(body.items);
-            const orderReference = makeOrderReference();
-            // このObject内のPromiseキューにより、購入処理全体を1件ずつ直列実行する。
-            await assertSquareInventoryAvailable(this.env, quote);
-            const payment = await createSquarePayment({ env: this.env, sourceId, quote, contact, orderReference });
-            if (payment.status !== "COMPLETED") throw new HttpError(502, "決済状態を確認できませんでした。お問い合わせください。");
-            let inventoryAdjusted = false;
+    async fetch(request) {
+        const body = await request.json().catch(() => ({}));
+        const path = new URL(request.url).pathname;
+        return this.serialize(async () => {
             try {
-                await decrementSquareInventory({ env: this.env, quote, orderReference, paymentId: payment.id });
-                inventoryAdjusted = true;
-            } catch (e) {
-                console.error("CRITICAL: Payment completed but inventory adjustment failed:", { paymentId: payment.id, orderReference, error: e });
+                let result;
+                if (path === "/warnings") result = { attempts: await this.ledger.warnings() };
+                else if (path === "/status" || path === "/recover") {
+                    body.attemptId = validateAttemptId(body.attemptId);
+                    result = await this.ledger.recover(body.attemptId, path === "/recover");
+                } else result = await this.ledger.submit(body);
+                return Response.json(result, { status: result.attemptId && !result.ok ? 202 : 200 });
+            } catch (error) {
+                const status = error instanceof HttpError || error instanceof PurchaseError ? error.status : 503;
+                return Response.json({ error: { message: status === 503 ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-            // 決済済み注文は、メールより先に受注DBへ永続化。
-            await saveOrder(this.env, { payment, quote, contact, orderReference, inventoryAdjusted });
-            if (this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) {
-                this.ctx.waitUntil(sendOrderEmails({ env: this.env, payment, quote, contact, orderReference }).catch(e => console.error("Order email error:", e)));
-            }
-            return Response.json({ ok:true, paymentId:payment.id, status:payment.status, amount:quote.total, orderReference, inventoryAdjusted, emailQueued:Boolean(this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) });
-        } catch (error) {
-            console.error(error);
-            const status = error instanceof HttpError ? error.status : 500;
-            return Response.json({ error:{ message:error instanceof HttpError ? error.message : "サーバーで問題が発生しました。" } }, { status });
-        }
+        });
     }
+    alarm() { return this.serialize(() => this.ledger.alarm()); }
+}
+function validateAttemptId(id) {
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+        throw new HttpError(400, "注文処理番号がありません。画面を更新して確認してください。");
+    }
+    return id.toLowerCase();
 }
 
 class HttpError extends Error {

@@ -14,7 +14,7 @@ npm start
 
 ## 分離
 
-- 本番HTML・CSS・商品・送料・URL・Worker本体・Wrangler設定は変更しない。
+- 分離サーバーは本番HTML・CSS・商品・送料・URL・Wrangler設定を配信用に書き換えない。Workerはローカルでメモリ上にバンドルする。
 - Wrangler設定、.env、.dev.vars、本番認証情報を読み込まない。Workerへプロセス環境を転送しない。
 - Miniflareで既存Workerを実行。外向きfetchは全宛先503。Square Sandboxにも接続しない。
 - D1とDurable Objectはdev/.stateだけを利用。本番DB IDと以前の/workspace/.yasoya-stateを使わない。テストは一時状態。
@@ -30,3 +30,10 @@ npm start
 必ずこの起動入口を使う。Python静的サーバー、直接wrangler dev、file://、本番サイトには分離を適用しない。以前保存されたクラウド起動設定は本手順で置き換える必要がある（今回ドラフトは変更しない）。OS全体のネットワーク隔離ではなく、別プロセスや手動curl、外部リンクへの移動は制限対象外。
 
 Miniflare安定版4.20260730.0に固定。元のcompatibility_dateは保持するが、新しい日付の互換性を完全再現する保証はない。Android実機、ブラウザでのCSP強制、画面比較は後続確認。公開ファイルのフォールバック文字列は維持しているため、このサーバー以外では本番を参照し得る。
+
+## 決済安全性の追加テスト
+
+npm testは隔離・決済復旧・ブラウザ再送制御のテストを実行する。Squareの代替はテスト専用サービスbindingで、通常のnpm startには注入しない。
+決済・注文の耐久台帳、管理者向け警告／復旧API、残る制約はdocs/payment-safety-implementation.mdを参照。D1スキーマ変更はなく、実注文データを初期化しない。
+
+決済の保留範囲は現在、注文・Squareバリエーション単位。D1保存待ちだけでは販売を停止しない。Durable Object Alarmによる無人復旧、手動確認時のResend通知、残る外部在庫競合の制約はdocs/payment-availability.mdを参照する。

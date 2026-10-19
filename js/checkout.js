@@ -4,6 +4,35 @@
     const config = window.YASOYA_STORE_CONFIG;
     let card;
     let serverQuote;
+    let submitting = false;
+    let completed = false;
+    const ATTEMPT_KEY = "yasoya_checkout_attempt_v1";
+
+    function attemptId() {
+        let id = localStorage.getItem(ATTEMPT_KEY);
+        if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(ATTEMPT_KEY, id);
+        }
+        return id;
+    }
+    async function existingResult() {
+        const id = localStorage.getItem(ATTEMPT_KEY);
+        if (!id) return null;
+        try { return await api("/api/payments/status", { method: "POST", body: JSON.stringify({ attemptId: id }) }); }
+        catch (error) { if (error.status === 404) return null; throw error; }
+    }
+    function complete(result) {
+        if (result?.status === "declined") {
+            localStorage.removeItem(ATTEMPT_KEY);
+            throw new Error("決済が完了しなかったことを確認しました。再度お試しください。");
+        }
+        if (!result?.ok) throw new Error("注文の処理状況を確認中です。再購入せず、この画面で再確認してください。");
+        completed = true;
+        window.YasoyaCart.clear();
+        localStorage.removeItem(ATTEMPT_KEY);
+        location.href = `thanks.html?payment=${encodeURIComponent(result.paymentId || "")}&order=${encodeURIComponent(result.orderReference || "")}`;
+    }
 
     const money = new Intl.NumberFormat("ja-JP", {
         style: "currency",
@@ -147,15 +176,19 @@
         const button = document.getElementById("paymentButton");
         const status = document.getElementById("paymentStatus");
 
-        if (!serverQuote || !card || !form.reportValidity()) {
+        if (completed || submitting || !serverQuote || !card || !form.reportValidity()) {
             return;
         }
 
+        submitting = true;
         button.disabled = true;
         button.textContent = "PROCESSING";
         status.textContent = "";
 
         try {
+            const previous = await existingResult();
+            if (previous) { complete(previous); return; }
+            const id = attemptId();
             const contact = formContact();
 
             const verificationDetails = {
@@ -179,22 +212,21 @@
             const paymentResult = await api("/api/payments", {
                 method: "POST",
                 body: JSON.stringify({
+                    attemptId: id,
                     sourceId: tokenResult.token,
                     items: getCartPayload(),
                     contact
                 })
             });
 
-            window.YasoyaCart.clear();
-
-            const paymentId = encodeURIComponent(paymentResult.paymentId || "");
-            const order = encodeURIComponent(paymentResult.orderReference || "");
-            location.href = `thanks.html?payment=${paymentId}&order=${order}`;
+            complete(paymentResult);
         } catch (error) {
             console.error(error);
             status.textContent = error.message || "決済に失敗しました。";
             button.disabled = false;
             button.textContent = "PAY NOW";
+        } finally {
+            submitting = false;
         }
     }
 
@@ -208,6 +240,8 @@
         }
 
         try {
+            const previous = await existingResult();
+            if (previous) { complete(previous); return; }
             await loadQuote();
             await initializeSquare();
             document
