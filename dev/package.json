@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs"
+    "test": "node --test isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

@@ -1,0 +1,5 @@
+*.local.json
+.dev.vars*
+.env*
+.generated/
+.wrangler/

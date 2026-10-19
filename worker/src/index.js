@@ -1,5 +1,6 @@
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
 import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
+import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
 const JSON_HEADERS = {
     "Content-Type": "application/json; charset=utf-8",
@@ -27,7 +28,7 @@ export default {
                     service: "YASOYA HONTEN PAYMENTS",
                     version: "2.0.0",
                     environment: env.SQUARE_ENVIRONMENT || "sandbox",
-                    emailConfigured: Boolean(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL)
+                    emailConfigured: Boolean(resendKey(env) && env.RESEND_FROM_EMAIL)
                 }, 200, origin, allowedOrigins);
             }
 
@@ -274,6 +275,12 @@ function validateContact(rawContact) {
     };
 }
 
+function squareToken(env) {
+    return env.RUNTIME_TIER === "sandbox-validation" ? env.SQUARE_SANDBOX_ACCESS_TOKEN : env.SQUARE_ACCESS_TOKEN;
+}
+function resendKey(env) {
+    return env.RUNTIME_TIER === "sandbox-validation" ? env.RESEND_VALIDATION_API_KEY : env.RESEND_API_KEY;
+}
 function squareBaseUrl(env) {
     return (env.SQUARE_ENVIRONMENT || "sandbox") === "production"
         ? "https://connect.squareup.com"
@@ -282,21 +289,22 @@ function squareBaseUrl(env) {
 
 
 function squareHeaders(env) {
-    if (!env.SQUARE_ACCESS_TOKEN) {
+    if (!squareToken(env)) {
         throw new Error("SQUARE_ACCESS_TOKEN is missing.");
     }
 
     return {
-        "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${squareToken(env)}`,
         "Content-Type": "application/json",
         "Square-Version": env.SQUARE_API_VERSION || "2026-07-15"
     };
 }
 
 
-function getSquareVariationId(item) {
+function getSquareVariationId(item, env) {
     const product = CATALOG[item.id];
-    const variationId = String(product?.squareVariationId || "").trim();
+    const override = env?.RUNTIME_TIER === "sandbox-validation" ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
+    const variationId = String(override ? override[item.id] || "" : product?.squareVariationId || "").trim();
 
     if (!variationId || variationId.startsWith("SET_SQUARE_VARIATION_ID_")) {
         throw new Error(`Square在庫連携が未設定です: ${item.id}`);
@@ -307,6 +315,7 @@ function getSquareVariationId(item) {
 
 
 async function squareFetch(env, url, options = {}) {
+    assertSquareDestination(env, url);
     options = { ...options, signal: options.signal || AbortSignal.timeout(5000) };
     if (env.LOCAL_SQUARE) {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Square binding is not allowed here.");
@@ -348,7 +357,7 @@ async function retrieveSquareInventory(env, quote) {
 
     const requested = quote.items.map((item) => ({
         item,
-        variationId: getSquareVariationId(item)
+        variationId: getSquareVariationId(item, env)
     }));
 
     const response = await squareFetch(env,
@@ -452,7 +461,7 @@ async function decrementSquareInventory({
         type: "ADJUSTMENT",
         adjustment: {
             reference_id: `${orderReference}:${paymentId}`.slice(0, 255),
-            catalog_object_id: getSquareVariationId(item),
+            catalog_object_id: getSquareVariationId(item, env),
             from_state: "IN_STOCK",
             to_state: "SOLD",
             from_location_id: env.SQUARE_LOCATION_ID,
@@ -493,7 +502,7 @@ async function decrementSquareInventory({
 async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey }) {
     const baseUrl = squareBaseUrl(env);
 
-    if (!env.SQUARE_ACCESS_TOKEN) {
+    if (!squareToken(env)) {
         throw new Error("SQUARE_ACCESS_TOKEN is missing.");
     }
 
@@ -535,7 +544,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
     const response = await squareFetch(env, `${baseUrl}/v2/payments`, {
         method: "POST",
         headers: {
-            "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
+            "Authorization": `Bearer ${squareToken(env)}`,
             "Content-Type": "application/json",
             "Square-Version": env.SQUARE_API_VERSION || "2026-07-15"
         },
@@ -604,6 +613,7 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
 }
 
 async function sendResendEmail(env, payload, idempotencyKey) {
+    assertTestEmail(env, payload);
     const transport = env.LOCAL_RESEND ? (url, options) => {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
         return env.LOCAL_RESEND.fetch(url, options);
@@ -612,7 +622,7 @@ async function sendResendEmail(env, payload, idempotencyKey) {
         signal: AbortSignal.timeout(5000),
         method: "POST",
         headers: {
-            "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+            "Authorization": `Bearer ${resendKey(env)}`,
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey.slice(0, 256)
         },
@@ -976,13 +986,14 @@ async function markOrderShipped(env, ref, shippingMethod, trackingNumber) {
 }
 
 function assertAdmin(request, env) {
-    if (!env.ADMIN_TOKEN) throw new Error("ADMIN_TOKEN secret is missing.");
+    const token = env.RUNTIME_TIER === "sandbox-validation" ? env.VALIDATION_ADMIN_TOKEN : env.ADMIN_TOKEN;
+    if (!token) throw new Error("ADMIN_TOKEN secret is missing.");
     const auth = request.headers.get("Authorization") || "";
-    if (auth !== `Bearer ${env.ADMIN_TOKEN}`) throw new HttpError(401, "管理者認証が必要です。");
+    if (auth !== `Bearer ${token}`) throw new HttpError(401, "管理者認証が必要です。");
 }
 
 async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
-    if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
+    if (!resendKey(env) || !env.RESEND_FROM_EMAIL) {
         throw new HttpError(503, "メール送信設定がありません。");
     }
 
@@ -1041,11 +1052,11 @@ export class PurchaseCoordinator {
                 body.attemptId = validateAttemptId(body.attemptId);
                 const quote = buildQuote(body.items);
                 quote.items.sort((a, b) => a.id.localeCompare(b.id));
-                return { quote, stockKeys: quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item)}`), contact: validateContact(body.contact) };
+                return { quote, stockKeys: quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`), contact: validateContact(body.contact) };
             },
-            stockKeys: quote => quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item)}`),
+            stockKeys: quote => quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`),
             notify: async record => {
-                if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL) return false;
+                if (!resendKey(env) || !env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL) return false;
                 await sendResendEmail(env, {
                     from: env.RESEND_FROM_EMAIL, to: [env.ORDER_NOTIFICATION_EMAIL],
                     subject: `【要確認】注文 ${record.orderReference}`,
@@ -1060,7 +1071,7 @@ export class PurchaseCoordinator {
             decrement: record => decrementSquareInventory({ env, ...record, paymentId: record.payment.id }),
             project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
             email: async record => {
-                if (env.RESEND_API_KEY && env.RESEND_FROM_EMAIL) {
+                if (resendKey(env) && env.RESEND_FROM_EMAIL) {
                     this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
                     return true;
                 }
