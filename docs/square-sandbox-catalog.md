@@ -4,16 +4,15 @@
 
 ## 読み取った実データ
 
-価格・購入上限・商品IDはworker/src/catalog.js。商品グループはproducts/*.htmlのdata-product-idとProduct/ProductGroup構造化データを読み、名前・価格の一致を検査する。READMEの古い商品一覧から推測しない。
+価格・購入上限・商品IDはworker/src/catalog.js。Sandboxの販売対象はvalidation/catalog.jsで3つの10g商品に限定する。元の商品グループはproducts/*.htmlのdata-product-idとProduct/ProductGroup構造化データを読み、本番定義と名前・価格の一致を検査してから、検証用の名称・構成に変換する。READMEの古い商品一覧から推測しない。
 
 | 商品グループ | サイト商品ID | Variation名 | 価格 |
 |---|---|---|---|
 | 乾燥レモンバーム 10g | lemonbalm-10g | 乾燥レモンバーム 10g | 980 JPY |
 | 乾燥ヨモギ 10g | yomogi-10g | 乾燥ヨモギ 10g | 980 JPY |
-| 乾燥セイタカアワダチソウ | goldenrod-leaf-10g | 乾燥セイタカアワダチソウ 葉 10g | 980 JPY |
-| 同上 | goldenrod-leaf-stem-20g | 乾燥セイタカアワダチソウ 葉と茎 20g | 980 JPY |
+| セイタカアワダチソウ 葉 10g | goldenrod-leaf-10g | セイタカアワダチソウ 葉 10g | 980 JPY |
 
-3つのITEMと4つのITEM_VARIATIONを一括作成する。送料は既存コードの350円／商品合計3000円以上無料を維持し、Squareの商品や在庫として送料を登録しない。購入上限10は在庫数ではない。在庫数を推測して初期化しない。
+3つのITEMと3つのITEM_VARIATIONを一括作成する。送料は既存コードの350円／商品合計3000円以上無料を維持し、Squareの商品や在庫として送料を登録しない。購入上限10は在庫数ではない。在庫数を推測して初期化しない。
 
 ## スクリプト
 
@@ -48,7 +47,7 @@
 
 ## 在庫の初期化
 
-`validation/square-stock.example.json` は全数量nullで、未承認のまま実行できない。全4商品IDの整数数量（0〜1000のテスト用範囲）を明示する必要がある。
+`validation/square-stock.example.json` は全数量nullで、未承認のまま実行できない。全3商品IDの整数数量（0〜1000のテスト用範囲）を明示する必要がある。
 最後の1個の試験なら対象Variationだけ1、他の商品は販売継続試験に必要な数を決める。これらは試験計画であり、実在庫から複写しない。
 
 既にいずれかの状態の在庫レコードがあれば、数量0でも自動初期化を拒否する。現在数が空でも在庫変更履歴があれば拒否する。履歴が途中ページまでしか得られない場合も停止する。Squareが商品作成時に0レコードを自動作成した場合も止まり、履歴確認後の別途判断が必要。
@@ -59,7 +58,7 @@
 
 入力（.gitignore対象）:
 - validation/square-seed.local.json: square-seed.example.jsonを基にenvironment=sandbox、取得したApplication IDとLocation IDだけを記入。
-- validation/square-stock.local.json: 全4商品IDと承認した数量だけを記入。
+- validation/square-stock.local.json: 全3商品IDと承認した数量だけを記入。
 
 出力（.gitignore対象、認証情報なし、権限0600）:
 - validation/.generated/square-variations.local.json: 商品ID→Sandbox Variation ID、グループ→Sandbox Item ID、Location、ソースダイジェスト。
@@ -76,16 +75,27 @@
 3. このクラウド実行環境の設定画面からSecretsへSQUARE_SANDBOX_ACCESS_TOKENを登録する。Square Developer DashboardのSandboxタブで発行した値だけを貼る。通信先の指定欄があればconnect.squareupsandbox.comだけを指定する。本番のキーを流用しない。
 4. 秘密値はチャット・GitHub・スクリーンショットに貼らない。Secretsを登録する画面がなければ停止して、その画面がないことだけを伝える。
 5. 秘密でないApplication IDとLocation IDを共有する。こちらでsquare-seed.local.jsonを用意し、まずオフラインplanを提示する。スマホでファイルやターミナルを操作する必要はない。
-6. 作成する3商品4Variationと各980円を確認し、「Sandboxの商品登録と事前の読み取り確認を承認する」と明示する。今回の依頼だけではまだ実行しない。
+6. 作成する3商品3Variationと各980円を確認し、「Sandboxの商品登録と事前の読み取り確認を承認する」と明示する。今回の依頼だけではまだ実行しない。
 7. 承認後にこちらが単独実行する。成功したらAndroidのSandbox Dashboardで商品を確認する。失敗時はトークンやジャーナルを削除してやり直さず、状態を確認する。
-8. 次に初期数量を全4Variationについて決め、在庫初期化を別途承認する。商品登録と在庫初期化は独立して確認できる。
+8. 次に初期数量を全3Variationについて決め、在庫初期化を別途承認する。商品登録と在庫初期化は独立して確認できる。
 9. 生成したVariation対応表とSandbox Dashboardの数量を確認する。テスト購入後にこの初期化を繰り返して在庫を戻さない。
 10. Cloudflare検証Workerへの設定反映・デプロイ・テスト決済は、別段階で設定を確認し承認する。本ツールは決済もデプロイも行わない。
 
-現在のApplication ID／Location IDの値やトークンはまだ取得していないため、実APIの認証・Location・商品作成・実在庫初期化は未検証。
+前段でSandboxの認証、Location LHD4ZZ1ZYPHD1、JP・JPY・ACTIVE、商品0件・Variation0件を読み取り確認済み。今回の構成変更ではAPIへ再接続していない。商品作成・在庫初期化・検証サイトの実ブラウザ表示は未検証。
 
-## 今回の検証結果
+## 初回の検証結果（3商品化前）
 
 npm --prefix dev test: 52件成功、失敗0、スキップ0（既存37件＋追加15件）。
 商品定義一致、設定混入拒否、Sandbox事前照合、redirect拒否、一括作成・再実行・既存衝突・応答喪失、対応表、数量未指定拒否・在庫再初期化防止・既存履歴、ジャーナル耐久化・排他・秘密値非出力を代替APIで確認した。
 実行したCLIはplanだけで、実API接続・商品作成・在庫初期化・デプロイは行っていない。
+
+## 3商品構成への切替
+
+本番catalog.js・HTML・CSS・本番Square IDは変更しない。検証層だけで葉と茎20gを除外し、セイタカアワダチソウ 葉10gの検証用表示名を指定する。
+manifestのvariations、生成されるVariation ID対応表、在庫入力は3つの10g IDだけ。4件の旧manifestや在庫入力は拒否し、自動削除・移行をしない。
+既存Sandboxに廃止SKUがあれば登録を停止し、手動確認を求める。既存ジャーナルは構成ダイジェスト不一致で停止するため、削除して無理に再実行しない。既存注文は書き換えない。
+検証サイトの生成コピーから20gの選択肢・構造化データ・在庫照会対象を除去し、元の本番ファイルを維持する。検証用カートは専用のv2保存キーと3 IDの許可リストを使い、旧カートを購入対象に持ち込まない。
+検証Workerも見積・在庫照会・新規決済で20gを拒否する。本番層と既存のローカル隔離環境は従来の4Variationを維持する。
+実際のSandbox IDは登録成功後にだけ取得する。今回API接続・商品登録・在庫変更は行わない。
+
+3商品化後のローカル結果: `npm --prefix dev test` は60件成功、失敗0・スキップ0（既存52件を維持、追加8件）。20gのAPI受付拒否も代替APIの統合試験で確認。実APIには接続していない。

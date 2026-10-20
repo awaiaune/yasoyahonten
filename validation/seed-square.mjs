@@ -1,5 +1,6 @@
 // Offline by default. No token is read by the `plan` command.
 import { CATALOG, SHIPPING } from '../worker/src/catalog.js';
+import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from './catalog.js';
 import { readFile, readdir, mkdir, open, rename, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,7 +15,7 @@ export async function productPlan(root = fileURLToPath(new URL('../', import.met
     const groups=[]; const seen=new Set();
     for (const file of (await readdir(path.join(root,'products'))).filter(f=>f.endsWith('.html')).sort()) {
         const html=await readFile(path.join(root,'products',file),'utf8');
-        const ids=[...new Set([...html.matchAll(/data-product-id="([^"]+)"/g)].map(m=>m[1]))];
+        const ids=[...new Set([...html.matchAll(/data-product-id="([^"]+)"/g)].map(m=>m[1]))].filter(id=>Object.hasOwn(SANDBOX_CATALOG,id));
         if (!ids.length) continue;
         const docs=[...html.matchAll(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)].map(m=>JSON.parse(m[1]));
         const group=docs.find(d=>['Product','ProductGroup'].includes(d['@type']));
@@ -24,12 +25,12 @@ export async function productPlan(root = fileURLToPath(new URL('../', import.met
             const p=CATALOG[id];need(Number.isSafeInteger(p.price)&&p.price>0,'Invalid catalog price');
             const ld=group['@type']==='ProductGroup' ? group.hasVariant.find(v=>v.name===p.name) : group;
             need(ld?.name===p.name && Number(ld.offers?.price)===p.price && ld.offers?.priceCurrency==='JPY','Page/catalog price or name mismatch');
-            return {id,name:p.name,price:p.price,currency:'JPY',sku:PREFIX+id};
+            return {id,name:SANDBOX_CATALOG[id].name,price:p.price,currency:'JPY',sku:PREFIX+id};
         });
-        groups.push({key:file.slice(0,-5),name:group.name,variations});
+        groups.push({key:file.slice(0,-5),name:variations.length===1 ? variations[0].name : group.name,variations});
     }
-    need(seen.size===Object.keys(CATALOG).length,'Not all catalog products have a page');
-    return {schema:1,source:'worker/src/catalog.js + products/*.html JSON-LD',groups,shipping:SHIPPING};
+    need(seen.size===Object.keys(SANDBOX_CATALOG).length,'Not all catalog products have a page');
+    return {schema:2,source:'validation/catalog.js + worker/src/catalog.js + products/*.html JSON-LD',groups,shipping:SHIPPING};
 }
 export function settingsCheck(s) {
     need(s && Object.keys(s).sort().join() === ['applicationId','environment','locationId'].sort().join(),'Only Sandbox environment/Application ID/Location ID may be configured');
@@ -77,6 +78,7 @@ function ownedMarker(group) { return PREFIX+'item:'+group.key; }
 function validVariationId(id) { return typeof id==='string' && /^[A-Z0-9]{8,64}$/.test(id) && !Object.values(CATALOG).some(p=>p.squareVariationId===id); }
 function atLocation(o,location) { return o.present_at_all_locations===false && o.present_at_location_ids?.length===1 && o.present_at_location_ids[0]===location; }
 export function inspectCatalog(plan,objects,settings) {
+    need(!objects.some(o=>o.type==='ITEM_VARIATION' && o.item_variation_data?.sku===PREFIX+RETIRED_SANDBOX_ID),'Retired Sandbox variation exists; manual review required, never delete automatically');
     const missing=[];const variations={};const items={};
     for(const group of plan.groups) {
         const matches=objects.filter(o=>o.type==='ITEM'&&o.item_data?.description===ownedMarker(group));

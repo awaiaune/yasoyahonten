@@ -1,4 +1,5 @@
 import { CATALOG } from '../worker/src/catalog.js';
+import { SANDBOX_CATALOG } from './catalog.js';
 const PRODUCTION = {
     worker: 'yasoya-honten-payments', database: '442fa9fd-25d3-4c01-bcc3-04be7b420cf5',
     location: 'LQ693S4H2NBZ8', app: 'sq0idp-JYrGicMfKr-ILhZeLS9Xsw'
@@ -18,7 +19,7 @@ export function assertManifest(m) {
     requireSafe(origin.origin === m.workerOrigin && origin.protocol === 'https:' && !origin.username && !origin.password && origin.hostname.startsWith(WORKER + '.') && origin.hostname.endsWith('.workers.dev'), 'dedicated workers.dev origin required');
     requireSafe(filled(m.squareApplicationId) && m.squareApplicationId.startsWith('sandbox-sq0idb-'), 'Sandbox Application ID required');
     requireSafe(filled(m.squareLocationId) && /^[A-Z0-9]{8,64}$/.test(m.squareLocationId) && m.squareLocationId !== PRODUCTION.location, 'Sandbox Location ID required');
-    requireSafe(m.variations && Object.keys(m.variations).sort().join() === Object.keys(CATALOG).sort().join(), 'all existing product IDs must be mapped');
+    requireSafe(m.variations && Object.keys(m.variations).sort().join() === Object.keys(SANDBOX_CATALOG).sort().join(), 'exactly the three Sandbox product IDs must be mapped');
     const values = Object.values(m.variations);
     const forbidden = Object.values(CATALOG).map(p => p.squareVariationId);
     requireSafe(new Set(values).size === values.length && values.every(v => filled(v) && /^[A-Z0-9]{8,64}$/.test(v) && !forbidden.includes(v)), 'distinct Sandbox Variation IDs required; production IDs forbidden');

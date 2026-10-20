@@ -1,12 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
+import vm from 'node:vm';
+import { CATALOG } from '../worker/src/catalog.js';
+import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from '../validation/catalog.js';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { assertManifest, assertRuntime, assertConfig, assertDatabase, assertSquareDestination, assertTestEmail, environmentVars } from '../validation/safety.js';
-import { makeConfig, storefrontConfig, renderHtml, markerSql } from '../validation/prepare.mjs';
+import { makeConfig, storefrontConfig, renderHtml, renderCartScript, markerSql } from '../validation/prepare.mjs';
 function manifest() {
-    return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003','goldenrod-leaf-stem-20g':'TESTVARIATION004'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid'};
+    return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid'};
 }
 function runtime(m=manifest()) {
     return {...environmentVars(m),ORDERS_DB:{},PURCHASE_COORDINATOR:{},SQUARE_SANDBOX_ACCESS_TOKEN:'offline-placeholder-not-a-real-token',RESEND_VALIDATION_API_KEY:'offline-placeholder-not-a-real-key',VALIDATION_ADMIN_TOKEN:'offline-test-only-'.repeat(3)};
@@ -72,8 +75,8 @@ test('valid sandbox wrapper uses only isolated D1, mapped variants and test reci
             if(u.origin==='https://api.resend.com') { assertTestEmail(runtime(m),body);return Response.json({id:'offline-test-mail'}); }
             assert.equal(u.origin,'https://connect.squareupsandbox.com');
             if(u.pathname.endsWith('/counts/batch-retrieve')) {
-                assert.deepEqual(body.catalog_object_ids,[m.variations['lemonbalm-10g']]);
-                return Response.json({counts:[{catalog_object_id:m.variations['lemonbalm-10g'],location_id:m.squareLocationId,state:'IN_STOCK',quantity:'10'}]});
+                assert.equal(body.catalog_object_ids.length,1);assert(Object.values(m.variations).includes(body.catalog_object_ids[0]));
+                return Response.json({counts:[{catalog_object_id:body.catalog_object_ids[0],location_id:m.squareLocationId,state:'IN_STOCK',quantity:'10'}]});
             }
             if(u.pathname==='/v2/payments') {
                 payment={id:'offline-sandbox-payment',reference_id:body.reference_id,amount_money:body.amount_money,location_id:m.squareLocationId,status:'COMPLETED'};
@@ -90,9 +93,67 @@ test('valid sandbox wrapper uses only isolated D1, mapped variants and test reci
     const contact={givenName:'試験',familyName:'購入者',email:m.notificationEmail,phone:'09012345678',addressLines:['テスト1'],city:'テスト市',state:'東京都',postalCode:'1000001',countryCode:'JP'};
     const order={attemptId:crypto.randomUUID(),sourceId:'offline-test-source',items:[{id:'lemonbalm-10g',quantity:1}],contact};
     const options={method:'POST',headers:{Origin:m.workerOrigin,'Content-Type':'application/json'},body:JSON.stringify(order)};
+    // Rejected before any payment, inventory request or new order persistence.
+    for (const route of ['/api/quote','/api/inventory','/api/payments']) {
+        const retired={...order,ids:[RETIRED_SANDBOX_ID],items:[{id:RETIRED_SANDBOX_ID,quantity:1}]};
+        assert.equal((await request(route,{...options,body:JSON.stringify(retired)})).status,400);
+    }
+    assert.equal(calls.length,0);
+    const leafQuote=await request('/api/quote',{...options,body:JSON.stringify({items:[{id:'goldenrod-leaf-10g',quantity:1}]})});
+    assert.equal(leafQuote.status,200);
+    const leafData=await leafQuote.json();
+    assert.equal(leafData.items[0].name,'セイタカアワダチソウ 葉 10g');
+    assert.equal(leafData.items[0].unitPrice,980);
+
     const paid=await request('/api/payments',options);assert.equal(paid.status,200);assert.equal((await paid.json()).ok,true);
     assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM orders').first()).n,1);
     assert.equal((await request('/api/payments',{...options,body:JSON.stringify({...order,contact:{...contact,email:'unapproved@example.invalid'}})})).status,400);
     assert.equal((await mf.dispatchFetch('https://yasoyahonten.awaiaune.com/api/health')).status,403);
     assert(calls.every(c=>c.startsWith('https://connect.squareupsandbox.com/')||c.startsWith('https://api.resend.com/')));
+});
+
+
+test('Sandbox assortment is exactly three 980 JPY variants while production keeps four', () => {
+    assert.deepEqual(Object.keys(SANDBOX_CATALOG),['lemonbalm-10g','yomogi-10g','goldenrod-leaf-10g']);
+    assert.deepEqual(Object.values(SANDBOX_CATALOG).map(p=>p.name),['乾燥レモンバーム 10g','乾燥ヨモギ 10g','セイタカアワダチソウ 葉 10g']);
+    assert(Object.values(SANDBOX_CATALOG).every(p=>p.price===980));
+    assert.equal(Object.keys(CATALOG).length,4);assert.equal(CATALOG[RETIRED_SANDBOX_ID].active,true);
+    assert.equal(CATALOG['goldenrod-leaf-10g'].name,'乾燥セイタカアワダチソウ 葉 10g');
+});
+test('manifest refuses old four-entry maps and missing Sandbox variations', () => {
+    const m=manifest();
+    assert.throws(()=>assertManifest({...m,variations:{...m.variations,[RETIRED_SANDBOX_ID]:'RETIREDVAR001'}}));
+    const variations={...m.variations};delete variations['goldenrod-leaf-10g'];
+    assert.throws(()=>assertManifest({...m,variations}));
+});
+test('every generated HTML page excludes retired offers, controls and inventory IDs', async () => {
+    const root=new URL('../',import.meta.url);
+    for (const dir of ['', 'products/', 'admin/']) {
+        for(const file of (await readdir(new URL(dir,root))).filter(f=>f.endsWith('.html'))) {
+            const source=new URL(dir+file,root),original=await readFile(source,'utf8');
+            const html=renderHtml(original);
+            assert(!html.includes(RETIRED_SANDBOX_ID));assert(!html.includes('20g'));assert(!html.includes('葉と茎'));
+            if(dir+file==='products/goldenrod.html') {
+                assert.equal((html.match(/name="goldenrodVariant"/g)||[]).length,1);
+                const data=JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
+                assert.equal(data['@type'],'Product');assert.equal(data.sku,'goldenrod-leaf-10g');
+                assert.equal(data.name,'セイタカアワダチソウ 葉 10g');assert.equal(data.offers.priceCurrency,'JPY');
+                assert.equal(Number(data.offers.price),980);
+            }
+            assert.equal(await readFile(source,'utf8'),original);
+        }
+    }
+});
+test('generated Sandbox cart ignores old storage and refuses retired items', async () => {
+    const original=await readFile(new URL('../js/cart.js',import.meta.url),'utf8');
+    const retired={id:RETIRED_SANDBOX_ID,name:'retired',price:980,quantity:1};
+    const storage=new Map([['yasoya_honten_cart_v1',JSON.stringify([retired])]]);
+    const context={window:{dispatchEvent(){}},localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)},CustomEvent:class{}};
+    vm.runInNewContext(renderCartScript(original),context);
+    const cart=context.window.YasoyaCart;assert.equal(cart.read().length,0);
+    storage.set('yasoya_sandbox_cart_v2',JSON.stringify([retired]));assert.equal(cart.read().length,0);
+    assert.throws(()=>cart.add(retired));
+    cart.add({id:'goldenrod-leaf-10g',name:'セイタカアワダチソウ 葉 10g',price:980,quantity:1});
+    assert.equal(cart.count(),1);assert.equal(cart.subtotal(),980);
+    assert.equal(storage.get('yasoya_honten_cart_v1'),JSON.stringify([retired]));
 });

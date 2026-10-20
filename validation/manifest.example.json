@@ -10,8 +10,7 @@
   "variations": {
     "lemonbalm-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID",
     "yomogi-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID",
-    "goldenrod-leaf-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID",
-    "goldenrod-leaf-stem-20g": "REPLACE_WITH_SANDBOX_VARIATION_ID"
+    "goldenrod-leaf-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID"
   },
   "notificationEmail": "REPLACE_WITH_YOUR_TEST_EMAIL",
   "resendFrom": "REPLACE_WITH_TEST_SENDER"

@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, readdir, lstat, copyFile } from 'node:fs/pr
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertManifest, assertConfig, environmentVars, WORKER, DATABASE } from './safety.js';
+import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from './catalog.js';
 export function makeConfig(m) {
     assertManifest(m);
     return { name: WORKER, account_id: m.accountId, main: './sandbox-worker.js', compatibility_date: '2026-08-04', workers_dev: true, routes: [],
@@ -16,8 +17,41 @@ export function storefrontConfig(m) {
     return `window.YASOYA_STORE_CONFIG=Object.freeze(${JSON.stringify({environment:'sandbox',squareApplicationId:m.squareApplicationId,squareLocationId:m.squareLocationId,workerBaseUrl:m.workerOrigin,currency:'JPY'})});\n`;
 }
 export function renderHtml(html) {
+    // Transform only the generated validation copy, never the production HTML.
+    html = html.replace(/<label\b[^>]*>[\s\S]*?<\/label>/g, label =>
+        label.includes(`data-product-id="${RETIRED_SANDBOX_ID}"`) ? '' : label);
+    html = html.replace(/<script\s+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g, (tag, json) => {
+        const data = JSON.parse(json);
+        if (data['@type'] === 'ProductGroup' && data.productGroupID === 'goldenrod') {
+            const leaf = data.hasVariant.find(v => v.sku === 'goldenrod-leaf-10g');
+            if (!leaf) throw new Error('Missing leaf structured data');
+            return `<script type="application/ld+json">${JSON.stringify({...leaf, '@context':'https://schema.org', name:SANDBOX_CATALOG['goldenrod-leaf-10g'].name})}</script>`;
+        }
+        if (data.mainEntity?.['@type'] === 'ItemList') {
+            for (const entry of data.mainEntity.itemListElement || []) {
+                if (entry.url?.endsWith('/products/goldenrod.html')) entry.name = SANDBOX_CATALOG['goldenrod-leaf-10g'].name;
+            }
+            return `<script type="application/ld+json">${JSON.stringify(data)}</script>`;
+        }
+        return tag;
+    });
+    html = html.replaceAll(`goldenrod-leaf-10g,${RETIRED_SANDBOX_ID}`, 'goldenrod-leaf-10g')
+        .replaceAll('乾燥セイタカアワダチソウ 葉 10g', SANDBOX_CATALOG['goldenrod-leaf-10g'].name)
+        .replace('セイタカアワダチソウ 乾燥葉・葉と茎', SANDBOX_CATALOG['goldenrod-leaf-10g'].name)
+        .replace('葉はハーブティーに、葉と茎は薬草風呂やフェイシャルスチームに。', '葉はハーブティーやフェイシャルスチームに。')
+        .replace('用途に合わせて、葉のみ、または葉と茎をお選びいただけます。', '葉10gをお届けします。')
+        .replace(/<(h2|h3)>\s*セイタカアワダチソウ\s*<\/\1>/g, (_, tag) => `<${tag}>${SANDBOX_CATALOG['goldenrod-leaf-10g'].name}</${tag}>`)
+        .replace(/<h2>\s*乾燥セイタカアワダチソウ\s*<\/h2>/g, `<h2>${SANDBOX_CATALOG['goldenrod-leaf-10g'].name}</h2>`);
+    if (html.includes(RETIRED_SANDBOX_ID) || html.includes('20g') || html.includes('葉と茎')) throw new Error('Retired product remains in validation HTML');
     return html.replace('https://web.squarecdn.com/v1/square.js','https://sandbox.web.squarecdn.com/v1/square.js')
         .replace(/<head\b[^>]*>/i,'$&<script src="/js/store-config.js"></script>');
+}
+export function renderCartScript(script) {
+    // A fresh Sandbox cart avoids loading previously stored retired products.
+    const ids = JSON.stringify(Object.keys(SANDBOX_CATALOG));
+    if (!script.includes('yasoya_honten_cart_v1') || !script.includes('if (!id || !name')) throw new Error('Cart source contract changed');
+    return script.replace('yasoya_honten_cart_v1', 'yasoya_sandbox_cart_v2')
+        .replace('if (!id || !name', `if (!${ids}.includes(id) || !id || !name`);
 }
 export function markerSql(m) {
     assertManifest(m);
@@ -31,6 +65,7 @@ async function copyPublic(source, dest, m) {
         for (const name of await readdir(source)) await copyPublic(path.join(source,name),path.join(dest,name),m);
     } else if (source.endsWith('.html')) await writeFile(dest,renderHtml(await readFile(source,'utf8')));
     else if (path.basename(source)==='store-config.js') await writeFile(dest,storefrontConfig(m));
+    else if (path.basename(source)==='cart.js') await writeFile(dest,renderCartScript(await readFile(source,'utf8')));
     else await copyFile(source,dest);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -8,14 +8,14 @@
 - Worker: yasoya-payments-validation（本番と別名、Git連携を付けない、専用workers.dev URL）
 - D1: yasoya-validation-orders（新規UUID。本番D1のコピー・インポートをしない）
 - DO: SandboxPurchaseCoordinator（検証Worker内だけの新規namespace。script_nameによる外部参照を禁止）
-- 公開ページ: 同じ検証WorkerのAssets配信。元のHTML/CSSを維持し、配信用コピーだけSDK・設定JSをSandboxに切替
-- Square: Sandboxアプリ・テスト販売者・Location・4つのVariationを別途用意。既存サイトの商品ID・名称・980円・送料規則は維持
+- 公開ページ: 同じ検証WorkerのAssets配信。元のHTML/CSSを維持し、配信用コピーだけSDK・設定JSと商品構成をSandboxの3商品に切替
+- Square: Sandboxアプリ・テスト販売者・Location・3つのVariationを別途用意。既存サイトの商品ID・980円・送料規則を維持。検証用セイタカアワダチソウの名称は「セイタカアワダチソウ 葉 10g」
 - メール: 独立したResendキーとテスト受信者1件。購入者メールもその1件に限定。実顧客データを使わない
 - 推奨: 別のCloudflareアカウントか、少なくとも検証リソースに限定した権限を使う。本番のトークン・権限を再利用しない
 
 ## 設定の作成・レビュー（ネットワークなし）
 
-manifest.example.jsonを元にmanifest.local.jsonを作り、公開IDと検証用メール情報だけを入れる。アクセストークン・管理者トークンは絶対に含めない。
+manifest.example.jsonを元にmanifest.local.jsonを作り、3つの10g商品のSandbox Variation ID、公開IDと検証用メール情報だけを入れる。アクセストークン・管理者トークンは絶対に含めない。
 公開IDが揃った後、リポジトリルートから:
 
 ```

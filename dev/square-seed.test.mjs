@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { CATALOG } from '../worker/src/catalog.js';
+import { SANDBOX_CATALOG } from '../validation/catalog.js';
 import { productPlan, SandboxCatalogClient, seedCatalog, initializeInventory, inspectCatalog, inventoryQuantities, diskStore } from '../validation/seed-square.mjs';
 const settings={environment:'sandbox',applicationId:'sandbox-sq0idb-offline-test',locationId:'SANDBOXLOC001'};
 const token='offline-sandbox-token-not-real';
@@ -44,13 +45,13 @@ class SquareDouble {
     };
     client(){return new SandboxCatalogClient(settings,token,{transport:this.transport});}
 }
-const quantities=Object.fromEntries(Object.keys(CATALOG).map(id=>[id,1]));
+const quantities=Object.fromEntries(Object.keys(SANDBOX_CATALOG).map(id=>[id,1]));
 
-test('catalog plan comes from actual HTML and catalog: 3 groups / 4 variations / exact prices',()=>{
-    assert.equal(plan.groups.length,3);assert.equal(plan.groups.flatMap(g=>g.variations).length,4);
-    for(const v of plan.groups.flatMap(g=>g.variations)){assert.equal(v.name,CATALOG[v.id].name);assert.equal(v.price,CATALOG[v.id].price);assert.equal(v.currency,'JPY');}
+test('catalog plan comes from actual HTML and catalog: 3 groups / 3 variations / exact prices',()=>{
+    assert.equal(plan.groups.length,3);assert.equal(plan.groups.flatMap(g=>g.variations).length,3);
+    for(const v of plan.groups.flatMap(g=>g.variations)){assert.equal(v.name,SANDBOX_CATALOG[v.id].name);assert.equal(v.price,CATALOG[v.id].price);assert.equal(v.currency,'JPY');}
     assert.equal(plan.shipping.flatRate,350);assert.equal(plan.shipping.freeThreshold,3000);
-    assert.equal(plan.groups.find(g=>g.key==='goldenrod').variations.length,2);
+    assert.equal(plan.groups.find(g=>g.key==='goldenrod').variations.length,1);
 });
 test('HTML/catalog mismatch refuses preparation rather than guessing',async()=>{
     const root=await mkdtemp(path.join(os.tmpdir(),'yasoya-source-test-'));await mkdir(path.join(root,'products'));
@@ -77,7 +78,7 @@ test('Sandbox preflight rejects wrong country/location and never follows a redir
 });
 test('empty library creates one batch, maps all variations, and repeat is read-only',async()=>{
     const fake=new SquareDouble(),store=new MemoryStore();
-    const first=await seedCatalog(fake.client(),plan,store);assert.equal(fake.posts,1);assert.equal(Object.keys(first.variations).length,4);
+    const first=await seedCatalog(fake.client(),plan,store);assert.equal(fake.posts,1);assert.equal(Object.keys(first.variations).length,3);
     assert.deepEqual(await seedCatalog(fake.client(),plan,store),first);assert.equal(fake.posts,1);
     const saved=JSON.stringify([...store.data]);assert(!saved.includes(token));assert(!saved.includes('Authorization'));
     assert(!saved.includes('RRTIT6N4QLIYPUW633WDBG36'));
@@ -98,7 +99,7 @@ test('lost catalog response is recovered by complete catalog scan, without secon
     await assert.rejects(seedCatalog(fake.client(),plan,store),error=>!error.message.includes(token));
     assert.equal((await store.read('catalog-journal')).phase,'pending');
     fake.loseCatalog=false;const map=await seedCatalog(fake.client(),plan,store);
-    assert.equal(Object.keys(map.variations).length,4);assert.equal(fake.posts,1);
+    assert.equal(Object.keys(map.variations).length,3);assert.equal(fake.posts,1);
 });
 test('unknown or deleted create result never receives a new key/new POST',async()=>{
     const fake=new SquareDouble(),store=new MemoryStore();fake.loseCatalog=true;
@@ -142,4 +143,37 @@ test('zero live counts with historical stock changes cannot be re-initialized',a
     fake.history=[{type:'PHYSICAL_COUNT',physical_count:{quantity:'0'}}];
     await assert.rejects(initializeInventory(fake.client(),plan,quantities,store),/history exists/);
     assert.equal(fake.inventoryPosts,0);
+});
+
+
+test('retired Sandbox SKU blocks seeding without writes or automatic deletion',async()=>{
+    const fake=new SquareDouble();fake.objects=[{id:'RETIREDVAR001',type:'ITEM_VARIATION',item_variation_data:{sku:'yasoya-sandbox-v1:goldenrod-leaf-stem-20g'}}];
+    await assert.rejects(seedCatalog(fake.client(),plan,new MemoryStore()),/Retired/);
+    assert.equal(fake.posts,0);assert.equal(fake.inventoryPosts,0);
+});
+test('old four-product inventory input and old mappings are rejected without stock writes',async()=>{
+    assert.throws(()=>inventoryQuantities(plan,{...quantities,'goldenrod-leaf-stem-20g':1}));
+    const fake=new SquareDouble(),store=new MemoryStore();await seedCatalog(fake.client(),plan,store);
+    const mapping=await store.read('square-variations');mapping.variations['goldenrod-leaf-stem-20g']='RETIREDVAR001';
+    await store.write('square-variations',mapping);
+    await assert.rejects(initializeInventory(fake.client(),plan,quantities,store),/mapping changed/);
+    assert.equal(fake.inventoryPosts,0);
+});
+test('plan and generated mapping contain only approved three products and no retired ID',async()=>{
+    assert(!JSON.stringify(plan).includes('goldenrod-leaf-stem-20g'));
+    const fake=new SquareDouble(),store=new MemoryStore();const mapping=await seedCatalog(fake.client(),plan,store);
+    assert.deepEqual(Object.keys(mapping.variations).sort(),Object.keys(SANDBOX_CATALOG).sort());
+    assert(!JSON.stringify(mapping).includes('goldenrod-leaf-stem-20g'));
+    for (const o of fake.objects.filter(o=>o.type==='ITEM'))assert.equal(o.item_data.variations.length,1);
+});
+
+
+test('manifest and stock templates require only the three approved Sandbox IDs',async()=>{
+    const manifest=JSON.parse(await readFile(new URL('../validation/manifest.example.json',import.meta.url),'utf8'));
+    const stock=JSON.parse(await readFile(new URL('../validation/square-stock.example.json',import.meta.url),'utf8'));
+    const ids=Object.keys(SANDBOX_CATALOG).sort();
+    assert.deepEqual(Object.keys(manifest.variations).sort(),ids);
+    assert.deepEqual(Object.keys(stock).sort(),ids);
+    assert(Object.values(stock).every(v=>v===null));
+    assert.throws(()=>inventoryQuantities(plan,stock));
 });

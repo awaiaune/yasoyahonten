@@ -1,4 +1,5 @@
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
+import { SANDBOX_CATALOG } from "../../validation/catalog.js";
 import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
 import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
@@ -44,7 +45,7 @@ export default {
 
                 const ids = [...new Set(rawIds.map((id) => String(id || "").trim()))];
                 const items = ids.map((id) => {
-                    const product = CATALOG[id];
+                    const product = catalogFor(env)[id];
                     if (!product || !product.active) {
                         throw new HttpError(400, "販売できない商品が含まれています。");
                     }
@@ -65,7 +66,7 @@ export default {
             if (request.method === "POST" && url.pathname === "/api/quote") {
     assertAllowedOrigin(origin, allowedOrigins);
     const body = await readJson(request);
-    const quote = buildQuote(body.items);
+    const quote = buildQuote(body.items, env);
 
     const inventory = await assertSquareInventoryAvailable(env, quote);
 
@@ -157,7 +158,11 @@ export default {
     }
 };
 
-function buildQuote(rawItems) {
+function catalogFor(env) {
+    return env?.RUNTIME_TIER === "sandbox-validation" ? SANDBOX_CATALOG : CATALOG;
+}
+
+function buildQuote(rawItems, env) {
     if (!Array.isArray(rawItems) || rawItems.length === 0) {
         throw new HttpError(400, "カートが空です。");
     }
@@ -171,7 +176,7 @@ function buildQuote(rawItems) {
     for (const rawItem of rawItems) {
         const id = String(rawItem?.id || "").trim();
         const quantity = Number.parseInt(rawItem?.quantity, 10);
-        const product = CATALOG[id];
+        const product = catalogFor(env)[id];
 
         if (!product || !product.active) {
             throw new HttpError(400, "販売できない商品が含まれています。");
@@ -191,7 +196,7 @@ function buildQuote(rawItems) {
     }
 
     const items = [...quantities.entries()].map(([id, quantity]) => {
-        const product = CATALOG[id];
+        const product = catalogFor(env)[id];
 
         return {
             id,
@@ -302,7 +307,7 @@ function squareHeaders(env) {
 
 
 function getSquareVariationId(item, env) {
-    const product = CATALOG[item.id];
+    const product = catalogFor(env)[item.id];
     const override = env?.RUNTIME_TIER === "sandbox-validation" ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
     const variationId = String(override ? override[item.id] || "" : product?.squareVariationId || "").trim();
 
@@ -1050,7 +1055,7 @@ export class PurchaseCoordinator {
             validate: body => {
                 requireString(body.sourceId, "決済トークンがありません。", 500);
                 body.attemptId = validateAttemptId(body.attemptId);
-                const quote = buildQuote(body.items);
+                const quote = buildQuote(body.items, env);
                 quote.items.sort((a, b) => a.id.localeCompare(b.id));
                 return { quote, stockKeys: quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`), contact: validateContact(body.contact) };
             },
