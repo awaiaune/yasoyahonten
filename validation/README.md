@@ -13,9 +13,12 @@
 - メール: 独立したResendキーとテスト受信者1件。購入者メールもその1件に限定。実顧客データを使わない
 - 推奨: 別のCloudflareアカウントか、少なくとも検証リソースに限定した権限を使う。本番のトークン・権限を再利用しない
 
+詳しいAndroid操作順、承認の区切り、チェックリストと停止・復旧手順は [Cloudflare検証環境の準備](../docs/cloudflare-validation-setup.md) を参照。既存のSandbox商品3件・各5個は維持し、再登録・再初期化しない。
+
 ## 設定の作成・レビュー（ネットワークなし）
 
 manifest.example.jsonを元にmanifest.local.jsonを作り、3つの10g商品のSandbox Variation ID、公開IDと検証用メール情報だけを入れる。アクセストークン・管理者トークンは絶対に含めない。
+保存済みの`.generated/square-variations.local.json`と`square-seed.local.json`を保持する。manifestの3 ID・アプリ・Location・商品ソースdigestが対応表と一致しない場合は生成を拒否する。Accessチームドメイン・専用AUD、テスト受信先1件と単一送信元も必要。
 公開IDが揃った後、リポジトリルートから:
 
 ```
@@ -39,6 +42,7 @@ npm --prefix dev test
 - Secret名を分離: SQUARE_SANDBOX_ACCESS_TOKEN / RESEND_VALIDATION_API_KEY / VALIDATION_ADMIN_TOKEN。
   通常のSQUARE_ACCESS_TOKEN / RESEND_API_KEY / ADMIN_TOKENが存在したら拒否。後者を本番からコピーしない。
 - 通知先・購入時メールはmanifestのテスト受信者だけ。cc/bccは禁止。管理者トークンは32文字以上の独立した乱数。
+- 閲覧はCloudflare Access必須。検証WorkerでもJWTのRS256署名、issuer、AUD、期限、通知先と同じ所有者emailを検証。未認証・偽造・証明書取得失敗はページ/APIとも401で拒否。管理APIはさらに専用Bearerが必要。Preview URLsは無効。
 - フロントはSandbox SDKのみ。CSPで本番Square等へのブラウザ接続を許可しない。noindexと検索除外を設定。
 - ローカルのLOCAL_SQUARE/LOCAL_RESEND bindingは検証Workerで拒否。実行障害の注入はローカルテストだけに残す。
 
@@ -48,4 +52,4 @@ npm --prefix dev test
 承認後、Sandboxエンドポイントだけに読み取りリクエストしてLocationとカタログを照合する必要がある。認証失敗を理由に本番へ切り替えるフォールバックは作らない。
 D1マーカーは二次防御であり、誤った本番DBにマーカーを書いてはならない。リモートSQL前に名前とUUIDを確認する。初回チェックのSELECTも接続になるため、デプロイ設定のUUID照合を先に行う。
 
-今回の状態は「ローカルで安全チェック済み、検証環境の資源・ID・Secret・デプロイ承認待ち」であり、実Sandbox疎通や本番相当の準備完了を意味しない。
+Square Sandboxは前段で商品3件と各5個の在庫を確認済み。Cloudflareは「ローカルで安全チェックを準備、資源・公開ID・専用Secret・Access設定・デプロイ承認待ち」。リモート検証環境の準備完了を意味しない。

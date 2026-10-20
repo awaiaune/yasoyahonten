@@ -13,5 +13,7 @@
     "goldenrod-leaf-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID"
   },
   "notificationEmail": "REPLACE_WITH_YOUR_TEST_EMAIL",
-  "resendFrom": "REPLACE_WITH_TEST_SENDER"
+  "resendFrom": "REPLACE_WITH_TEST_SENDER",
+  "accessTeamDomain": "REPLACE_WITH_TEAM.cloudflareaccess.com",
+  "accessAudience": "REPLACE_WITH_ACCESS_APPLICATION_AUD"
 }

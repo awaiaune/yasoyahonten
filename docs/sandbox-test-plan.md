@@ -1,5 +1,7 @@
 # 検証計画とAndroidからの準備
 
+最新のCloudflare準備・Android手順・デプロイ前チェック・停止復旧手順は [cloudflare-validation-setup.md](cloudflare-validation-setup.md) を優先する。Squareは3商品登録と各5個の設定まで完了済み。新しい検証では商品登録・在庫初期化を繰り返さない。
+
 ## 実施段階と承認
 
 1. 今回: 既存29件と追加のオフライン安全テスト。外部接続・リモート資源作成・デプロイなし。
@@ -56,7 +58,7 @@
 11. Worker作成はGitHub接続を使わず専用名yasoya-payments-validationで行う。Dashboardの初回作成はデプロイを伴うことがあるため、承認前には実行しない。コードとAssetsの反映は承認済み手順をこちらで実施できるため、Androidでコードを一式貼る必要はない。
 12. 専用WorkerのSettings → Variables and Secretsに、SQUARE_SANDBOX_ACCESS_TOKEN、RESEND_VALIDATION_API_KEY、VALIDATION_ADMIN_TOKENをSecretとして登録する。最後は独立した32文字以上のランダム値。通常の本番Secret名や値をコピーしない。保存が再公開を伴う場合も承認対象に含める。
 13. BindingsでORDERS_DBが新規D1、PURCHASE_COORDINATORがこの検証WorkerのSandboxPurchaseCoordinatorであることを確認する。本番Workerや本番DBへの参照があれば停止する。
-14. 検証URLの閲覧制限（Cloudflare Accessなど）を設定し、許可する自分のアカウントだけにする。設定項目が見つからなければ公開のまま購入試験へ進めず停止する。
+14. 検証URLの閲覧制限はCloudflare Accessを必須とし、全パスをテスト受信者と同じ所有者メール1件だけに制限する。専用のチームドメインとAUDをmanifestへ反映し、Worker側の署名検証も有効にする。設定項目が見つからなければ公開のまま購入試験へ進めず停止する。
 15. 検証ページをChromeで開き、Square公式のSandboxテストカードと架空の注文情報だけで試験する。メールは指定テスト先を入力する。実カード・実顧客情報は入力しない。
 16. Sandbox Dashboardの決済IDとD1の注文番号・在庫、テストメールを照合する。ログにトークンや個人情報が出ていたら共有せず停止する。
 
@@ -71,3 +73,7 @@
 ## 3商品化後のローカル結果
 
 `npm --prefix dev test`: 60件成功、失敗0・スキップ0（既存52件＋追加8件）。Sandboxの3 ID限定、旧対応表・在庫入力拒否、生成HTML・カートからの20g除外、登録計画と対応表、廃止SKUの検出を確認。検証Workerの見積・在庫・決済入口で20gを無通信拒否する統合試験も実施。本番定義と従来ローカル4Variationの回帰試験を維持。実API接続・商品登録・在庫変更・決済・デプロイは未実施。
+
+## Cloudflare準備後のローカル結果
+
+`npm --prefix dev test`: 63件成功、失敗0・スキップ0。既存60件を維持し、Access設定・署名検証とオフライン対応表照合の3件を追加。詳細と未完了項目はcloudflare-validation-setup.md参照。

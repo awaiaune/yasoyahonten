@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
+import { assertAccess } from '../validation/access.js';
+import { assertSavedMapping } from '../validation/mapping.mjs';
+import { productPlan } from '../validation/seed-square.mjs';
 import { CATALOG } from '../worker/src/catalog.js';
 import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from '../validation/catalog.js';
 import { build } from 'esbuild';
@@ -9,7 +13,14 @@ import { Miniflare } from 'miniflare';
 import { assertManifest, assertRuntime, assertConfig, assertDatabase, assertSquareDestination, assertTestEmail, environmentVars } from '../validation/safety.js';
 import { makeConfig, storefrontConfig, renderHtml, renderCartScript, markerSql } from '../validation/prepare.mjs';
 function manifest() {
-    return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid'};
+    return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid',accessTeamDomain:'test-team.cloudflareaccess.com',accessAudience:'b'.repeat(64)};
+}
+const accessKeys=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+const accessJwk={...await crypto.subtle.exportKey('jwk',accessKeys.publicKey),kid:'offline-test-key',alg:'RS256',use:'sig'};
+async function accessToken(m=manifest(),patch={},headerPatch={}) {
+    const now=Math.floor(Date.now()/1000),enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');
+    const input=enc({alg:'RS256',kid:accessJwk.kid,...headerPatch})+'.'+enc({iss:`https://${m.accessTeamDomain}`,aud:[m.accessAudience],email:m.notificationEmail,iat:now-1,exp:now+300,...patch});
+    return input+'.'+Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',accessKeys.privateKey,new TextEncoder().encode(input))).toString('base64url');
 }
 function runtime(m=manifest()) {
     return {...environmentVars(m),ORDERS_DB:{},PURCHASE_COORDINATOR:{},SQUARE_SANDBOX_ACCESS_TOKEN:'offline-placeholder-not-a-real-token',RESEND_VALIDATION_API_KEY:'offline-placeholder-not-a-real-key',VALIDATION_ADMIN_TOKEN:'offline-test-only-'.repeat(3)};
@@ -27,7 +38,7 @@ test('incomplete template and production identifiers are refused offline', async
 test('configuration refuses production routes, databases, external DOs and injected vars', () => {
     const m=manifest(); const c=makeConfig(m); assert.doesNotThrow(()=>assertConfig(c,m));
     for (const patch of [ {name:'yasoya-honten-payments'}, {routes:['yasoyahonten.awaiaune.com/*']},
-        {env:{production:{}}}, {vars:{...c.vars,SQUARE_ENVIRONMENT:'production'}},
+        {env:{production:{}}}, {preview_urls:true}, {vars:{...c.vars,SQUARE_ENVIRONMENT:'production'}},
         {d1_databases:[{binding:'ORDERS_DB',database_name:'yasoya-orders',database_id:'442fa9fd-25d3-4c01-bcc3-04be7b420cf5'}]},
         {durable_objects:{bindings:[{name:'PURCHASE_COORDINATOR',class_name:'PurchaseCoordinator',script_name:'yasoya-honten-payments'}]}}
     ]) assert.throws(()=>assertConfig({...c,...patch},m));
@@ -64,13 +75,15 @@ test('sandbox entry rejects invalid configuration before fetch, D1 or assets', a
 
 test('valid sandbox wrapper uses only isolated D1, mapped variants and test recipients', async t => {
     const m=manifest(); const bundle=await build({entryPoints:[new URL('../validation/sandbox-worker.js',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'browser'});
-    const calls=[];let payment;
+    const calls=[];let payment;const jwt=await accessToken(m);
     const env=runtime(m);delete env.ORDERS_DB;delete env.PURCHASE_COORDINATOR;
     const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,
         d1Databases:{ORDERS_DB:'sandbox-safety-fresh-test-db'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},
         serviceBindings:{ASSETS:()=>new Response('<html>test</html>',{headers:{'Content-Type':'text/html'}})},
         outboundService:async request=>{
-            const u=new URL(request.url);calls.push(u.origin+u.pathname);
+            const u=new URL(request.url);
+            if(u.origin===`https://${m.accessTeamDomain}`){assert.equal(u.pathname,'/cdn-cgi/access/certs');return Response.json({keys:[accessJwk]});}
+            calls.push(u.origin+u.pathname);
             const body=await request.json();
             if(u.origin==='https://api.resend.com') { assertTestEmail(runtime(m),body);return Response.json({id:'offline-test-mail'}); }
             assert.equal(u.origin,'https://connect.squareupsandbox.com');
@@ -85,10 +98,15 @@ test('valid sandbox wrapper uses only isolated D1, mapped variants and test reci
             assert(u.pathname.endsWith('/changes/batch-create'));
             assert.equal(body.changes[0].adjustment.catalog_object_id,m.variations['lemonbalm-10g']);return Response.json({});
         }});t.after(()=>mf.dispose());
-    const request=(route,options={})=>mf.dispatchFetch(m.workerOrigin+route,options);
+    const request=(route,options={})=>mf.dispatchFetch(m.workerOrigin+route,{...options,headers:{...options.headers,'Cf-Access-Jwt-Assertion':jwt}});
+    assert.equal((await mf.dispatchFetch(m.workerOrigin+'/api/health')).status,401);
+    assert.equal((await mf.dispatchFetch(m.workerOrigin+'/api/admin/orders',{headers:{Authorization:'Bearer '+env.VALIDATION_ADMIN_TOKEN}})).status,401);assert.equal(calls.length,0);
     assert.equal((await request('/api/health')).status,503);assert.equal(calls.length,0);
     const db=await mf.getD1Database('ORDERS_DB');await db.exec(markerSql(m).split('\n').filter(line=>!line.startsWith('--')).join('\n'));
     assert.equal((await request('/api/health')).status,200);
+    assert.equal((await request('/api/admin/orders')).status,401);
+    assert.equal((await request('/api/admin/orders',{headers:{Authorization:'Bearer wrong'}})).status,401);
+    assert.equal((await request('/api/admin/orders',{headers:{Authorization:'Bearer '+env.VALIDATION_ADMIN_TOKEN}})).status,200);
     const page=await request('/');assert.equal(page.status,200);assert.match(page.headers.get('Content-Security-Policy'),/sandbox\.web\.squarecdn\.com/);
     const contact={givenName:'試験',familyName:'購入者',email:m.notificationEmail,phone:'09012345678',addressLines:['テスト1'],city:'テスト市',state:'東京都',postalCode:'1000001',countryCode:'JP'};
     const order={attemptId:crypto.randomUUID(),sourceId:'offline-test-source',items:[{id:'lemonbalm-10g',quantity:1}],contact};
@@ -156,4 +174,31 @@ test('generated Sandbox cart ignores old storage and refuses retired items', asy
     cart.add({id:'goldenrod-leaf-10g',name:'セイタカアワダチソウ 葉 10g',price:980,quantity:1});
     assert.equal(cart.count(),1);assert.equal(cart.subtotal(),980);
     assert.equal(storage.get('yasoya_honten_cart_v1'),JSON.stringify([retired]));
+});
+
+
+test('Access and notification configuration fail closed for unknown hosts, missing audience or address lists',()=>{
+    for(const patch of [{accessTeamDomain:''},{accessTeamDomain:'evil.invalid'},{accessAudience:''},{notificationEmail:'a@example.invalid,b@example.invalid'},{resendFrom:'a@example.invalid,b@example.invalid'}])assert.throws(()=>assertManifest({...manifest(),...patch}));
+    assert.throws(()=>assertTestEmail(runtime(),{from:'sender@example.invalid',to:['test@example.invalid'],reply_to:'customer@example.invalid'}));
+});
+test('Access verifies signature, issuer, audience, owner and expiry using only configured JWKS',async()=>{
+    const env=runtime(),m=manifest();let fetches=0;
+    const fetcher=async(url,options)=>{fetches++;assert.equal(url,`https://${m.accessTeamDomain}/cdn-cgi/access/certs`);assert.equal(options.redirect,'manual');return Response.json({keys:[accessJwk]});};
+    const req=jwt=>new Request(m.workerOrigin,{headers:jwt?{'Cf-Access-Jwt-Assertion':jwt}:{}});
+    await assert.rejects(assertAccess(req(),env,{fetcher}));assert.equal(fetches,0);
+    await assertAccess(req(await accessToken()),env,{fetcher});
+    for(const patch of [{iss:'https://evil.invalid'},{aud:['wrong']},{email:'other@example.invalid'},{exp:0},{nbf:9999999999}])await assert.rejects(assertAccess(req(await accessToken(m,patch)),env,{fetcher}));
+    await assert.rejects(assertAccess(req(await accessToken(m,{}, {alg:'none'})),env,{fetcher}));
+    const jwt=await accessToken();const parts=jwt.split('.');const signature=Buffer.from(parts[2],'base64url');signature[0]^=1;parts[2]=signature.toString('base64url');
+    await assert.rejects(assertAccess(req(parts.join('.')),env,{fetcher}));
+    await assert.rejects(assertAccess(req(jwt),env,{fetcher:async()=>new Response(null,{status:302})}));
+    await assert.rejects(assertAccess(req(jwt),env,{fetcher:async()=>{throw new Error('offline network failure');}}));
+});
+test('offline preparation requires saved mapping account, three IDs and source digest to match',async()=>{
+    const m=manifest(),plan=await productPlan();
+    const settings={environment:'sandbox',applicationId:m.squareApplicationId,locationId:m.squareLocationId};
+    const mapping={schema:1,applicationId:m.squareApplicationId,locationId:m.squareLocationId,sourceDigest:createHash('sha256').update(JSON.stringify(plan)).digest('hex'),variations:{...m.variations},items:{goldenrod:'SANDBOXITEM001',lemonbalm:'SANDBOXITEM002',yomogi:'SANDBOXITEM003'}};
+    assert.doesNotThrow(()=>assertSavedMapping(m,mapping,settings,plan));
+    for(const patch of [{locationId:'OTHERLOCATION'},{sourceDigest:'old-source'},{variations:{...mapping.variations,'goldenrod-leaf-stem-20g':'RETIREDVAR001'}},{variations:{...mapping.variations,'lemonbalm-10g':'OTHERID001'}},{token:'forbidden'},{items:{}}])assert.throws(()=>assertSavedMapping(m,{...mapping,...patch},settings,plan));
+    assert.throws(()=>assertSavedMapping(m,null,settings,plan));
 });

@@ -3,10 +3,12 @@ import { readFile, writeFile, mkdir, readdir, lstat, copyFile } from 'node:fs/pr
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { assertManifest, assertConfig, environmentVars, WORKER, DATABASE } from './safety.js';
+import { assertSavedMapping } from './mapping.mjs';
+import { productPlan } from './seed-square.mjs';
 import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from './catalog.js';
 export function makeConfig(m) {
     assertManifest(m);
-    return { name: WORKER, account_id: m.accountId, main: './sandbox-worker.js', compatibility_date: '2026-08-04', workers_dev: true, routes: [],
+    return { name: WORKER, account_id: m.accountId, main: './sandbox-worker.js', compatibility_date: '2026-08-04', workers_dev: true, preview_urls: false, routes: [],
         assets: {directory:'./.generated/site',binding:'ASSETS',run_worker_first:true}, vars: environmentVars(m),
         d1_databases: [{binding:'ORDERS_DB',database_name:DATABASE,database_id:m.databaseId}],
         durable_objects: {bindings:[{name:'PURCHASE_COORDINATOR',class_name:'SandboxPurchaseCoordinator'}]},
@@ -72,6 +74,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     try {
         const here = fileURLToPath(new URL('.',import.meta.url));
         const m = assertManifest(JSON.parse(await readFile(path.join(here,'manifest.local.json'),'utf8')));
+        const mapping = JSON.parse(await readFile(path.join(here,'.generated/square-variations.local.json'),'utf8'));
+        const settings = JSON.parse(await readFile(path.join(here,'square-seed.local.json'),'utf8'));
+        assertSavedMapping(m,mapping,settings,await productPlan());
         if (process.argv[2] === 'check') {
             const config = JSON.parse(await readFile(path.join(here,'wrangler.local.json'),'utf8')); assertConfig(config,m);
             console.log('Offline configuration check passed. Secret provenance and remote bindings NOT verified. Deployment still requires approval.');

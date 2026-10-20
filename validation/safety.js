@@ -9,7 +9,7 @@ export const DATABASE = 'yasoya-validation-orders';
 function requireSafe(condition, message) { if (!condition) throw new Error(`Sandbox safety: ${message}`); }
 function filled(value) { return typeof value === 'string' && value.length > 0 && !/REPLACE|CHANGEME/i.test(value); }
 export function assertManifest(m) {
-    const allowed = ['workerName','accountId','workerOrigin','databaseName','databaseId','instanceId','squareApplicationId','squareLocationId','variations','notificationEmail','resendFrom'];
+    const allowed = ['workerName','accountId','workerOrigin','databaseName','databaseId','instanceId','squareApplicationId','squareLocationId','variations','notificationEmail','resendFrom','accessTeamDomain','accessAudience'];
     requireSafe(Object.keys(m).every(key => allowed.includes(key)), 'unknown field (never put secrets in manifest)');
     requireSafe(m.workerName === WORKER && m.databaseName === DATABASE, 'dedicated validation resource names required');
     requireSafe(/^[a-f0-9]{32}$/.test(m.accountId), 'validation account ID required');
@@ -23,8 +23,10 @@ export function assertManifest(m) {
     const values = Object.values(m.variations);
     const forbidden = Object.values(CATALOG).map(p => p.squareVariationId);
     requireSafe(new Set(values).size === values.length && values.every(v => filled(v) && /^[A-Z0-9]{8,64}$/.test(v) && !forbidden.includes(v)), 'distinct Sandbox Variation IDs required; production IDs forbidden');
-    requireSafe(filled(m.notificationEmail) && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.notificationEmail), 'single test recipient required');
-    requireSafe(filled(m.resendFrom) && !/[\r\n]/.test(m.resendFrom) && m.resendFrom.includes('@'), 'test sender required');
+    requireSafe(filled(m.accessTeamDomain) && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.cloudflareaccess\.com$/.test(m.accessTeamDomain), 'dedicated Access team domain required');
+    requireSafe(filled(m.accessAudience) && /^[a-f0-9]{64}$/.test(m.accessAudience), 'Access application audience required');
+    requireSafe(filled(m.notificationEmail) && /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(m.notificationEmail), 'single test recipient required');
+    requireSafe(filled(m.resendFrom) && /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(m.resendFrom), 'test sender required');
     return m;
 }
 export function environmentVars(m) {
@@ -33,7 +35,7 @@ export function environmentVars(m) {
         SQUARE_API_VERSION: '2026-07-15', SQUARE_VARIATION_IDS: JSON.stringify(m.variations),
         ALLOWED_ORIGINS: m.workerOrigin, SITE_URL: m.workerOrigin,
         RESEND_FROM_EMAIL: m.resendFrom, ORDER_NOTIFICATION_EMAIL: m.notificationEmail, REPLY_TO_EMAIL: m.notificationEmail,
-        VALIDATION_MANIFEST: JSON.stringify(m), VALIDATION_INSTANCE_ID: m.instanceId };
+        ACCESS_TEAM_DOMAIN: m.accessTeamDomain, ACCESS_AUDIENCE: m.accessAudience, VALIDATION_MANIFEST: JSON.stringify(m), VALIDATION_INSTANCE_ID: m.instanceId };
 }
 export function assertRuntime(env) {
     requireSafe(env.RUNTIME_TIER === 'sandbox-validation' && env.SQUARE_ENVIRONMENT === 'sandbox', 'Sandbox runtime required');
@@ -63,14 +65,14 @@ export function assertSquareDestination(env, target) {
 export function assertTestEmail(env, payload) {
     if (env.RUNTIME_TIER !== 'sandbox-validation') return;
     const m = assertRuntime(env);
-    requireSafe(payload.from === m.resendFrom && Array.isArray(payload.to) && payload.to.length === 1 && payload.to[0] === m.notificationEmail && !payload.cc && !payload.bcc, 'email must target only the approved test recipient');
+    requireSafe(payload.from === m.resendFrom && Array.isArray(payload.to) && payload.to.length === 1 && payload.to[0] === m.notificationEmail && !payload.cc && !payload.bcc && (!payload.reply_to || payload.reply_to === m.notificationEmail), 'email must target only the approved test recipient');
 }
 export function assertConfig(config, m) {
     assertManifest(m);
-    const allowed = ['name','account_id','main','compatibility_date','workers_dev','routes','assets','vars','d1_databases','durable_objects','migrations'];
+    const allowed = ['name','account_id','main','compatibility_date','workers_dev','preview_urls','routes','assets','vars','d1_databases','durable_objects','migrations'];
     requireSafe(Object.keys(config).every(k => allowed.includes(k)), 'unknown Wrangler field');
     requireSafe(config.name === WORKER && config.account_id === m.accountId && config.main === './sandbox-worker.js' && config.compatibility_date === '2026-08-04', 'worker/account/entry mismatch');
-    requireSafe(config.workers_dev === true && JSON.stringify(config.routes) === '[]', 'custom/production routes forbidden');
+    requireSafe(config.workers_dev === true && config.preview_urls === false && JSON.stringify(config.routes) === '[]', 'custom/production routes forbidden');
     requireSafe(JSON.stringify(config.vars) === JSON.stringify(environmentVars(m)), 'vars differ from reviewed manifest; secrets must be Dashboard Secrets');
     requireSafe(JSON.stringify(config.d1_databases) === JSON.stringify([{binding:'ORDERS_DB',database_name:DATABASE,database_id:m.databaseId}]), 'D1 binding mismatch');
     requireSafe(JSON.stringify(config.durable_objects) === JSON.stringify({bindings:[{name:'PURCHASE_COORDINATOR',class_name:'SandboxPurchaseCoordinator'}]}), 'external/production DO binding forbidden');
