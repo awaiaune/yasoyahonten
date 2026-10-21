@@ -14,6 +14,8 @@ npm start
 
 ## 分離
 
+商品・在庫を含む統合管理のローカル確認には、リポジトリルートから `npm --prefix dev run management -- --seed --seed-orders` を使用する。Codespacesの8000番は必ずPrivateにする。Androidの操作順、許可ホスト、架空注文、ローカルデータを残す再起動手順は [統合管理の手順](../docs/management-system.md#android--github-codespaces-の-private-転送) を参照。以下の通常サーバー `npm start` の仕様とは区別する。
+
 - 分離サーバーは本番HTML・CSS・商品・送料・URL・Wrangler設定を配信用に書き換えない。Workerはローカルでメモリ上にバンドルする。
 - Wrangler設定、.env、.dev.vars、本番認証情報を読み込まない。Workerへプロセス環境を転送しない。
 - Miniflareで既存Workerを実行。外向きfetchは全宛先503。Square Sandboxにも接続しない。

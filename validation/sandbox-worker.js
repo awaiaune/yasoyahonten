@@ -43,10 +43,11 @@ export default {
                 return worker.fetch(request, env, ctx);
             }
             if (!['GET','HEAD'].includes(request.method) || !env.ASSETS) return new Response('Unavailable', {status:503});
-            const response = await env.ASSETS.fetch(request);
+            const managedPage=env.MANAGEMENT_ENABLED==='1' && (['/','/index.html','/products.html'].includes(url.pathname)||/^\/products\/[a-z0-9-]+\.html$/.test(url.pathname));
+            const response = managedPage ? await worker.fetch(request,env,ctx) : await env.ASSETS.fetch(request);
             const headers = new Headers(response.headers);
             headers.set('Cache-Control','no-store');
-            headers.set('Content-Security-Policy', `default-src 'self'; script-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com; connect-src 'self' https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; frame-src https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
+            headers.set('Content-Security-Policy', `default-src 'self'; script-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com; connect-src 'self' https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; frame-src https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:${env.MANAGEMENT_ENABLED==='1'?' blob:':''}; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`);
             headers.set('X-Robots-Tag','noindex, nofollow');
             return new Response(response.body, {status:response.status, headers});
         } catch (error) {
