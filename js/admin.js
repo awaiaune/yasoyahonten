@@ -26,7 +26,7 @@
     const result = await data(path, {method, body:JSON.stringify({...body, operationId:pendingWrites.get(key)})});
     pendingWrites.delete(key); return result;
   }
-  function badge(status) { return `<span class="badge ${status === 'pending' ? 'pending' : 'shipped'}">${status === 'pending' ? '発送待ち' : '発送済み'}</span>`; }
+  function badge(status) { if (window.YasoyaUI) return window.YasoyaUI.statusBadge(status); return `<span class="badge ${status === 'pending' ? 'pending' : 'shipped'}">${status === 'pending' ? '発送待ち' : '発送済み'}</span>`; }
   async function login() {
     if (loggingIn) return; token = $('token').value.trim(); if (!token) return;
     loggingIn = true; $('loginBtn').disabled = true; message('loginError', '認証しています…', 'loading');

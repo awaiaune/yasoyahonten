@@ -22,3 +22,15 @@ test('missing local admin API configuration fails closed on login, without sendi
  get('loginForm').onsubmit({preventDefault(){}});await new Promise(resolve=>setImmediate(resolve));
  assert.equal(requests,0);assert.match(get('loginError').textContent,/管理APIの設定がありません/);assert.equal(get('loginBtn').disabled,false);
 });
+
+async function components(){const context={window:{}};vm.runInNewContext(await readFile(new URL('../js/admin-ui.js',import.meta.url),'utf8'),context);return context.window.YasoyaUI;}
+test('brand presentation accepts names and color tokens only, without changing connection or authentication settings',async()=>{
+ const ui=await components(),names=[],wordmarks=[],styles=[];
+ const root={querySelectorAll:selector=>[{set textContent(value){(selector==='[data-brand-name]'?names:wordmarks).push(value);}}],documentElement:{style:{setProperty:(key,value)=>styles.push([key,value])}}};
+ const brand=ui.applyBrand(root,{name:'表示専用のブランド',wordmark:'TEST SHOP',colors:{green:'#224422',paper:'url(https://other.invalid)'},workerBaseUrl:'https://other.invalid',token:'not-a-real-secret'});
+ assert.equal(brand.name,'表示専用のブランド');assert.equal(brand.colors.green,'#224422');assert.equal(brand.colors.paper,'#f6f4ee');assert.deepEqual(Object.keys(brand).sort(),['colors','name','wordmark']);assert.equal(names[0],brand.name);assert.equal(wordmarks[0],brand.wordmark);assert(styles.every(([key,value])=>/^--(?:paper|ink|green|soft)$/.test(key)&&/^#[a-f0-9]{6}$/i.test(value)));
+});
+test('shared product cards and status/empty states escape untrusted product text',async()=>{
+ const ui=await components();const p={id:'test',status:'draft',draft:{name:'<script>bad()</script>',alt:'<img onerror=bad()>',images:[],variants:[{amount:'<svg onload=bad()>',price:980}]}};
+ const card=ui.productCard(p,n=>'JPY '+n);assert(!card.includes('<script>'));assert(!card.includes('<svg'));assert(card.includes('&lt;script&gt;'));assert(card.includes('data-edit="test"'));assert(!ui.emptyState('<script>bad()</script>').includes('<script>'));assert(!ui.statusBadge('<img onerror=bad()>').includes('<img'));
+});

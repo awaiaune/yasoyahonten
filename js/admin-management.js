@@ -1,13 +1,13 @@
 (() => {
   'use strict';
-  const A = window.YasoyaAdmin;
+  const A = window.YasoyaAdmin, UI = window.YasoyaUI;
+  UI.applyBrand();
   const {$,esc,money,date,data,write,message,notify} = A;
   const screens = ['homePanel','ordersPanel','productsPanel','inventoryPanel'];
   const statusNames = {draft:'下書き',published:'公開中',stopped:'販売停止',archived:'アーカイブ',queued:'待機',retry:'再試行待ち',running:'同期中',review:'要確認',done:'完了'};
   let products = [], current = null, busy = false, dirty = false, activePanel = 'homePanel', inventoryRows = [], stockEdit = null, homeGeneration = 0;
   const previews = new Map();
-  const stateBadge = status => `<span class="badge ${esc(status)}">${esc(statusNames[status] || status)}</span>`;
-  const empty = text => `<div class="empty">${esc(text)}</div>`;
+  const stateBadge = UI.statusBadge, empty = UI.emptyState;
   function setDirty(value) { dirty = value; $('dirtyStatus').textContent = value ? '未保存の変更あり' : '保存済み'; $('dirtyStatus').className = 'badge ' + (value ? 'draft' : 'done'); }
   async function work(fn, place = activePanel === 'inventoryPanel' ? 'inventoryMessage' : activePanel === 'homePanel' ? 'homeMessage' : 'managementMessage') {
     if (busy) return; busy = true;
@@ -22,18 +22,13 @@
     if (!previews.has(id)) { const pending = A.api('/api/admin/images/' + id).then(r => r.blob()).then(blob => URL.createObjectURL(blob)); previews.set(id,pending); pending.catch(() => previews.delete(id)); }
     return previews.get(id);
   }
-  function photo(p, className = 'product-photo') {
-    const id = p?.draft?.images?.[0]; return `<div class="${className}">${id ? `<img data-image="${esc(id)}" alt="${esc(p.draft.alt || p.draft.name)}" loading="lazy">` : '<span>写真未登録</span>'}</div>`;
-  }
+  const photo = UI.thumbnail;
   function hydrate(root = document) { root.querySelectorAll('img[data-image]').forEach(img => preview(img.dataset.image).then(url => { if (img.isConnected) img.src = url; }).catch(() => { img.replaceWith(Object.assign(document.createElement('span'),{textContent:'写真を取得できません'})); })); }
   function filterProducts() {
     const term = $('productSearch').value.normalize('NFKC').toLocaleLowerCase('ja-JP').trim(), filter = $('productFilter').value;
     const filtered = products.filter(p => (filter === 'all' || p.status === filter) && [p.draft.name,...p.draft.variants.map(v => v.name)].join(' ').normalize('NFKC').toLocaleLowerCase('ja-JP').includes(term));
     $('productCount').textContent = `${filtered.length}件を表示 / 登録 ${products.length}件`;
-    $('productList').innerHTML = filtered.map(p => {
-      const prices = p.draft.variants.map(v => v.price), min = Math.min(...prices), max = Math.max(...prices);
-      return `<article class="product-card">${photo(p)}<div class="product-body">${stateBadge(p.status)}<h2>${esc(p.draft.name)}</h2><p class="price">${money(min)}${min === max ? '' : '〜'}</p><div class="product-footer"><small>${p.draft.variants.length}バリエーション</small><button class="secondary" data-edit="${esc(p.id)}" aria-label="${esc(p.draft.name)}を編集">編集</button></div></div></article>`;
-    }).join('') || empty(products.length ? '条件に一致する商品がありません。検索や状態を変更してください。' : 'まだ商品がありません。「商品登録」から始めましょう。'); hydrate($('productList'));
+    $('productList').innerHTML = filtered.map(p => UI.productCard(p,money)).join('') || empty(products.length ? '条件に一致する商品がありません。検索や状態を変更してください。' : 'まだ商品がありません。「商品登録」から始めましょう。'); hydrate($('productList'));
   }
   async function jobs() {
     const [result,audit] = await Promise.all([data('/api/admin/jobs'),data('/api/admin/audit')]);
@@ -45,7 +40,7 @@
   async function home() {
     const generation = ++homeGeneration;
     ['homePending','homeProducts','homeLowStock'].forEach(id => $(id).textContent = '—');
-    $('recentOrders').innerHTML = empty('注文を読み込んでいます…'); $('lowStockList').innerHTML = empty('在庫を確認しています…');
+    $('recentOrders').innerHTML = UI.loadingState('注文を読み込んでいます…'); $('lowStockList').innerHTML = UI.loadingState('在庫を確認しています…');
     const results = await Promise.allSettled([data('/api/admin/orders?status=pending'),data('/api/admin/orders?status=shipped'),data('/api/admin/products'),data('/api/admin/inventory')]);
     if (generation !== homeGeneration) return;
     const values = results.map(r => r.status === 'fulfilled' ? r.value : null);
@@ -71,7 +66,7 @@
     if (panel === 'homePanel') work(home); if (panel === 'productsPanel') work(loadProducts); if (panel === 'inventoryPanel') work(inventory); if (panel === 'ordersPanel') A.loadOrders();
   }
   document.querySelectorAll('.admin-nav-button,[data-go]').forEach(b => b.onclick = () => navigate(b.dataset.panel || b.dataset.go));
-  $('today').textContent = new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Tokyo'}).format(new Date()) + ' / SHOP OVERVIEW';
+  $('today').textContent = new Intl.DateTimeFormat('ja-JP',{month:'long',day:'numeric',weekday:'long',timeZone:'Asia/Tokyo'}).format(new Date());
   window.addEventListener('admin:authenticated',() => navigate('homePanel',false));
   window.addEventListener('admin:orders-changed',() => { if (activePanel === 'homePanel') work(home); });
   $('recentOrders').onclick = e => { const b = e.target.closest('[data-order]'); if (b) A.openOrder(b.dataset.order); };
@@ -84,18 +79,22 @@
     current.draft.sortOrder = Number(f.elements.namedItem('sortOrder').value); current.slug = f.elements.namedItem('slug').value;
     current.draft.variants = [...$('variantList').querySelectorAll('fieldset')].map(el => ({id:el.dataset.id,name:el.querySelector('[name=vname]').value,price:Number(el.querySelector('[name=price]').value),amount:el.querySelector('[name=amount]').value,maxQuantity:Number(el.querySelector('[name=max]').value),active:el.querySelector('[name=active]').checked}));
   }
-  async function drawImages() {
+  const gallery = UI.createGallery({track:$('photoGalleryTrack'),indicators:$('photoGalleryDots'),position:$('photoGalleryPosition'),load:preview});
+  async function drawImages(preferredId) {
+    gallery.setItems(current.draft.images,current.draft.alt || current.draft.name,preferredId);
     const list = $('imageList'); list.replaceChildren();
     for (const [i,id] of current.draft.images.entries()) {
       const div = document.createElement('div'); div.className = 'image-entry'; const img = document.createElement('img'); img.alt = current.draft.alt || current.draft.name || '商品写真'; div.append(img);
       preview(id).then(url => img.src = url).catch(() => img.alt = '写真を取得できません');
+      const label = document.createElement('p'); label.className = 'image-label'; label.textContent = i === 0 ? 'メイン写真' : `写真 ${i+1}`; div.append(label);
       const controls = document.createElement('div'); controls.className = 'image-controls'; div.append(controls);
       for (const [label,accessible,disabled,action] of [
         ['↑',`写真${i+1}を前へ`,i === 0,() => [current.draft.images[i-1],current.draft.images[i]] = [id,current.draft.images[i-1]]],
         ['↓',`写真${i+1}を後ろへ`,i === current.draft.images.length-1,() => [current.draft.images[i+1],current.draft.images[i]] = [id,current.draft.images[i+1]]],
+        ['メインにする',`写真${i+1}をメインにする`,i === 0,() => { current.draft.images.splice(i,1); current.draft.images.unshift(id); }],
         ['外す',`写真${i+1}を外す`,false,() => current.draft.images.splice(i,1)]]) {
         const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label',accessible); b.disabled = disabled;
-        b.onclick = () => { if (busy) return; capture(); action(); setDirty(true); drawImages(); }; controls.append(b);
+        b.onclick = () => { if (busy) return; if (label === '外す' && !confirm('この写真を下書きから外しますか？保存するまで公開内容は変わりません。')) return; capture(); action(); setDirty(true); drawImages(label === 'メインにする' ? id : undefined); }; controls.append(b);
       }
       list.append(div);
     }
@@ -108,7 +107,7 @@
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
     drawImages(); message('editorMessage');
   }
-  function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); }
+  function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
   function newProduct() { open({id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
   $('newProduct').onclick = newProduct; $('homeNewProduct').onclick = newProduct;
   $('importProducts').onclick = () => { if (confirm('既存3商品の説明・写真を下書きとして取り込みます。公開やSquareへの書込みは行いません。')) work(async () => { await write('/api/admin/products/import',{}); await loadProducts(); notify('下書きとして取り込みました。'); }); };
@@ -140,7 +139,7 @@
       let bitmap; try { bitmap = await createImageBitmap(file); } catch { throw Error('写真を変換できません。JPEG/PNG/WebPで選び直してください。'); }
       const scale = Math.min(1,2000/Math.max(bitmap.width,bitmap.height)), canvas = document.createElement('canvas'); canvas.width = Math.round(bitmap.width*scale); canvas.height = Math.round(bitmap.height*scale); canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close();
       const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',.85)); if (!blob) throw Error('写真の変換に失敗しました。');
-      const result = await data('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob}); if (!current.draft.images.includes(result.id)) current.draft.images.push(result.id); setDirty(true); await drawImages();
+      const result = await data('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob}); if (!current.draft.images.includes(result.id)) current.draft.images.push(result.id); setDirty(true); await drawImages(result.id);
     }
     $('imageFiles').value = ''; message('editorMessage','写真を追加しました。下書きを保存すると商品に反映されます。');
   },'editorMessage');

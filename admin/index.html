@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
   <meta name="robots" content="noindex,nofollow">
   <title>ショップ管理｜八草屋本店</title>
   <link rel="stylesheet" href="../css/admin.css">
@@ -10,13 +10,12 @@
 <body>
 <a class="skip-link" href="#main">メインへ移動</a>
 <header class="app-header">
-  <div class="brand"><span class="brand-mark" aria-hidden="true">葉</span><div><p>YASOYA HONTEN</p><span>八草屋本店 <span class="brand-divider">/</span> ショップ管理</span></div></div>
+  <div class="brand"><p class="brand-name" data-brand-name>八草屋本店</p><p class="brand-wordmark" data-brand-wordmark>YASOYA HONTEN</p></div>
   <button id="logout" class="quiet" hidden>ログアウト</button>
 </header>
 <main id="main" tabindex="-1">
   <section id="login" class="login-card surface" aria-labelledby="loginTitle">
-    <p class="eyebrow">WELCOME BACK</p><h1 id="loginTitle">お店の今日を、<br>ここから。</h1>
-    <p class="muted">注文も、商品も、在庫も。<br>八草屋本店の運営をひとつの場所に。</p>
+    <h1 id="loginTitle">管理画面</h1>
     <form id="loginForm"><label for="token">管理トークン</label><input id="token" type="password" autocomplete="current-password" required aria-describedby="loginHelp loginError"><p id="loginHelp" class="hint">管理用のトークンでログインしてください。</p><button id="loginBtn" class="primary wide" type="submit">管理画面を開く <span aria-hidden="true">→</span></button></form><p id="loginError" class="message" role="alert"></p>
   </section>
   <div id="app" hidden>
@@ -28,29 +27,29 @@
     </nav>
     <div class="workspace">
       <section id="homePanel" class="screen" aria-labelledby="homeTitle">
-        <div class="page-heading"><div><p id="today" class="eyebrow"></p><h1 id="homeTitle" tabindex="-1">お店の今日</h1><p class="muted">ひとつずつ、ていねいに。</p></div><button id="reloadHome" class="secondary">更新</button></div>
+        <div class="page-heading"><div><p id="today" class="eyebrow"></p><h1 id="homeTitle" tabindex="-1">お店の今日</h1></div><button id="reloadHome" class="secondary">更新</button></div>
         <p id="homeMessage" class="message" role="status" aria-live="polite"></p>
         <div class="stats-grid">
-          <button class="stat-card" data-go="ordersPanel"><span>発送待ち</span><strong id="homePending">—</strong><small>注文を確認 <span aria-hidden="true">↗</span></small></button>
-          <button class="stat-card" data-go="productsPanel"><span>登録商品</span><strong id="homeProducts">—</strong><small>商品を管理 <span aria-hidden="true">↗</span></small></button>
-          <button class="stat-card" data-go="inventoryPanel"><span>在庫不足のバリエーション</span><strong id="homeLowStock">—</strong><small>3個以下・最新取得分 <span aria-hidden="true">↗</span></small></button>
+          <button class="stat-card" data-go="ordersPanel"><span>発送待ち</span><strong id="homePending">—</strong></button>
+          <button class="stat-card" data-go="productsPanel"><span>登録商品</span><strong id="homeProducts">—</strong></button>
+          <button class="stat-card" data-go="inventoryPanel"><span>在庫不足</span><strong id="homeLowStock">—</strong><small>3個以下</small></button>
         </div>
         <div class="quick-actions"><button id="homeNewProduct" class="primary">＋ 商品を登録</button><button data-go="inventoryPanel" class="secondary">入庫・棚卸し</button></div>
         <div class="home-grid"><section class="surface"><div class="section-heading"><h2>最近の注文</h2><button class="text-button" data-go="ordersPanel">すべて見る →</button></div><div id="recentOrders"></div><p class="hint">注文集計は各状態の直近200件までです。</p></section><section class="surface"><div class="section-heading"><h2>在庫の確認が必要</h2><button class="text-button" data-go="inventoryPanel">在庫へ →</button></div><div id="lowStockList"></div></section></div>
       </section>
       <section id="ordersPanel" class="screen" hidden aria-labelledby="ordersTitle">
-        <div class="page-heading"><div><p class="eyebrow">ORDERS</p><h1 id="ordersTitle" tabindex="-1">注文</h1><p class="muted">お客様へ届ける準備を。</p></div><button id="reloadOrders" class="secondary">更新</button></div>
+        <div class="page-heading"><div><h1 id="ordersTitle" tabindex="-1">注文</h1></div><button id="reloadOrders" class="secondary">更新</button></div>
         <div class="segmented" role="group" aria-label="注文の状態"><button class="tab active" data-status="pending" aria-pressed="true">発送待ち <span id="pendingCount"></span></button><button class="tab" data-status="shipped" aria-pressed="false">発送済み</button></div>
         <p id="status" class="message" role="status" aria-live="polite"></p><div id="orders" class="order-list"></div>
       </section>
       <section id="productsPanel" class="screen" hidden aria-labelledby="productsTitle">
-        <div class="page-heading"><div><p class="eyebrow">PRODUCTS</p><h1 id="productsTitle" tabindex="-1">商品</h1><p class="muted">素材の魅力を、ていねいに伝える。</p></div><button id="newProduct" class="primary">＋ 商品登録</button></div>
+        <div class="page-heading"><div><h1 id="productsTitle" tabindex="-1">商品</h1></div><button id="newProduct" class="primary">＋ 商品登録</button></div>
         <div class="filter-bar"><label class="search-field"><span class="sr-only">商品を検索</span><input id="productSearch" type="search" placeholder="商品名・バリエーションで検索" autocomplete="off"></label><label><span class="sr-only">公開状態で絞り込み</span><select id="productFilter"><option value="all">すべての状態</option><option value="published">公開中</option><option value="draft">下書き</option><option value="stopped">販売停止</option><option value="archived">アーカイブ</option></select></label><button id="reloadProducts" class="secondary">更新</button></div>
         <p id="managementMessage" class="message" role="status" aria-live="polite"></p><p id="productCount" class="hint"></p><div id="productList" class="product-grid"></div>
         <details class="surface operations"><summary>同期・変更履歴</summary><h2>同期処理</h2><div id="jobList"></div><h2>変更履歴</h2><div id="auditList"></div><button id="importProducts" class="secondary">既存3商品を下書き取込</button></details>
       </section>
       <section id="inventoryPanel" class="screen" hidden aria-labelledby="inventoryTitle">
-        <div class="page-heading"><div><p class="eyebrow">INVENTORY</p><h1 id="inventoryTitle" tabindex="-1">在庫</h1><p class="muted">入ってきた分と、いまある分を正確に。</p></div><button id="reloadInventory" class="secondary">最新の在庫を取得</button></div>
+        <div class="page-heading"><div><h1 id="inventoryTitle" tabindex="-1">在庫</h1></div><button id="reloadInventory" class="secondary">最新の在庫を取得</button></div>
         <div class="info-note">入庫は数量を追加。棚卸しは最終数量に合わせます。販売保留中・未確認の在庫は変更できません。</div>
         <p id="inventoryMessage" class="message" role="status" aria-live="polite"></p><div id="inventoryList" class="inventory-list"></div>
       </section>
@@ -59,10 +58,11 @@
 </main>
 <dialog id="productEditor" class="editor-dialog" aria-labelledby="editorTitle">
   <form id="productForm">
-    <div class="dialog-heading"><div><p class="eyebrow">PRODUCT EDITOR</p><h2 id="editorTitle">商品編集</h2></div><button type="button" id="closeEditor" class="icon-button" aria-label="商品編集を閉じる">×</button></div>
+    <div class="dialog-heading"><div><h2 id="editorTitle">商品編集</h2></div><button type="button" id="closeEditor" class="icon-button" aria-label="商品編集を閉じる">×</button></div>
     <div class="editor-status"><span id="dirtyStatus" class="badge">保存済み</span><span id="editorProductStatus" class="muted"></span></div>
+    <section class="form-section photo-section"><div class="section-heading"><h3>商品写真</h3><span class="hint">最大10枚</span></div><div class="photo-gallery" aria-label="商品写真ギャラリー"><div id="photoGalleryTrack" class="gallery-track" role="region" aria-roledescription="カルーセル" aria-label="商品写真。左右スワイプ、または左右矢印キーで切り替え" tabindex="0"></div><div class="gallery-caption"><div id="photoGalleryDots" class="gallery-indicators" aria-label="表示する写真"></div><span id="photoGalleryPosition" class="hint" role="status" aria-live="polite"></span></div></div><p class="hint">左右にスワイプして写真を確認できます。</p><label class="upload-zone">＋ 写真を追加<input id="imageFiles" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple></label><p class="hint">端末で縮小して送信します。変換できない写真はJPEGで選び直してください。「メインにする」で一覧の写真を選べます。</p><details class="photo-arrangement"><summary>写真の順序・メイン画像を編集</summary><p class="hint">矢印ボタンで順序を変更します。スワイプでは並び替わりません。</p><div id="imageList" class="image-list"></div></details><label>写真の説明<input name="alt" maxlength="200" placeholder="写真に写っているもの"></label></section>
     <section class="form-section"><h3>基本情報</h3><label>商品名<input name="name" maxlength="120" required placeholder="商品の名前"></label><label>説明<textarea name="description" maxlength="8000" rows="5" placeholder="素材のこと、使い方、こだわりなど"></textarea></label><div class="form-grid"><label>URL識別子<input name="slug" pattern="[a-z0-9][a-z0-9-]{0,79}" required autocapitalize="none" spellcheck="false" placeholder="herb-10g"></label><label>表示順<input name="sortOrder" type="number" inputmode="numeric" min="0" max="100000" value="0" required></label></div><p class="hint">登録後のURL識別子は変わりません。表示順は小さい数が先です。</p></section>
-    <section class="form-section"><div class="section-heading"><h3>商品写真</h3><span class="hint">最大10枚</span></div><label class="upload-zone">＋ 写真を追加<input id="imageFiles" type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple></label><p class="hint">端末で縮小して送信します。変換できない写真はJPEGで選び直してください。先頭がメイン写真です。</p><div id="imageList" class="image-list"></div><label>写真の説明<input name="alt" maxlength="200" placeholder="写真に写っているもの"></label></section>
+
     <section class="form-section"><h3>バリエーション</h3><div id="variantList"></div><button type="button" id="addVariant" class="secondary wide">＋ バリエーションを追加</button></section>
     <details class="form-section"><summary>販売状態・連携設定</summary><p class="hint">公開は保存済みの内容を同期してから反映します。過去の注文は変更されません。</p><div class="secondary-actions"><button type="button" id="stopProduct" class="secondary">販売停止</button><button type="button" id="archiveProduct" class="danger-button">アーカイブ</button><button type="button" id="linkProduct" class="secondary">既存Sandbox IDを関連付け</button></div></details>
     <p id="editorMessage" class="message" role="status" aria-live="polite"></p><div class="editor-actions"><button type="submit" id="saveProduct" class="secondary">下書き保存</button><button type="button" id="publishProduct" class="primary">保存内容を公開</button></div>
@@ -71,5 +71,5 @@
 <dialog id="detail" aria-labelledby="orderDetailTitle"><div class="dialog-heading"><h2 id="orderDetailTitle">注文詳細</h2><button id="close" class="icon-button" aria-label="注文詳細を閉じる">×</button></div><div id="detailBody"></div></dialog>
 <dialog id="inventoryEditor" aria-labelledby="inventoryEditorTitle"><form id="inventoryForm"><div class="dialog-heading"><h2 id="inventoryEditorTitle">入庫</h2><button type="button" id="closeInventory" class="icon-button" aria-label="在庫変更を閉じる">×</button></div><p id="inventoryProductName"></p><p id="inventoryBefore" class="info-note"></p><label id="inventoryQuantityLabel" for="inventoryQuantity">追加する個数</label><input id="inventoryQuantity" type="number" inputmode="numeric" required step="1" max="100000"><label for="inventoryReason">変更理由</label><input id="inventoryReason" maxlength="500" required placeholder="例：収穫分を入庫、実数を数えて確認"><p id="inventoryAfter" class="stock-preview" aria-live="polite"></p><p id="inventoryEditorMessage" class="message" role="status" aria-live="polite"></p><button type="submit" id="confirmInventory" class="primary wide">内容を確認して更新</button></form></dialog>
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
-<script src="../js/store-config.js"></script><script src="../js/admin.js"></script><script src="../js/admin-management.js"></script>
+<script src="../js/store-config.js"></script><script src="../js/admin-ui.js"></script><script src="../js/admin.js"></script><script src="../js/admin-management.js"></script>
 </body></html>
