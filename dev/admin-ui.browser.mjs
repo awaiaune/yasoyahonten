@@ -160,6 +160,51 @@ test('320/360/390/412/768/1280 widths remain usable, with desktop sidebar and mo
   if(width===1280){const b=await page.getByRole('navigation').boundingBox();assert(b.x<200&&b.width<240);await nav('ホーム');await screenshot('home-1280');}
  }
 });
+async function photoProduct(name,slug){await nav('商品');await page.getByRole('button',{name:'＋ 商品登録',exact:true}).click();await page.getByLabel('商品名',{exact:true}).fill(name);await page.getByLabel('URL識別子',{exact:true}).fill(slug);await page.locator('[name=vname]').fill(name+' 10g');await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();}
+async function choosePhoto(files){const [chooser]=await Promise.all([page.waitForEvent('filechooser'),page.locator('.upload-zone').click()]);await chooser.setFiles(files);await idle();}
+async function generatedPhoto(mime,name,width=24,height=16){const encoded=await page.evaluate(({mime,width,height})=>{const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;const ctx=canvas.getContext('2d');ctx.fillStyle=mime==='image/png'?'#457bad':'#b86543';ctx.fillRect(0,0,width,height);return canvas.toDataURL(mime);},{mime,width,height});assert(encoded.startsWith('data:'+mime+';base64,'));return {name,mimeType:mime,buffer:Buffer.from(encoded.split(',')[1],'base64')};}
+async function selectionEvent(file,eventType){await page.evaluate(({name,type,bytes,eventType})=>{const transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array(bytes)],name,{type}));const input=document.querySelector('#imageFiles');input.files=transfer.files;input.dispatchEvent(new Event(eventType,{bubbles:true}));},{name:file.name,type:file.mimeType,bytes:[...file.buffer],eventType});await idle();}
+
+test('native photo chooser handles input/change once without ImageBitmap; JPEG preview survives save, reopen and reload',async()=>{
+ await page.setViewportSize({width:390,height:844});await photoProduct('写真追加JPEG試験','photo-jpeg-test');
+ await page.evaluate(()=>{window.createImageBitmap=undefined;window.__photoEvents=[];for(const type of ['input','change'])document.querySelector('#imageFiles').addEventListener(type,e=>window.__photoEvents.push(e.type),{capture:true});});
+ let posts=0;const watch=r=>{if(r.method()==='POST'&&r.url()===base+'/api/admin/images')posts++;};page.on('request',watch);
+ try{await choosePhoto({name:'camera.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});}finally{page.off('request',watch);}
+ assert.equal(posts,1);assert((await page.evaluate(()=>window.__photoEvents)).includes('change'));assert.equal(await page.locator('.gallery-slide').count(),1);await page.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.match(await page.locator('#photoUploadMessage').innerText(),/1枚追加/);
+ await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'商品編集を閉じる'}).click();await page.getByRole('button',{name:'写真追加JPEG試験を編集',exact:true}).click();assert.equal(await page.locator('.gallery-slide').count(),1);await page.getByRole('button',{name:'商品編集を閉じる'}).click();
+ await page.reload();await page.locator('#app').waitFor({state:'visible'});await idle();await nav('商品');await page.getByRole('button',{name:'写真追加JPEG試験を編集',exact:true}).click();assert.equal(await page.locator('.gallery-slide').count(),1);await page.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);
+});
+test('PNG/WebP and provider files with empty or generic MIME decode through input-only/change-only selections',async()=>{
+ await photoProduct('写真形式試験','photo-format-test');
+ const png=await generatedPhoto('image/png','provider-photo.bin'),webp=await generatedPhoto('image/webp','provider-webp.bin');
+ // Valid RIFF with an ignored chunk; size bytes C2 A0 are a UTF-8 sequence and must not shift signature offsets.
+ const padded=Buffer.alloc(0xA0C2+8);webp.buffer.copy(padded);padded.writeUInt32LE(0xA0C2,4);padded.write('JUNK',webp.buffer.length);padded.writeUInt32LE(padded.length-webp.buffer.length-8,webp.buffer.length+4);webp.buffer=padded;
+ await selectionEvent({...png,mimeType:''},'input');assert.equal(await page.locator('.gallery-slide').count(),1);
+ await selectionEvent({...webp,mimeType:'application/octet-stream'},'change');assert.equal(await page.locator('.gallery-slide').count(),2);
+ const largeJpeg=await generatedPhoto('image/jpeg','large-camera.jpg',3000,1800);await choosePhoto(largeJpeg);assert.equal(await page.locator('.gallery-slide').count(),3);await page.waitForFunction(()=>[...document.querySelectorAll('.gallery-slide img')].every(i=>i.naturalWidth>0));
+ await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'商品編集を閉じる'}).click();await page.getByRole('button',{name:'写真形式試験を編集',exact:true}).click();assert.equal(await page.locator('.gallery-slide').count(),3);await page.waitForFunction(()=>document.querySelectorAll('.gallery-slide img')[2]?.naturalWidth>0);assert.equal(await page.locator('.gallery-slide img').nth(2).evaluate(i=>i.naturalWidth),2000);
+});
+test('failed image upload displays its cause by the picker and the exact same JPEG can be selected again',async()=>{
+ await photoProduct('写真再選択試験','photo-retry-test');const file={name:'retry-camera.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/yomogi.jpg',import.meta.url))};
+ await page.route('**/api/admin/images',route=>route.fulfill({status:503,contentType:'application/json',body:'{"error":{"message":"ローカル画像保存失敗の試験"}}'}));
+ try{await choosePhoto(file);assert.match(await page.locator('#photoUploadMessage').innerText(),/写真を追加できません.*画像保存失敗/);assert(await page.locator('#photoUploadMessage').isVisible());const msg=await page.locator('#photoUploadMessage').boundingBox(),header=await page.locator('#productEditor .dialog-heading').boundingBox(),footer=await page.locator('.editor-actions').boundingBox();assert(msg.y>=header.y+header.height&&msg.y+msg.height<=footer.y,'photo error must be visible inside the dialog');assert.equal(await page.locator('#imageFiles').inputValue(),'');assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert.equal(await page.locator('.gallery-slide').count(),0);await screenshot('photo-upload-error-390');}finally{await page.unroute('**/api/admin/images');}
+ await choosePhoto(file);assert.equal(await page.locator('.gallery-slide').count(),1);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
+});
+test('unsupported HEIC, corrupt image data, empty files and oversize files report actionable errors without upload',async()=>{
+ await photoProduct('写真入力検証試験','photo-validation-test');let posts=0;const watch=r=>{if(r.method()==='POST'&&r.url()===base+'/api/admin/images')posts++;};page.on('request',watch);
+ try{
+  for(const [file,expected] of [[{name:'phone.heic',mimeType:'image/heic',buffer:Buffer.from('unsupported-heic-fixture')},/HEIC.*JPEG/],[{name:'bad.jpg',mimeType:'image/jpeg',buffer:Buffer.from([255,216,255,...new Array(32).fill(0)])},/写真を読み込めません/],[{name:'unsafe.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg onload="bad()"></svg>')},/JPEG・PNG・WebP/],[{name:'empty.png',mimeType:'image/png',buffer:Buffer.alloc(0)},/写真データが空/]]){await choosePhoto(file);assert.match(await page.locator('#photoUploadMessage').innerText(),expected);assert.equal(await page.locator('.gallery-slide').count(),0);}
+  await page.evaluate(()=>{const transfer=new DataTransfer();transfer.items.add(new File([new Uint8Array(30*1024*1024+1)],'large.jpg',{type:'image/jpeg'}));const input=document.querySelector('#imageFiles');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true}));});await idle();assert.match(await page.locator('#photoUploadMessage').innerText(),/30MB以下/);assert.equal(posts,0);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');
+  await page.locator('#imageFiles').dispatchEvent('change');await idle();assert.equal(await page.locator('.gallery-slide').count(),0);
+ }finally{page.off('request',watch);}
+});
+test('canvas conversion failure is visible and a partially successful batch keeps the photos already added',async()=>{
+ await photoProduct('写真変換試験','photo-convert-test');const png=await generatedPhoto('image/png','conversion.png');
+ await page.evaluate(()=>{window.__photoOriginalToBlob=HTMLCanvasElement.prototype.toBlob;HTMLCanvasElement.prototype.toBlob=function(callback){callback(null);};});
+ try{await choosePhoto(png);assert.match(await page.locator('#photoUploadMessage').innerText(),/写真の変換に失敗/);assert.equal(await page.locator('.gallery-slide').count(),0);}finally{await page.evaluate(()=>{HTMLCanvasElement.prototype.toBlob=window.__photoOriginalToBlob;delete window.__photoOriginalToBlob;});}
+ await choosePhoto([png,{name:'unsupported.heic',mimeType:'image/heic',buffer:Buffer.from('unsupported-heic-fixture')}]);assert.equal(await page.locator('.gallery-slide').count(),1);assert.match(await page.locator('#photoUploadMessage').innerText(),/HEIC/);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

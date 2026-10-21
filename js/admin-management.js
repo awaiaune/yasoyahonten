@@ -15,7 +15,7 @@
     controls.forEach(([button]) => button.disabled = true); $('productForm').inert = true; $('inventoryForm').inert = true;
     $(activePanel).setAttribute('aria-busy','true'); message(place,'処理しています…','loading');
     try { await fn(); if ($(place).dataset.state === 'loading') message(place,'最新の情報を表示しています。'); }
-    catch (error) { message(place,error.message,'error'); notify(error.message,'error'); }
+    catch (error) { message(place,error.message,'error'); notify(error.message,'error'); if (place === 'photoUploadMessage') $(place).scrollIntoView({block:'center',behavior:'instant'}); }
     finally { busy = false; $('productForm').inert = false; $('inventoryForm').inert = false; screens.forEach(id => $(id).setAttribute('aria-busy','false')); controls.forEach(([button,disabled]) => { if (button.isConnected) button.disabled = disabled; }); }
   }
   async function preview(id) {
@@ -105,14 +105,14 @@
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
-    drawImages(); message('editorMessage');
+    drawImages(); message('editorMessage'); message('photoUploadMessage');
   }
   function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
   function newProduct() { open({id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
   $('newProduct').onclick = newProduct; $('homeNewProduct').onclick = newProduct;
   $('importProducts').onclick = () => { if (confirm('既存3商品の説明・写真を下書きとして取り込みます。公開やSquareへの書込みは行いません。')) work(async () => { await write('/api/admin/products/import',{}); await loadProducts(); notify('下書きとして取り込みました。'); }); };
   $('productList').onclick = e => { const b = e.target.closest('[data-edit]'); if (b) open(products.find(p => p.id === b.dataset.edit)); };
-  $('productForm').addEventListener('input',() => setDirty(true));
+  $('productForm').addEventListener('input',event => { if (event.target.id !== 'imageFiles') setDirty(true); });
   $('addVariant').onclick = () => { capture(); if (current.draft.variants.length >= 20) { message('editorMessage','バリエーションは20件までです。','error'); return; } current.draft.variants.push({id:crypto.randomUUID(),name:'',price:980,amount:'',maxQuantity:10,active:true}); setDirty(true); draw(); };
   $('productForm').onsubmit = e => { e.preventDefault(); work(async () => {
     capture(); const result = await write('/api/admin/products/' + current.id,{...current.draft,slug:current.slug,expectedVersion:current.version},'PUT');
@@ -133,16 +133,71 @@
   function closeEditor() { if (!busy && (!dirty || confirm('未保存の変更があります。保存せずに閉じますか？'))) { $('productEditor').close(); setDirty(false); } }
   $('closeEditor').onclick = closeEditor;
   $('productEditor').addEventListener('cancel',e => { e.preventDefault(); closeEditor(); });
-  $('imageFiles').onchange = () => work(async () => {
-    capture(); for (const file of $('imageFiles').files) {
-      if (current.draft.images.length >= 10) throw Error('写真は10枚までです。'); if (file.size > 30*1024*1024) throw Error('元の写真は30MB以下にしてください。');
-      let bitmap; try { bitmap = await createImageBitmap(file); } catch { throw Error('写真を変換できません。JPEG/PNG/WebPで選び直してください。'); }
-      const scale = Math.min(1,2000/Math.max(bitmap.width,bitmap.height)), canvas = document.createElement('canvas'); canvas.width = Math.round(bitmap.width*scale); canvas.height = Math.round(bitmap.height*scale); canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height); bitmap.close();
-      const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',.85)); if (!blob) throw Error('写真の変換に失敗しました。');
-      const result = await data('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob}); if (!current.draft.images.includes(result.id)) current.draft.images.push(result.id); setDirty(true); await drawImages(result.id);
+  async function preparePhoto(file) {
+    if (!file.size) throw Error('写真データが空です。端末に写真を保存してから選び直してください。');
+    if (file.size > 30*1024*1024) throw Error('元の写真は30MB以下にしてください。');
+    let header;
+    try { header = new Uint8Array(await file.slice(0,32).arrayBuffer()); }
+    catch { throw Error('写真ファイルを読み込めません。端末に保存してから選び直してください。'); }
+    const ascii = (start,end) => String.fromCharCode(...header.slice(start,end));
+    const mime = header[0] === 255 && header[1] === 216 && header[2] === 255 ? 'image/jpeg'
+      : [137,80,78,71,13,10,26,10].every((v,i) => header[i] === v) ? 'image/png'
+      : ascii(0,4) === 'RIFF' && ascii(8,12) === 'WEBP' ? 'image/webp' : null;
+    if (!mime) {
+      if (/image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name) || ascii(4,8) === 'ftyp') throw Error('HEIC/HEIFなどの形式は追加できません。JPEG・PNG・WebPに変換して選び直してください。');
+      throw Error('対応している写真はJPEG・PNG・WebPです。形式を確認して選び直してください。');
     }
-    $('imageFiles').value = ''; message('editorMessage','写真を追加しました。下書きを保存すると商品に反映されます。');
-  },'editorMessage');
+    // Android document/photo providers can return an empty or generic MIME type.
+    // Decode a typed local Blob with the browser image element instead of ImageBitmap.
+    const url = URL.createObjectURL(new Blob([file],{type:mime})), image = new Image();
+    try {
+      await new Promise((resolve,reject) => {
+        const cleanup = () => { clearTimeout(timer); image.onload = image.onerror = null; };
+        const timer = setTimeout(() => { cleanup(); reject(Error('写真の読み込みがタイムアウトしました。端末に保存し、縮小して選び直してください。')); },20000);
+        image.onload = () => { cleanup(); resolve(); };
+        image.onerror = () => { cleanup(); reject(Error('写真を読み込めません。破損していないJPEG・PNG・WebPで選び直してください。')); };
+        image.src = url;
+      });
+      const width = image.naturalWidth, height = image.naturalHeight;
+      if (!width || !height) throw Error('写真のサイズを取得できません。別の写真で試してください。');
+      const scale = Math.min(1,2000/Math.max(width,height)), canvas = document.createElement('canvas');
+      canvas.width = Math.max(1,Math.round(width*scale)); canvas.height = Math.max(1,Math.round(height*scale));
+      const context = canvas.getContext('2d');
+      if (!context) throw Error('端末で写真を変換できません。写真を縮小し、JPEGで選び直してください。');
+      context.drawImage(image,0,0,canvas.width,canvas.height);
+      const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',.85));
+      if (!blob || !blob.size || blob.type !== 'image/jpeg') throw Error('写真の変換に失敗しました。縮小したJPEGで選び直してください。');
+      if (blob.size > 8*1024*1024) throw Error('変換後の写真が8MBを超えています。縮小して選び直してください。');
+      return blob;
+    } finally { image.removeAttribute('src'); URL.revokeObjectURL(url); }
+  }
+  function photosSelected(event) {
+    const input = event.currentTarget, files = Array.from(input.files || []);
+    // Snapshot before any await/inert update; clear now so the same file can be retried.
+    // The following change event sees no files if input already handled this selection.
+    input.value = '';
+    if (!files.length) return;
+    if (busy) { message('photoUploadMessage','処理が終わってから、写真を選び直してください。','error'); return; }
+    work(async () => {
+      capture(); let added = 0;
+      for (const [i,file] of files.entries()) {
+        if (current.draft.images.length >= 10) throw Error('写真は10枚までです。不要な写真を外してから追加してください。');
+        message('photoUploadMessage',`写真を読み込んでいます…（${i+1}/${files.length}）`,'loading');
+        const blob = await preparePhoto(file);
+        message('photoUploadMessage',`写真を送信しています…（${i+1}/${files.length}）`,'loading');
+        let result;
+        try { result = await data('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob,signal:AbortSignal.timeout(20000)}); }
+        catch (error) { throw Error(error.status ? `写真を追加できません：${error.message}` : '写真を送信できません。通信状態を確認し、同じ写真を選び直してください。'); }
+        if (!/^[a-f0-9]{64}$/.test(result.id || '')) throw Error('写真の保存結果を確認できません。同じ写真を選び直してください。');
+        if (!current.draft.images.includes(result.id)) { current.draft.images.push(result.id); added++; setDirty(true); }
+        await drawImages(result.id);
+      }
+      message('photoUploadMessage',added ? `写真を${added}枚追加しました。下書きを保存すると商品に反映されます。` : '選択した写真は追加済みです。');
+      $('photoGalleryTrack').scrollIntoView({block:'center',behavior:'instant'});
+    },'photoUploadMessage');
+  }
+  $('imageFiles').addEventListener('input',photosSelected);
+  $('imageFiles').addEventListener('change',photosSelected);
 
   async function inventory() {
     const [stock,registered] = await Promise.all([data('/api/admin/inventory'),data('/api/admin/products')]); products = registered.products; inventoryRows = stock.inventory;
