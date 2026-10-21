@@ -1,0 +1,6 @@
+# Local dependencies, Wrangler state and credentials must never be committed.
+node_modules/
+.wrangler/
+.dev.vars*
+.env*
+*.log

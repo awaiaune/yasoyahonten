@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
 import vm from 'node:vm';
 import { createHash } from 'node:crypto';
+import { SandboxPurchaseCoordinator, guardBusinessServices } from '../validation/sandbox-worker.js';
 import { assertAccess } from '../validation/access.js';
 import { assertSavedMapping } from '../validation/mapping.mjs';
 import { productPlan } from '../validation/seed-square.mjs';
@@ -10,8 +11,8 @@ import { CATALOG } from '../worker/src/catalog.js';
 import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from '../validation/catalog.js';
 import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
-import { assertManifest, assertRuntime, assertConfig, assertDatabase, assertSquareDestination, assertTestEmail, environmentVars } from '../validation/safety.js';
-import { makeConfig, storefrontConfig, renderHtml, renderCartScript, markerSql } from '../validation/prepare.mjs';
+import { assertManifest, assertRuntime, assertConfig, assertDatabase, assertSquareDestination, assertTestEmail, environmentVars, VALIDATION_ORIGIN } from '../validation/safety.js';
+import { makeConfig, storefrontConfig, renderHtml, renderCartScript, renderApiScript, markerSql } from '../validation/prepare.mjs';
 function manifest() {
     return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid',accessTeamDomain:'test-team.cloudflareaccess.com',accessAudience:'b'.repeat(64)};
 }
@@ -45,13 +46,13 @@ test('configuration refuses production routes, databases, external DOs and injec
 });
 test('runtime rejects environment drift, missing secrets and local test bindings', () => {
     assert.doesNotThrow(()=>assertRuntime(runtime()));
-    for (const patch of [{SQUARE_ENVIRONMENT:'production'},{RUNTIME_TIER:''},{SITE_URL:'https://yasoyahonten.awaiaune.com'},{VALIDATION_ADMIN_TOKEN:'local-development-only'},{SQUARE_SANDBOX_ACCESS_TOKEN:''},{SQUARE_ACCESS_TOKEN:'generic-secret-forbidden'},{LOCAL_SQUARE:{}}]) assert.throws(()=>assertRuntime({...runtime(),...patch}));
+    for (const patch of [{SQUARE_ENVIRONMENT:'production'},{RUNTIME_TIER:''},{SITE_URL:'https://yasoyahonten.awaiaune.com'},{VALIDATION_ADMIN_TOKEN:'local-development-only'},{SQUARE_SANDBOX_ACCESS_TOKEN:''},{SQUARE_ACCESS_TOKEN:'generic-secret-forbidden'},{CLOUDFLARE_API_TOKEN:'forbidden-cloudflare-key'},{CLOUDFLARE_API_KEY:'forbidden-cloudflare-key'},{LOCAL_SQUARE:{}}]) assert.throws(()=>assertRuntime({...runtime(),...patch}));
 });
 test('Square egress permits only Sandbox and test mail permits only one recipient', () => {
     const env=runtime(); assert.doesNotThrow(()=>assertSquareDestination(env,'https://connect.squareupsandbox.com/v2/payments'));
     for (const url of ['https://connect.squareup.com/v2/payments','https://connect.squareupsandbox.com.evil.invalid/v2/payments','http://connect.squareupsandbox.com/v2/payments','https://user@connect.squareupsandbox.com/v2/payments']) assert.throws(()=>assertSquareDestination(env,url));
     const mail={from:'sender@example.invalid',to:['test@example.invalid']};assert.doesNotThrow(()=>assertTestEmail(env,mail));
-    for (const patch of [{to:['customer@example.invalid']},{bcc:['other@example.invalid']},{to:['test@example.invalid','other@example.invalid']}]) assert.throws(()=>assertTestEmail(env,{...mail,...patch}));
+    for (const patch of [{to:['customer@example.invalid']},{bcc:['other@example.invalid']},{cc:['other@example.invalid']},{to:['test@example.invalid','other@example.invalid']}]) assert.throws(()=>assertTestEmail(env,{...mail,...patch}));
 });
 test('D1 marker is checked read-only and never initialized automatically', async () => {
     let writes=0;const env=runtime();
@@ -73,9 +74,10 @@ test('sandbox entry rejects invalid configuration before fetch, D1 or assets', a
     const r=await mf.dispatchFetch('https://yasoya-payments-validation.test-account.workers.dev/api/health');assert.equal(r.status,503);assert.equal(outbound,0);
 });
 
-test('valid sandbox wrapper uses only isolated D1, mapped variants and test recipients', async t => {
-    const m=manifest(); const bundle=await build({entryPoints:[new URL('../validation/sandbox-worker.js',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'browser'});
-    const calls=[];let payment;const jwt=await accessToken(m);
+for (const validationOrigin of [manifest().workerOrigin, VALIDATION_ORIGIN])
+test('valid sandbox wrapper uses isolated D1, mapped variants and test recipients: '+validationOrigin, async t => {
+    const m={...manifest(),workerOrigin:validationOrigin,resendFrom:'validation@send.awaiaune.com'}; const bundle=await build({entryPoints:[new URL('../validation/sandbox-worker.js',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'browser'});
+    const calls=[],mailPayloads=[];let payment;const jwt=await accessToken(m);
     const env=runtime(m);delete env.ORDERS_DB;delete env.PURCHASE_COORDINATOR;
     const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,
         d1Databases:{ORDERS_DB:'sandbox-safety-fresh-test-db'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},
@@ -85,7 +87,7 @@ test('valid sandbox wrapper uses only isolated D1, mapped variants and test reci
             if(u.origin===`https://${m.accessTeamDomain}`){assert.equal(u.pathname,'/cdn-cgi/access/certs');return Response.json({keys:[accessJwk]});}
             calls.push(u.origin+u.pathname);
             const body=await request.json();
-            if(u.origin==='https://api.resend.com') { assertTestEmail(runtime(m),body);return Response.json({id:'offline-test-mail'}); }
+            if(u.origin==='https://api.resend.com') { assertTestEmail(runtime(m),body);mailPayloads.push(body);return Response.json({id:'offline-test-mail'}); }
             assert.equal(u.origin,'https://connect.squareupsandbox.com');
             if(u.pathname.endsWith('/counts/batch-retrieve')) {
                 assert.equal(body.catalog_object_ids.length,1);assert(Object.values(m.variations).includes(body.catalog_object_ids[0]));
@@ -125,8 +127,23 @@ test('valid sandbox wrapper uses only isolated D1, mapped variants and test reci
 
     const paid=await request('/api/payments',options);assert.equal(paid.status,200);assert.equal((await paid.json()).ok,true);
     assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM orders').first()).n,1);
+    for(let tries=0;tries<50&&mailPayloads.length<2;tries++)await new Promise(resolve=>setTimeout(resolve,20));
+    assert.equal(mailPayloads.length,2); // Admin and customer receipts both go only to the owner.
+    const stored=await db.prepare('SELECT order_reference, contact_json FROM orders LIMIT 1').first();
+    await db.prepare('UPDATE orders SET contact_json=? WHERE order_reference=?').bind(JSON.stringify({...contact,email:'customer@example.invalid'}),stored.order_reference).run();
+    const ship={method:'POST',headers:{Authorization:'Bearer '+env.VALIDATION_ADMIN_TOKEN,'Content-Type':'application/json'},body:JSON.stringify({shippingMethod:'offline-test',trackingNumber:'offline-test'})};
+    const refused=await request('/api/admin/orders/'+stored.order_reference+'/ship',ship);
+    assert.equal(refused.status,500);assert.equal(mailPayloads.length,2);
+    assert.equal((await db.prepare('SELECT status FROM orders WHERE order_reference=?').bind(stored.order_reference).first()).status,'pending');
+    await db.prepare('UPDATE orders SET contact_json=? WHERE order_reference=?').bind(stored.contact_json,stored.order_reference).run();
+    assert.equal((await request('/api/admin/orders/'+stored.order_reference+'/ship',ship)).status,200);
+    assert.equal(mailPayloads.length,3);
+    assert(mailPayloads.every(mail=>mail.from==='validation@send.awaiaune.com'&&mail.to.length===1&&mail.to[0]===m.notificationEmail&&(!mail.reply_to||mail.reply_to===m.notificationEmail)&&!mail.cc&&!mail.bcc));
+
     assert.equal((await request('/api/payments',{...options,body:JSON.stringify({...order,contact:{...contact,email:'unapproved@example.invalid'}})})).status,400);
     assert.equal((await mf.dispatchFetch('https://yasoyahonten.awaiaune.com/api/health')).status,403);
+    const alternate=validationOrigin===VALIDATION_ORIGIN?manifest().workerOrigin:VALIDATION_ORIGIN;
+    assert.equal((await mf.dispatchFetch(alternate+'/api/health',{headers:{'Cf-Access-Jwt-Assertion':jwt}})).status,403);
     assert(calls.every(c=>c.startsWith('https://connect.squareupsandbox.com/')||c.startsWith('https://api.resend.com/')));
 });
 
@@ -201,4 +218,85 @@ test('offline preparation requires saved mapping account, three IDs and source d
     assert.doesNotThrow(()=>assertSavedMapping(m,mapping,settings,plan));
     for(const patch of [{locationId:'OTHERLOCATION'},{sourceDigest:'old-source'},{variations:{...mapping.variations,'goldenrod-leaf-stem-20g':'RETIREDVAR001'}},{variations:{...mapping.variations,'lemonbalm-10g':'OTHERID001'}},{token:'forbidden'},{items:{}}])assert.throws(()=>assertSavedMapping(m,{...mapping,...patch},settings,plan));
     assert.throws(()=>assertSavedMapping(m,null,settings,plan));
+});
+
+
+test('custom validation domain has one exact route, same-origin APIs and no workers.dev or previews',()=>{
+    const m={...manifest(),workerOrigin:VALIDATION_ORIGIN},config=makeConfig(m);
+    assert.doesNotThrow(()=>assertConfig(config,m));
+    assert.equal(config.workers_dev,false);assert.equal(config.preview_urls,false);
+    assert.deepEqual(config.routes,[{pattern:'validation.awaiaune.com',custom_domain:true}]);
+    const vars=environmentVars(m);assert.equal(vars.ALLOWED_ORIGINS,VALIDATION_ORIGIN);assert.equal(vars.SITE_URL,VALIDATION_ORIGIN);
+    assert(storefrontConfig(m).includes('"workerBaseUrl":"https://validation.awaiaune.com"'));
+    for(const origin of ['https://awaiaune.com','https://yasoyahonten.awaiaune.com','https://other.awaiaune.com','http://validation.awaiaune.com','https://validation.awaiaune.com:8443','https://validation.awaiaune.com/path'])assert.throws(()=>assertManifest({...m,workerOrigin:origin}));
+    for(const patch of [{workers_dev:true},{preview_urls:true},{routes:[]},{routes:[{pattern:'*.awaiaune.com/*'}]},{routes:[{pattern:'awaiaune.com',custom_domain:true}]},{routes:[{pattern:'validation.awaiaune.com',custom_domain:false}]}])assert.throws(()=>assertConfig({...config,...patch},m));
+});
+
+
+test('every coordinator business service checks the current marker before effects', async()=>{
+    const env=runtime(),events=[];let mode='valid';
+    env.ORDERS_DB={prepare(sql){assert.equal(sql,'SELECT instance_id FROM validation_environment WHERE id=1');events.push('marker-select');return {first:async()=>{if(mode==='error')throw new Error('offline D1 unavailable');return mode==='missing'?null:{instance_id:mode==='valid'?manifest().instanceId:'wrong'};}};}};
+    const names=['stock','charge','lookup','decrement','project','notify','email'];
+    const services=Object.fromEntries(names.map(name=>[name,async()=>{events.push(name);return name;}]));
+    const guarded=guardBusinessServices(env,services);
+    for(const name of names){events.length=0;assert.equal(await guarded[name](),name);assert.deepEqual(events,['marker-select',name]);}
+    for(mode of ['missing','wrong','error'])for(const name of names){events.length=0;await assert.rejects(guarded[name]());assert.deepEqual(events,['marker-select']);}
+});
+test('running and restarted validation DOs gate fetch and Alarm before ledger or storage work',async()=>{
+    const env=runtime(),events=[];let valid=true,init;
+    env.ORDERS_DB={prepare(sql){assert.match(sql,/^SELECT instance_id/);events.push('marker-select');return {first:async()=>({instance_id:valid?manifest().instanceId:'wrong'})};}};
+    const ctx={storage:new Proxy({}, {get(){throw new Error('No durable storage operation allowed in gate test');}}),blockConcurrencyWhile:fn=>(init=fn())};
+    const coordinator=new SandboxPurchaseCoordinator(ctx,env);await init;
+    for(const method of ['submit','recover','warnings','alarm'])coordinator.ledger[method]=async()=>{events.push(method);return method==='warnings'?[]:{ok:true};};
+    const request=path=>new Request('https://do.internal/'+path,{method:'POST',body:JSON.stringify({attemptId:crypto.randomUUID()})});
+    for(const path of ['pay','status','recover','warnings']){events.length=0;assert.equal((await coordinator.fetch(request(path))).status,200);assert.equal(events[0],'marker-select');assert.equal(events.length,2);}
+    events.length=0;await coordinator.alarm();assert.deepEqual(events,['marker-select','alarm']);
+    valid=false;
+    for(const path of ['pay','status','recover','warnings']){events.length=0;await assert.rejects(coordinator.fetch(request(path)));assert.deepEqual(events,['marker-select']);}
+    events.length=0;await assert.rejects(coordinator.alarm());assert.deepEqual(events,['marker-select']);
+    events.length=0;new SandboxPurchaseCoordinator(ctx,env);await assert.rejects(init);assert.deepEqual(events,['marker-select']);
+});
+test('valid Access cannot bypass a missing or wrong D1 marker on business routes',async t=>{
+    const m={...manifest(),workerOrigin:VALIDATION_ORIGIN},env=runtime(m),jwt=await accessToken(m);
+    delete env.ORDERS_DB;delete env.PURCHASE_COORDINATOR;
+    const bundle=await build({entryPoints:[new URL('../validation/sandbox-worker.js',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'browser'});
+    let businessCalls=0,assetCalls=0;
+    const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,d1Databases:{ORDERS_DB:'marker-gate-only-db'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},serviceBindings:{ASSETS:()=>{assetCalls++;return new Response('not allowed');}},outboundService:async request=>{
+        if(request.url===`https://${m.accessTeamDomain}/cdn-cgi/access/certs`)return Response.json({keys:[accessJwk]});
+        businessCalls++;throw new Error('No Square or Resend request allowed');
+    }});t.after(()=>mf.dispose());
+    const db=await mf.getD1Database('ORDERS_DB');
+    const order={attemptId:crypto.randomUUID(),sourceId:'offline-only',items:[{id:'lemonbalm-10g',quantity:1}],ids:['lemonbalm-10g'],contact:{email:m.notificationEmail}};
+    const routes=[['GET','/'],['GET','/api/health'],['POST','/api/inventory'],['POST','/api/quote'],['POST','/api/payments'],['POST','/api/payments/status'],['GET','/api/admin/orders'],['POST','/api/admin/orders/offline-order/ship'],['POST',`/api/admin/payment-attempts/${order.attemptId}/recover`]];
+    for(const mode of ['missing-table','wrong-marker','missing-row']){
+        if(mode==='wrong-marker')await db.exec("CREATE TABLE validation_environment (id INTEGER PRIMARY KEY,instance_id TEXT NOT NULL); INSERT INTO validation_environment VALUES(1,'wrong');");
+        if(mode==='missing-row')await db.exec('DELETE FROM validation_environment');
+        for(const [method,path] of routes){
+            const response=await mf.dispatchFetch(m.workerOrigin+path,{method,headers:{Origin:m.workerOrigin,'Content-Type':'application/json','Cf-Access-Jwt-Assertion':jwt,Authorization:'Bearer '+env.VALIDATION_ADMIN_TOKEN},...(method==='POST'?{body:JSON.stringify(order)}:{})});
+            assert.equal(response.status,503,mode+' '+path);
+        }
+        const row=await db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='orders'").first();assert.equal(row.n,0);
+        assert.equal(businessCalls,0);assert.equal(assetCalls,0);
+    }
+});
+
+
+test('generated legacy API scripts refuse missing or wrong Sandbox config before DOM or network', async()=>{
+    const m={...manifest(),workerOrigin:VALIDATION_ORIGIN};
+    for (const name of ['products-inventory.js','cart-drawer.js','admin.js']) {
+        const original=await readFile(new URL('../js/'+name,import.meta.url),'utf8');
+        const script=renderApiScript(original,m);
+        assert(!script.includes('https://yasoya-honten-payments.tatsurou3523.workers.dev'));
+        let requests=0;
+        for(const config of [undefined,{environment:'production',workerBaseUrl:m.workerOrigin},{environment:'sandbox',workerBaseUrl:'https://other.invalid'}]) {
+            const context={window:{YASOYA_STORE_CONFIG:config},location:{origin:m.workerOrigin},fetch:()=>{requests++;},document:new Proxy({}, {get(){throw new Error('DOM must not initialize');}})};
+            assert.throws(()=>vm.runInNewContext(script,context),/Sandbox configuration required/);
+        }
+        assert.throws(()=>vm.runInNewContext(script,{window:{YASOYA_STORE_CONFIG:{environment:'sandbox',workerBaseUrl:m.workerOrigin}},location:{origin:'https://other.invalid'}}),/Sandbox configuration required/);
+        const elements=new Map(),listeners=[];
+        const context={window:{YASOYA_STORE_CONFIG:{environment:'sandbox',workerBaseUrl:m.workerOrigin}},location:{origin:m.workerOrigin},sessionStorage:{getItem:()=>''},document:{addEventListener:(event,action)=>listeners.push([event,action]),querySelectorAll:()=>[],getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}},fetch:()=>{requests++;}};
+        assert.doesNotThrow(()=>vm.runInNewContext(script,context));
+        assert(listeners.length>0||elements.size>0);assert.equal(requests,0);
+        assert.equal(await readFile(new URL('../js/'+name,import.meta.url),'utf8'),original);
+    }
 });

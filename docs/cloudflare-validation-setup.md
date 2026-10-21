@@ -1,12 +1,16 @@
-# 決済検証用Cloudflare環境の準備（未作成・未デプロイ）
+# 決済検証用Cloudflare環境の準備（Access作成済み・Worker未デプロイ）
+
+現在の進行は[GitHubブランチからCodespacesへの引き継ぎ](android-codespaces-handoff.md)を優先する。Access/D1/マーカー/DNS/Resendは確認済み。以下の過去の準備手順を繰り返さない。今回は保存対象レビューだけで実行承認待ち。
 
 今回行うのはローカルのコード・設定案・テストだけ。Cloudflareのリソース作成、公開、Secret登録、リモートSQL、Square API接続・在庫変更・決済は行わない。後述の作成操作も、対象と設定を確認して別途承認を受けてから行う。
+
+候補URLをvalidation.awaiaune.comへ変更する場合の最新条件・Access入力案は [access-validation-domain.md](access-validation-domain.md) を優先する。Accessはユーザー確認で作成済み。DNS/既存ルールの残り確認と専用Worker・D1の公開前レビューは未完了。
 
 ## 構成と分離の確認
 
 | 項目 | 検証用の指定 | 混在を防ぐ確認 |
 |---|---|---|
-| Worker / Assets | yasoya-payments-validation、専用workers.dev URL | 本番名・custom route・未知フィールドを拒否。Git連携なし。preview_urls=false。全AssetsをWorker経由で配信 |
+| Worker / Assets | yasoya-payments-validation、専用検証ホスト | 本番名・許可ホスト以外のroute・未知フィールドを拒否。Git連携なし。custom domain時はworkers_dev=false、preview_urls=false。全AssetsをWorker経由で配信 |
 | D1 | yasoya-validation-orders、新規UUID | 既知の本番UUIDを拒否。専用instance_idマーカーをSELECTで照合。既存注文のコピー・削除なし |
 | Durable Object | SandboxPurchaseCoordinator、検証Worker内の新namespace | 外部script_name・本番クラスの指定を拒否。新規migrationタグv1-validation |
 | Square | Sandboxアプリ、Location LHD4ZZ1ZYPHD1、JP/JPY | 通常の本番Secret名と既知の本番Variation IDを拒否。送信先はconnect.squareupsandbox.com/v2/のみ |
@@ -34,25 +38,25 @@
 
 1. ChromeでCloudflare Dashboardにログイン。必要ならメニューから「PC版サイト」を選ぶ。検証に使うアカウントを確認し、アカウントIDを控える。
 2. Workers & Pagesで既存のworkers.devサブドメインを確認する。本番Workerの編集・Deploy・Createは押さない。未設定なら今は新規設定せず、その旨だけ共有する。
-3. Zero TrustのAccess → Applications相当の画面が利用可能か確認する。今回、新規アプリやポリシーは作らない。チームのドメイン（例: team.cloudflareaccess.com）が既にあれば控える。画面名・契約条件で利用できない場合は停止する。
-4. 自分が受信できるテスト通知先1件を決める。このアドレスをAccessで許可する所有者アドレスとしても使用する。
+3. 作成済みAccessアプリyasoya-payments-validationの詳細からAUDを控え、チームドメインも確認する。アプリは再作成しない。
+4. 確認済みの所有者Gmail 1件をテスト通知先にも使用する。
 5. Resendで検証用に使える送信元アドレスを確認する。独立した検証キーを使う計画とし、今はキーをチャット・ファイルに貼らない。DNSの変更やテストメール送信もしない。
 6. アカウントID、workers.devサブドメイン、Accessチームドメイン、テスト受信先と送信元という秘密でない項目だけ共有する。Secret値は共有しない。
 
-この時点ではD1 UUIDとAccessアプリのAUDは未取得で正常。仮UUIDや本番の値で埋めない。manifest.local.jsonは公開IDだけの下書きで、不足項目がある限りprepare/checkを通さない。
+Accessアプリは作成済みなのでAUDは既存詳細画面から取得する。D1 UUIDは専用D1の作成承認後に確定する。仮UUIDや本番の値で埋めない。manifest.local.jsonは公開IDだけの下書きで、不足項目がある限りprepare/checkを通さない。
 
 ## 別途承認後のAndroid操作順序（今は実行しない）
 
-1. 対象アカウント・リソース名・通知先を確認し、専用D1作成とAccess設定の承認を得る。
+1. 対象アカウント・リソース名・通知先を確認し、専用D1作成の承認を得る。Accessアプリは作成済み。
 2. Storage & databases → D1からyasoya-validation-ordersを新規作成し、名前とUUIDを控える。本番DBのエクスポート・インポートはしない。
-3. 専用Workerの予定URLは https://yasoya-payments-validation.<検証用subdomain>.workers.dev とする。本番の独自ドメインを割り当てない。
-4. Zero Trust → Access → Applicationsから、このホスト全パスを対象にした専用Self-hostedアプリを準備する。Allowは所有者のメール1件だけ。Everyone、Bypass、Service Auth用の迂回ルールは設けない。メールOTP等、Androidで使えるログイン手段を選ぶ。
+3. 専用Workerの候補URLは https://validation.awaiaune.com 。既存DNS・Routes・Accessとの競合を確認し、このホストだけのCustom Domain/DNS・証明書作成を別途承認する。rootや本番ホストを割り当てない。
+4. 作成済みのAccessアプリで全パス保護・所有者メール1件のAllow・追加のBypass等がないことを確認する。新規アプリを作らない。メールOTP等のログイン方法も確認する。
 5. アプリのApplication Audience (AUD)を控える。Access設定は本番アプリと別にする。workers.devの保護を先に設定できないUIの場合も、Worker側の署名検証は必須のまま。保護を確認するまで購入試験をしない。
 6. 公開IDをmanifestへ反映し、こちらでオフラインprepare/check、生成SQL・Wrangler設定・コピーAssetsをレビューする。
 7. マーカーSQLの適用は、専用D1の名前とUUIDを再確認し、別途承認した場合だけ行う。生成されたSQLだけを使用し、本番DBにマーカーを作らない。ordersテーブルは既存コードが専用DB内に作成するため、本番データの移植は不要。
 8. 専用Worker作成・初回公開はデプロイなので別途承認後だけ。GitHub接続は使わない。コード反映は明示的なvalidation/wrangler.local.json指定で行い、本番worker/のコマンドを使わない。初回はSecret未設定等で503になってよい。
 9. 専用WorkerのSettings → Variables and SecretsでSQUARE_SANDBOX_ACCESS_TOKEN、RESEND_VALIDATION_API_KEY、VALIDATION_ADMIN_TOKENをSecretとして登録する。CodexのSecretはCloudflareへ自動転送されない。実トークンを取り出してファイルに保存しない。管理者トークンは独立した32文字以上の乱数をパスワード管理アプリ等で管理する。
-10. BindingsでORDERS_DBが専用D1、PURCHASE_COORDINATORが専用WorkerのSandboxPurchaseCoordinatorであることを照合する。Domains & Routesでは専用workers.devのみ、Preview URLs無効、Git自動ビルドなしを確認する。
+10. BindingsでORDERS_DBが専用D1、PURCHASE_COORDINATORが専用WorkerのSandboxPurchaseCoordinatorであることを照合する。Domains & Routesでは承認済み専用ホストのみ、custom domain時はworkers.devも無効、Preview URLs無効、Git自動ビルドなしを確認する。
 11. 未ログインのChromeシークレットタブでページ・health・管理APIが保護されていることを確認する。Accessログイン後も、管理者Bearerなしの管理APIは401であることを確認する。
 12. Sandbox SDKの表示・ログイン継続・D1マーカー・通知先を確認してから、テスト決済の承認を別途得る。Sandbox公式のテストカードと架空情報のみ使う。既存の5個を無断で1個や5個に戻さない。
 

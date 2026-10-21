@@ -6,6 +6,8 @@ const PRODUCTION = {
 };
 export const WORKER = 'yasoya-payments-validation';
 export const DATABASE = 'yasoya-validation-orders';
+export const VALIDATION_HOST = 'validation.awaiaune.com';
+export const VALIDATION_ORIGIN = `https://${VALIDATION_HOST}`;
 function requireSafe(condition, message) { if (!condition) throw new Error(`Sandbox safety: ${message}`); }
 function filled(value) { return typeof value === 'string' && value.length > 0 && !/REPLACE|CHANGEME/i.test(value); }
 export function assertManifest(m) {
@@ -16,7 +18,7 @@ export function assertManifest(m) {
     requireSafe(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(m.databaseId) && m.databaseId !== PRODUCTION.database, 'dedicated D1 ID required');
     requireSafe(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(m.instanceId) && m.instanceId !== m.databaseId, 'unique instance marker required');
     const origin = new URL(m.workerOrigin);
-    requireSafe(origin.origin === m.workerOrigin && origin.protocol === 'https:' && !origin.username && !origin.password && origin.hostname.startsWith(WORKER + '.') && origin.hostname.endsWith('.workers.dev'), 'dedicated workers.dev origin required');
+    requireSafe(origin.origin === m.workerOrigin && origin.protocol === 'https:' && !origin.username && !origin.password && (origin.origin === VALIDATION_ORIGIN || (origin.hostname.startsWith(WORKER + '.') && origin.hostname.endsWith('.workers.dev'))), 'only the exact validation domain or dedicated workers.dev origin is allowed');
     requireSafe(filled(m.squareApplicationId) && m.squareApplicationId.startsWith('sandbox-sq0idb-'), 'Sandbox Application ID required');
     requireSafe(filled(m.squareLocationId) && /^[A-Z0-9]{8,64}$/.test(m.squareLocationId) && m.squareLocationId !== PRODUCTION.location, 'Sandbox Location ID required');
     requireSafe(m.variations && Object.keys(m.variations).sort().join() === Object.keys(SANDBOX_CATALOG).sort().join(), 'exactly the three Sandbox product IDs must be mapped');
@@ -28,6 +30,11 @@ export function assertManifest(m) {
     requireSafe(filled(m.notificationEmail) && /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(m.notificationEmail), 'single test recipient required');
     requireSafe(filled(m.resendFrom) && /^[A-Za-z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(m.resendFrom), 'test sender required');
     return m;
+}
+export function validationRouting(m) {
+    assertManifest(m);
+    const custom = m.workerOrigin === VALIDATION_ORIGIN;
+    return {workers_dev: !custom, preview_urls: false, routes: custom ? [{pattern:VALIDATION_HOST,custom_domain:true}] : []};
 }
 export function environmentVars(m) {
     assertManifest(m);
@@ -44,7 +51,7 @@ export function assertRuntime(env) {
     for (const [key,value] of Object.entries(vars)) requireSafe(env[key] === value, `binding mismatch: ${key}`);
     requireSafe(!env.LOCAL_SQUARE && !env.LOCAL_RESEND && !env.LOCAL_TEST_MODE, 'local fault doubles are forbidden in remote validation');
     requireSafe(env.ORDERS_DB && env.PURCHASE_COORDINATOR, 'dedicated D1 and DO bindings required');
-    requireSafe(!env.SQUARE_ACCESS_TOKEN && !env.RESEND_API_KEY && !env.ADMIN_TOKEN, 'generic/production secret bindings forbidden');
+    requireSafe(!env.SQUARE_ACCESS_TOKEN && !env.RESEND_API_KEY && !env.ADMIN_TOKEN && !env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY, 'generic/production secret bindings forbidden');
     for (const key of ['SQUARE_SANDBOX_ACCESS_TOKEN','RESEND_VALIDATION_API_KEY','VALIDATION_ADMIN_TOKEN']) {
         requireSafe(filled(env[key]) && !['fake-local-test-only','local-test-not-a-secret','local-development-only'].includes(env[key]), `separate secret required: ${key}`);
     }
@@ -72,7 +79,8 @@ export function assertConfig(config, m) {
     const allowed = ['name','account_id','main','compatibility_date','workers_dev','preview_urls','routes','assets','vars','d1_databases','durable_objects','migrations'];
     requireSafe(Object.keys(config).every(k => allowed.includes(k)), 'unknown Wrangler field');
     requireSafe(config.name === WORKER && config.account_id === m.accountId && config.main === './sandbox-worker.js' && config.compatibility_date === '2026-08-04', 'worker/account/entry mismatch');
-    requireSafe(config.workers_dev === true && config.preview_urls === false && JSON.stringify(config.routes) === '[]', 'custom/production routes forbidden');
+    const routing=validationRouting(m);
+    requireSafe(config.workers_dev === routing.workers_dev && config.preview_urls === false && JSON.stringify(config.routes) === JSON.stringify(routing.routes), 'only the reviewed validation host may be routed; alternate URLs forbidden');
     requireSafe(JSON.stringify(config.vars) === JSON.stringify(environmentVars(m)), 'vars differ from reviewed manifest; secrets must be Dashboard Secrets');
     requireSafe(JSON.stringify(config.d1_databases) === JSON.stringify([{binding:'ORDERS_DB',database_name:DATABASE,database_id:m.databaseId}]), 'D1 binding mismatch');
     requireSafe(JSON.stringify(config.durable_objects) === JSON.stringify({bindings:[{name:'PURCHASE_COORDINATOR',class_name:'SandboxPurchaseCoordinator'}]}), 'external/production DO binding forbidden');

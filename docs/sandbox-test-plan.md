@@ -1,6 +1,10 @@
 # 検証計画とAndroidからの準備
 
-最新のCloudflare準備・Android手順・デプロイ前チェック・停止復旧手順は [cloudflare-validation-setup.md](cloudflare-validation-setup.md) を優先する。Squareは3商品登録と各5個の設定まで完了済み。新しい検証では商品登録・在庫初期化を繰り返さない。
+現在の進行は[GitHubブランチからCodespacesへの引き継ぎ](android-codespaces-handoff.md)を優先する。Access/D1/マーカー/DNS/Resendは確認済み。以下の過去の準備手順を繰り返さない。今回は保存対象レビューだけで実行承認待ち。
+
+専用ドメインとAccess入力案の最新条件は [access-validation-domain.md](access-validation-domain.md) を優先する。Cloudflare準備・Android手順・デプロイ前チェック・停止復旧手順は [cloudflare-validation-setup.md](cloudflare-validation-setup.md) を優先する。Squareは3商品登録と各5個の設定まで完了済み。新しい検証では商品登録・在庫初期化を繰り返さない。
+
+Accessアプリyasoya-payments-validationはユーザー確認で作成済み（validation.awaiaune.com、管理者1件Allow、1時間）。アプリ再作成は不要。次はAUD・チームドメイン等の確認と、専用Worker/D1/DOの安全確認を行う。
 
 ## 実施段階と承認
 
@@ -43,10 +47,10 @@
 ### A. 承認前に準備できること
 
 1. ChromeでSquare Developer Dashboardへログイン。必要ならChromeメニューの「PC版サイト」を使う。
-2. 対象アプリを開くか、検証専用アプリを新規作成する。「Sandbox」を選び、Productionではないことを確認する。
+2. 登録済みのSquare検証アプリを開き、「Sandbox」を選ぶ。アプリの新規作成・商品再登録はしない。
 3. Sandbox Application IDと、Sandboxテスト販売者のLocation IDを控える。アクセストークンはチャットに送らない。
 4. Sandbox Test AccountからSandbox Dashboardを開く。本番のSquare通常Dashboardでないことを確認する。
-5. 登録計画は3商品3バリエーション、各980円（レモンバーム10g、ヨモギ10g、セイタカ葉10g）。手動で同名商品を先に作らず、承認後に商品登録スクリプトを単独実行し、対応表からVariation IDを取得する。在庫設定は数量を明示して別途承認後のみ。
+5. 登録済みの3商品3バリエーション・各980円・各5個を読み取り確認する。違っていたら報告し、再登録・再初期化で戻さない。
 6. Cloudflare Dashboardへログインし、アカウントIDと検証用workers.devのサブドメインを控える。この段階では「Deploy」「Save and deploy」は押さない。
 7. 自分が受信できるテストメール1件と、Resendで利用可能な送信元を決める。可能なら検証用Resendキーを別に用意する。送信元ドメインの認証が必要な場合は既存認証を確認し、無断でDNSを書き換えない。
 8. アプリID・Location ID・Variation ID・CloudflareアカウントIDなど秘密でない情報だけを共有する。秘密キーと管理者トークンは共有しない。設定案の再確認後に検証環境作成／デプロイを承認する。
@@ -77,3 +81,7 @@
 ## Cloudflare準備後のローカル結果
 
 `npm --prefix dev test`: 63件成功、失敗0・スキップ0。既存60件を維持し、Access設定・署名検証とオフライン対応表照合の3件を追加。詳細と未完了項目はcloudflare-validation-setup.md参照。
+
+## D1マーカー保存確認後のデプロイ準備
+
+ユーザーが検証D1でマーカーSQLを実行し、SELECT結果を確認済み。SQL再実行とAccess/D1再作成は不要。HTTP入口に加え、起動済みDOのfetch/Alarmと7業務サービスの直前にもマーカー照合を追加した。不一致・欠落・D1エラーでは業務処理へ進まない。最新の承認段階・Custom DomainによるDNS作成の影響・テスト結果は[公開前レビュー](validation-predeploy-review.md)を参照。デプロイ・DNS変更・Secrets登録はまだ承認待ち。

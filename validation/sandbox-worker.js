@@ -1,11 +1,30 @@
 import worker, { PurchaseCoordinator } from '../worker/src/index.js';
 import { assertAccess, AccessDenied } from './access.js';
 import { assertRuntime, assertDatabase } from './safety.js';
+export function guardBusinessServices(env, services) {
+    const guarded = { ...services };
+    for (const name of ['stock','charge','lookup','decrement','project','notify','email']) {
+        const action = services[name];
+        guarded[name] = async (...args) => {
+            await assertDatabase(env);
+            return action(...args);
+        };
+    }
+    return guarded;
+}
 export class SandboxPurchaseCoordinator extends PurchaseCoordinator {
     constructor(ctx, env) {
         assertRuntime(env);
         super(ctx, env);
+        this.ledger.services = guardBusinessServices(env, this.ledger.services);
         ctx.blockConcurrencyWhile(() => assertDatabase(env));
+    }
+    serialize(action) {
+        return super.serialize(async () => {
+            // Covers both internal fetch and Alarm, including already-running DOs.
+            await assertDatabase(this.env);
+            return action();
+        });
     }
 }
 export default {

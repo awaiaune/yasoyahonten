@@ -2,13 +2,13 @@
 import { readFile, writeFile, mkdir, readdir, lstat, copyFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { assertManifest, assertConfig, environmentVars, WORKER, DATABASE } from './safety.js';
+import { assertManifest, assertConfig, environmentVars, validationRouting, WORKER, DATABASE } from './safety.js';
 import { assertSavedMapping } from './mapping.mjs';
 import { productPlan } from './seed-square.mjs';
 import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from './catalog.js';
 export function makeConfig(m) {
     assertManifest(m);
-    return { name: WORKER, account_id: m.accountId, main: './sandbox-worker.js', compatibility_date: '2026-08-04', workers_dev: true, preview_urls: false, routes: [],
+    return { name: WORKER, account_id: m.accountId, main: './sandbox-worker.js', compatibility_date: '2026-08-04', ...validationRouting(m),
         assets: {directory:'./.generated/site',binding:'ASSETS',run_worker_first:true}, vars: environmentVars(m),
         d1_databases: [{binding:'ORDERS_DB',database_name:DATABASE,database_id:m.databaseId}],
         durable_objects: {bindings:[{name:'PURCHASE_COORDINATOR',class_name:'SandboxPurchaseCoordinator'}]},
@@ -59,6 +59,14 @@ export function markerSql(m) {
     assertManifest(m);
     return `-- ONLY on the separately created validation D1; verify its UUID first.\nCREATE TABLE IF NOT EXISTS validation_environment (id INTEGER PRIMARY KEY CHECK(id=1), instance_id TEXT NOT NULL);\nINSERT INTO validation_environment (id,instance_id) VALUES (1,'${m.instanceId}');\n`;
 }
+export function renderApiScript(script, m) {
+    assertManifest(m);
+    const productionFallback = 'https://yasoya-honten-payments.tatsurou3523.workers.dev';
+    if (!script.includes(productionFallback)) return script;
+    const origin = JSON.stringify(m.workerOrigin);
+    const guard = `(()=>{const c=window.YASOYA_STORE_CONFIG;if(!c||c.environment!=="sandbox"||c.workerBaseUrl!==${origin}||location.origin!==${origin})throw new Error("Sandbox configuration required");})();\n`;
+    return guard + script.replaceAll(productionFallback, m.workerOrigin);
+}
 async function copyPublic(source, dest, m) {
     const stat = await lstat(source);
     if (stat.isSymbolicLink()) throw new Error('Symlinks are not allowed in validation assets');
@@ -68,6 +76,7 @@ async function copyPublic(source, dest, m) {
     } else if (source.endsWith('.html')) await writeFile(dest,renderHtml(await readFile(source,'utf8')));
     else if (path.basename(source)==='store-config.js') await writeFile(dest,storefrontConfig(m));
     else if (path.basename(source)==='cart.js') await writeFile(dest,renderCartScript(await readFile(source,'utf8')));
+    else if (source.endsWith('.js')) await writeFile(dest,renderApiScript(await readFile(source,'utf8'),m));
     else await copyFile(source,dest);
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -5,7 +5,7 @@
 
 ## 分離構成
 
-- Worker: yasoya-payments-validation（本番と別名、Git連携を付けない、専用workers.dev URL）
+- Worker: yasoya-payments-validation（本番と別名、Git連携なし）。候補URLはvalidation.awaiaune.com。DNS/既存Routes確認と承認までは適用しない。Custom Domain利用時はworkers.devとPreview URLsを無効にする
 - D1: yasoya-validation-orders（新規UUID。本番D1のコピー・インポートをしない）
 - DO: SandboxPurchaseCoordinator（検証Worker内だけの新規namespace。script_nameによる外部参照を禁止）
 - 公開ページ: 同じ検証WorkerのAssets配信。元のHTML/CSSを維持し、配信用コピーだけSDK・設定JSと商品構成をSandboxの3商品に切替
@@ -13,7 +13,15 @@
 - メール: 独立したResendキーとテスト受信者1件。購入者メールもその1件に限定。実顧客データを使わない
 - 推奨: 別のCloudflareアカウントか、少なくとも検証リソースに限定した権限を使う。本番のトークン・権限を再利用しない
 
+候補URLとAccess画面の最新入力案・DNS確認条件は [専用ドメインとAccess](../docs/access-validation-domain.md) を優先する。
+
+2026-10-20のユーザー確認でAccessアプリyasoya-payments-validationの作成・Applications一覧登録が完了。ホストはvalidation.awaiaune.com、管理者Gmail 1件だけAllow、セッション1時間。再作成しない。チームドメイン・AUD等の設定反映と実ログイン検証は未完了。DNS・Worker・D1・DOの作成/公開は安全確認と別途承認後。次のAndroid操作は上記手順書を参照。
+
 詳しいAndroid操作順、承認の区切り、チェックリストと停止・復旧手順は [Cloudflare検証環境の準備](../docs/cloudflare-validation-setup.md) を参照。既存のSandbox商品3件・各5個は維持し、再登録・再初期化しない。
+
+検証D1もユーザーから作成完了情報を受領し、UUIDをGit対象外設定へ反映済み。API認証・通信許可がなく実リソースの所属は未照合。[作成済みD1の照合手順](../docs/d1-validation-plan.md)を参照。
+
+送信元validation@send.awaiaune.com、宛先・返信先は管理者1件に確定。新ドメイン・受信箱を作らず、既存認証済みドメインを利用する。最新の生成結果と未完了項目は[公開前レビュー](../docs/validation-predeploy-review.md)を参照。
 
 ## 設定の作成・レビュー（ネットワークなし）
 
@@ -36,7 +44,7 @@ npm --prefix dev test
 
 ## 安全チェック
 
-- 設定不足、既知の本番Worker/D1/Location/Variation ID、通常の本番Application ID、本番ドメイン、routes、外部DO参照、未知の設定項目を拒否。
+- 設定不足、既知の本番Worker/D1/Location/Variation ID、通常の本番Application ID、本番ドメイン、許可された検証ホスト以外のroutes、外部DO参照、未知の設定項目を拒否。
 - 実行時もmanifestと各変数を突合。D1のvalidation_environmentに同じinstance_idがなければ業務処理を拒否。マーカーは自動作成しない。
 - Sandbox層ではSquare送信先をconnect.squareupsandbox.com/v2/だけに制限。本番のconnect.squareup.comを拒否。
 - Secret名を分離: SQUARE_SANDBOX_ACCESS_TOKEN / RESEND_VALIDATION_API_KEY / VALIDATION_ADMIN_TOKEN。
@@ -52,4 +60,18 @@ npm --prefix dev test
 承認後、Sandboxエンドポイントだけに読み取りリクエストしてLocationとカタログを照合する必要がある。認証失敗を理由に本番へ切り替えるフォールバックは作らない。
 D1マーカーは二次防御であり、誤った本番DBにマーカーを書いてはならない。リモートSQL前に名前とUUIDを確認する。初回チェックのSELECTも接続になるため、デプロイ設定のUUID照合を先に行う。
 
-Square Sandboxは前段で商品3件と各5個の在庫を確認済み。Cloudflareは「ローカルで安全チェックを準備、資源・公開ID・専用Secret・Access設定・デプロイ承認待ち」。リモート検証環境の準備完了を意味しない。
+Square Sandboxは前段で商品3件と各5個の在庫を確認済み。Cloudflareは「ローカルで安全チェックを準備、資源・公開ID・専用Secret・作成済みAccessとのJWT設定照合・デプロイ承認待ち」。リモート検証環境の準備完了を意味しない。
+
+## D1マーカー保存確認後のデプロイ準備
+
+ユーザーが検証D1でマーカーSQLを実行し、SELECT結果を確認済み。SQL再実行とAccess/D1再作成は不要。HTTP入口に加え、起動済みDOのfetch/Alarmと7業務サービスの直前にもマーカー照合を追加した。不一致・欠落・D1エラーでは業務処理へ進まない。最新の承認段階・Custom DomainによるDNS作成の影響・テスト結果は[公開前レビュー](../docs/validation-predeploy-review.md)を参照。デプロイ・DNS変更・Secrets登録はまだ承認待ち。
+
+Androidの受け渡しは[GitHub検証ブランチからCodespacesへ](../docs/android-codespaces-handoff.md)を参照。GitHub Actionsは使用せず、実値入りローカル設定・対応表はGitへ保存しない。
+
+## 現在の方針: A案の手動公開
+
+既存Cloudflareアカウントを維持し、Codexでレビューした専用設定を段階的に手動デプロイする方針へ確定。GitHub Actions案は使用しない。最新のコマンド・権限の残余リスク・Android代替手順は[手動デプロイ計画](../docs/manual-validation-deploy.md)を優先する。確認済みのAccess/D1/マーカー/DNS/Resendを再確認しない。
+
+## ブランチ経由の保存準備
+
+dev/local-isolationへ承認後に検証コード・テンプレート・テスト・手順書だけを保存する。今回は整理と機密情報チェックまで。ZIP方式は終了。Codespacesでの実設定引き継ぎ、認証、実deployは別段階。

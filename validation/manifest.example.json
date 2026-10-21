@@ -1,7 +1,7 @@
 {
   "workerName": "yasoya-payments-validation",
   "accountId": "REPLACE_WITH_CLOUDFLARE_ACCOUNT_ID",
-  "workerOrigin": "https://yasoya-payments-validation.REPLACE_WITH_ACCOUNT_SUBDOMAIN.workers.dev",
+  "workerOrigin": "https://validation.awaiaune.com",
   "databaseName": "yasoya-validation-orders",
   "databaseId": "REPLACE_WITH_NEW_VALIDATION_D1_UUID",
   "instanceId": "REPLACE_WITH_NEW_RANDOM_UUID",
@@ -13,7 +13,7 @@
     "goldenrod-leaf-10g": "REPLACE_WITH_SANDBOX_VARIATION_ID"
   },
   "notificationEmail": "REPLACE_WITH_YOUR_TEST_EMAIL",
-  "resendFrom": "REPLACE_WITH_TEST_SENDER",
+  "resendFrom": "validation@send.awaiaune.com",
   "accessTeamDomain": "REPLACE_WITH_TEAM.cloudflareaccess.com",
   "accessAudience": "REPLACE_WITH_ACCESS_APPLICATION_AUD"
 }
