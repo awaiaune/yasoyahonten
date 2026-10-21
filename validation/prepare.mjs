@@ -62,7 +62,8 @@ export function markerSql(m) {
 export function renderApiScript(script, m) {
     assertManifest(m);
     const productionFallback = 'https://yasoya-honten-payments.tatsurou3523.workers.dev';
-    if (!script.includes(productionFallback)) return script;
+    // The admin app no longer contains a production fallback, but still needs the validation-origin guard.
+    if (!script.includes(productionFallback) && !script.includes('window.YasoyaAdmin')) return script;
     const origin = JSON.stringify(m.workerOrigin);
     const guard = `(()=>{const c=window.YASOYA_STORE_CONFIG;if(!c||c.environment!=="sandbox"||c.workerBaseUrl!==${origin}||location.origin!==${origin})throw new Error("Sandbox configuration required");})();\n`;
     return guard + script.replaceAll(productionFallback, m.workerOrigin);

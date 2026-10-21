@@ -294,7 +294,7 @@ test('generated legacy API scripts refuse missing or wrong Sandbox config before
         }
         assert.throws(()=>vm.runInNewContext(script,{window:{YASOYA_STORE_CONFIG:{environment:'sandbox',workerBaseUrl:m.workerOrigin}},location:{origin:'https://other.invalid'}}),/Sandbox configuration required/);
         const elements=new Map(),listeners=[];
-        const context={window:{YASOYA_STORE_CONFIG:{environment:'sandbox',workerBaseUrl:m.workerOrigin}},location:{origin:m.workerOrigin},sessionStorage:{getItem:()=>''},document:{addEventListener:(event,action)=>listeners.push([event,action]),querySelectorAll:()=>[],getElementById:id=>{if(!elements.has(id))elements.set(id,{});return elements.get(id);}},fetch:()=>{requests++;}};
+        const context={window:{YASOYA_STORE_CONFIG:{environment:'sandbox',workerBaseUrl:m.workerOrigin}},location:{origin:m.workerOrigin},sessionStorage:{getItem:()=>''},document:{addEventListener:(event,action)=>listeners.push([event,action]),querySelectorAll:()=>[],getElementById:id=>{if(!elements.has(id))elements.set(id,{addEventListener:()=>{}});return elements.get(id);}},fetch:()=>{requests++;}};
         assert.doesNotThrow(()=>vm.runInNewContext(script,context));
         assert(listeners.length>0||elements.size>0);assert.equal(requests,0);
         assert.equal(await readFile(new URL('../js/'+name,import.meta.url),'utf8'),original);

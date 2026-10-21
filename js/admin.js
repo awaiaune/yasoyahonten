@@ -1,8 +1,81 @@
-(()=>{const worker=(window.YASOYA_STORE_CONFIG?.workerBaseUrl||"https://yasoya-honten-payments.tatsurou3523.workers.dev").replace(/\/$/,"");let token=sessionStorage.getItem("yasoyaAdminToken")||"";let current="pending";const $=id=>document.getElementById(id);const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));const money=n=>new Intl.NumberFormat("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}).format(n);const date=s=>new Intl.DateTimeFormat("ja-JP",{dateStyle:"medium",timeStyle:"short",timeZone:"Asia/Tokyo"}).format(new Date(s));
-async function api(path,opt={}){const r=await fetch(worker+path,{...opt,headers:{"Content-Type":"application/json","Authorization":"Bearer "+token,...opt.headers}});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j?.error?.message||"通信に失敗しました。");return j}
-async function login(){token=$("token").value.trim();if(!token)return;try{await api("/api/admin/orders?status=pending");sessionStorage.setItem("yasoyaAdminToken",token);$("login").hidden=true;$("app").hidden=false;load()}catch(e){$("loginError").textContent=e.message}}
-async function load(){$("status").textContent="読み込み中…";try{const {orders}=await api(`/api/admin/orders?status=${current}`);$("status").textContent="";$("pendingCount").textContent=current==="pending"?`(${orders.length})`:"";render(orders)}catch(e){$("status").textContent=e.message}}
-function render(orders){$("orders").innerHTML=orders.length?orders.map(o=>`<article class="order" data-ref="${esc(o.order_reference)}"><div class="order-top"><span class="ref">${esc(o.order_reference)}</span><span class="badge">${o.status==="pending"?"発送待ち":"発送済み"}</span></div><div class="name">${esc(o.contact.familyName)} ${esc(o.contact.givenName)} 様</div><div class="items">${o.items.map(i=>`${esc(i.name)} × ${i.quantity}`).join("<br>")}</div><div class="total">${money(o.total)}</div><div class="ref">${date(o.created_at)}</div></article>`).join(""):`<div class="empty">${current==="pending"?"発送待ちの注文はありません。":"発送済みの注文はありません。"}</div>`;document.querySelectorAll(".order").forEach(x=>x.onclick=()=>openOrder(x.dataset.ref))}
-async function openOrder(ref){try{const {order:o}=await api(`/api/admin/orders/${encodeURIComponent(ref)}`);const c=o.contact;const address=`〒${esc(c.postalCode)}<br>${esc(c.state)}${esc(c.city)}${esc(c.addressLines?.[0]||"")} ${esc(c.addressLines?.[1]||"")}`;$("detailBody").innerHTML=`<p class="ref">${esc(o.order_reference)}</p><h2>${esc(c.familyName)} ${esc(c.givenName)} 様</h2><p>${date(o.created_at)}</p><div class="section"><h3>商品</h3>${o.items.map(i=>`<p>${esc(i.name)} × ${i.quantity}　${money(i.lineTotal)}</p>`).join("")}<p><strong>合計 ${money(o.total)}</strong></p></div><div class="section"><h3>お届け先</h3><p class="address">${address}<br>電話：${esc(c.phone)}<br>メール：${esc(c.email)}</p></div>${o.status==="pending"?`<div class="section"><h3>発送処理</h3><label>発送方法<select id="method"><option>ゆうパケット</option><option>クリックポスト</option><option>レターパック</option><option>ゆうパック</option><option>普通郵便</option><option>その他</option></select></label><label>追跡番号（任意）<input id="tracking" inputmode="numeric" placeholder="追跡がある場合のみ"></label><p class="notice">押すとお客様へ発送完了メールを送信し、この注文を発送済みに移します。</p><button id="ship" class="shipBtn">発送完了メールを送信</button><p id="shipMsg" class="danger"></p></div>`:`<div class="section sent"><strong>発送済み</strong><br>${o.shipping_method?`発送方法：${esc(o.shipping_method)}<br>`:""}${o.tracking_number?`追跡番号：${esc(o.tracking_number)}<br>`:""}${o.shipped_at?`発送処理：${date(o.shipped_at)}`:""}</div>`}`;$("detail").showModal();if(o.status==="pending")$("ship").onclick=()=>ship(o.order_reference)}catch(e){alert(e.message)}}
-async function ship(ref){const b=$("ship");b.disabled=true;$("shipMsg").textContent="送信中…";try{await api(`/api/admin/orders/${encodeURIComponent(ref)}/ship`,{method:"POST",body:JSON.stringify({shippingMethod:$("method").value,trackingNumber:$("tracking").value.trim()})});$("detail").close();await load()}catch(e){$("shipMsg").textContent=e.message;b.disabled=false}}
-$("loginBtn").onclick=login;$("token").onkeydown=e=>{if(e.key==="Enter")login()};$("logout").onclick=()=>{sessionStorage.removeItem("yasoyaAdminToken");location.reload()};$("close").onclick=()=>$("detail").close();document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));b.classList.add("active");current=b.dataset.status;load()});if(token){$("token").value=token;login()}})();
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const config = window.YASOYA_STORE_CONFIG;
+  const base = typeof config?.workerBaseUrl === 'string' ? config.workerBaseUrl.replace(/\/$/, '') : '';
+  const local = config?.squareApplicationId === 'sandbox-local-only';
+  const money = n => new Intl.NumberFormat('ja-JP', {style:'currency',currency:'JPY',maximumFractionDigits:0}).format(n);
+  const date = s => s && Number.isFinite(Date.parse(s)) ? new Intl.DateTimeFormat('ja-JP', {dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Tokyo'}).format(new Date(s)) : '未確認';
+  const pendingWrites = new Map();
+  let token = sessionStorage.getItem('yasoyaAdminToken') || '', current = 'pending', orderGeneration = 0, loggingIn = false, shipping = false, toastTimer;
+  function message(id, text = '', state = 'success') { $(id).textContent = text; $(id).dataset.state = state; }
+  function notify(text, state = 'success') { clearTimeout(toastTimer); message('toast', text, state); $('toast').hidden = false; toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
+  async function api(path, options = {}) {
+    if (!base) throw Error('管理APIの設定がありません。接続先を確認してください。');
+    if (!token) throw Error('先にログインしてください。');
+    const response = await fetch(base + path, {...options, headers:{Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers}});
+    if (!response.ok) { const data = await response.json().catch(() => ({})); const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status; throw error; }
+    return response;
+  }
+  const data = async (path, options) => (await api(path, options)).json();
+  async function write(path, body, method = 'POST') {
+    // Keep the original operation ID after a lost response. A changed payload is a separate operation.
+    const key = method + path + JSON.stringify(body);
+    if (!pendingWrites.has(key)) pendingWrites.set(key, crypto.randomUUID());
+    const result = await data(path, {method, body:JSON.stringify({...body, operationId:pendingWrites.get(key)})});
+    pendingWrites.delete(key); return result;
+  }
+  function badge(status) { return `<span class="badge ${status === 'pending' ? 'pending' : 'shipped'}">${status === 'pending' ? '発送待ち' : '発送済み'}</span>`; }
+  async function login() {
+    if (loggingIn) return; token = $('token').value.trim(); if (!token) return;
+    loggingIn = true; $('loginBtn').disabled = true; message('loginError', '認証しています…', 'loading');
+    try {
+      await data('/api/admin/orders?status=pending'); sessionStorage.setItem('yasoyaAdminToken', token);
+      $('login').hidden = true; $('app').hidden = false; $('logout').hidden = false; message('loginError');
+      window.dispatchEvent(new Event('admin:authenticated')); loadOrders();
+    } catch (error) { message('loginError', error.message, 'error'); }
+    finally { loggingIn = false; $('loginBtn').disabled = false; }
+  }
+  async function loadOrders() {
+    const generation = ++orderGeneration; const wanted = current;
+    message('status', '注文を読み込んでいます…', 'loading'); $('orders').setAttribute('aria-busy','true');
+    try {
+      const {orders} = await data('/api/admin/orders?status=' + wanted); if (generation !== orderGeneration) return;
+      message('status'); $('pendingCount').textContent = wanted === 'pending' ? `(${orders.length}${orders.length === 200 ? '+' : ''})` : '';
+      $('orders').innerHTML = orders.length ? orders.map(o => `<button class="order" data-order="${esc(o.order_reference)}"><span class="order-top"><span class="ref">${esc(o.order_reference)}</span>${badge(o.status)}</span><span class="name" style="display:block">${esc(o.contact.familyName)} ${esc(o.contact.givenName)} 様</span><span class="items">${o.items.map(i => `${esc(i.name)} × ${i.quantity}`).join('<br>')}</span><span class="order-bottom"><small>${date(o.created_at)}</small><span class="total">${money(o.total)} <span aria-hidden="true">›</span></span></span></button>`).join('') : `<div class="empty">${wanted === 'pending' ? '発送待ちの注文はありません。' : '発送済みの注文はありません。'}</div>`;
+    } catch (error) { if (generation === orderGeneration) { $('orders').replaceChildren(); message('status',error.message,'error'); } }
+    finally { if (generation === orderGeneration) $('orders').setAttribute('aria-busy','false'); }
+  }
+  async function openOrder(ref) {
+    try {
+      const {order:o} = await data('/api/admin/orders/' + encodeURIComponent(ref)); const c = o.contact;
+      const address = `〒${esc(c.postalCode)}<br>${esc(c.state)}${esc(c.city)}${(c.addressLines || []).map(esc).join(' ')} `;
+      $('detailBody').innerHTML = `<p class="ref">${esc(o.order_reference)}</p><div class="section-heading"><h3>${esc(c.familyName)} ${esc(c.givenName)} 様</h3>${badge(o.status)}</div><p class="hint">${date(o.created_at)}</p><div class="section"><h3>ご注文の商品</h3>${o.items.map(i => `<div class="detail-item"><span>${esc(i.name)} × ${i.quantity}</span><strong>${money(i.lineTotal)}</strong></div>`).join('')}<div class="detail-item"><span>送料</span><span>${money(o.shipping)}</span></div><div class="detail-total"><span>合計</span><span>${money(o.total)}</span></div></div><div class="section"><h3>お届け先</h3><p class="address">${address}<br>電話：${esc(c.phone)}<br>メール：${esc(c.email)}</p></div>${o.status === 'pending' ? `<div class="section"><h3>発送する</h3><label>発送方法<select id="method"><option>ゆうパケット</option><option>クリックポスト</option><option>レターパック</option><option>ゆうパック</option><option>普通郵便</option><option>その他</option></select></label><label>追跡番号（任意）<input id="tracking" inputmode="numeric" maxlength="100" placeholder="追跡がある場合のみ"></label><p class="notice">${local ? 'ローカル確認：実際のメール送信や発送は行いません。' : '発送済みに変更し、お客様へ発送完了メールを送信します。'}</p><button id="ship" class="primary wide">発送を確定する</button><p id="shipMsg" class="message" role="status" aria-live="polite"></p></div>` : `<div class="section sent"><strong>発送済み</strong><p>発送方法：${esc(o.shipping_method || '未登録')}<br>追跡番号：${esc(o.tracking_number || 'なし')}<br>発送処理：${date(o.shipped_at)}</p></div>`}`;
+      if (!$('detail').open) $('detail').showModal();
+      if (o.status === 'pending') $('ship').onclick = () => ship(o.order_reference);
+    } catch (error) { notify(error.message,'error'); }
+  }
+  async function ship(ref) {
+    if (shipping) return;
+    const method = $('method').value, tracking = $('tracking').value.trim();
+    if (!confirm(`${ref}\n発送方法：${method}\n追跡番号：${tracking || 'なし'}\n${local ? '架空注文を発送済みにします。実メールは送信しません。' : '発送済みに変更し、発送完了メールを送信します。'}\nよろしいですか？`)) return;
+    shipping = true; $('ship').disabled = true; $('close').disabled = true; message('shipMsg','発送を処理しています…','loading');
+    try {
+      await data('/api/admin/orders/' + encodeURIComponent(ref) + '/ship', {method:'POST',body:JSON.stringify({shippingMethod:method,trackingNumber:tracking})});
+      $('detail').close(); notify(local ? '発送済みにしました（実メール送信なし）。' : '発送済みにし、通知しました。');
+      await loadOrders(); window.dispatchEvent(new Event('admin:orders-changed'));
+    } catch (error) { message('shipMsg',error.message,'error'); if ($('ship')) $('ship').disabled = false; }
+    finally { shipping = false; $('close').disabled = false; }
+  }
+  window.YasoyaAdmin = { $, esc, money, date, api, data, write, message, notify, local, openOrder, loadOrders, badge };
+  $('loginForm').onsubmit = e => { e.preventDefault(); login(); };
+  $('logout').onclick = () => { if (!confirm('ログアウトしますか？')) return; sessionStorage.removeItem('yasoyaAdminToken'); location.reload(); };
+  $('close').onclick = () => { if (!shipping) $('detail').close(); };
+  $('detail').addEventListener('cancel',e => { if (shipping) e.preventDefault(); });
+  $('orders').onclick = e => { const b = e.target.closest('[data-order]'); if (b) openOrder(b.dataset.order); };
+  $('reloadOrders').onclick = loadOrders;
+  document.querySelectorAll('.tab').forEach(b => b.onclick = () => { current = b.dataset.status; document.querySelectorAll('.tab').forEach(x => { x.classList.toggle('active',x === b); x.setAttribute('aria-pressed',String(x === b)); }); loadOrders(); });
+  if (local) $('loginHelp').textContent = 'ローカル専用：local-development-only を入力してください。実際の認証情報は使いません。';
+  if (token) { $('token').value = token; login(); }
+})();
