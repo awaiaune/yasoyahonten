@@ -9,12 +9,15 @@ export function managementConfig(manifest){
  const c=makeConfig(manifest);if(manifest.workerOrigin!==VALIDATION_ORIGIN)throw Error('Exact Access-protected host required');
  c.vars.MANAGEMENT_ENABLED='1';c.vars.MANAGEMENT_STOCK_WRITES='disabled';c.vars.MANAGEMENT_CHECKOUT_PAUSED='0';
  c.r2_buckets=[{binding:'PRODUCT_IMAGES',bucket_name:'yasoya-validation-images'}];
+ c.triggers={crons:['*/5 * * * *']};
  c.d1_databases[0].migrations_dir='../worker/migrations';return c;
 }
 export function checkManagementConfig(c,m){
  const base=structuredClone(c);if(JSON.stringify(base.r2_buckets)!==JSON.stringify([{binding:'PRODUCT_IMAGES',bucket_name:'yasoya-validation-images'}]))throw Error('Dedicated image bucket required');
  if(!['0','1'].includes(base.vars.MANAGEMENT_CHECKOUT_PAUSED)||base.vars.MANAGEMENT_ENABLED!=='1'||base.vars.MANAGEMENT_STOCK_WRITES!=='disabled')throw Error('Reviewed management mode required');
  if(base.d1_databases[0].migrations_dir!=='../worker/migrations')throw Error('Additive migration directory required');
+ if(JSON.stringify(base.triggers)!==JSON.stringify({crons:['*/5 * * * *']}))throw Error('Dedicated five-minute management watchdog required');
+ delete base.triggers;
  delete base.r2_buckets;delete base.vars.MANAGEMENT_CHECKOUT_PAUSED;delete base.vars.MANAGEMENT_ENABLED;delete base.vars.MANAGEMENT_STOCK_WRITES;delete base.d1_databases[0].migrations_dir;assertConfig(base,m);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){try{

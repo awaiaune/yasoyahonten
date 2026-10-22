@@ -2,9 +2,10 @@ import { importLegacy } from './importer.js';
 import { CATALOG } from '../catalog.js';
 import { Store } from './store.js';
 import { Square } from './square.js';
+import { Supervision } from './supervision.js';
 import { need, draft, identifier, operation, integer, text, digest, now, json, squareId } from './domain.js';
 export class Management {
- constructor(env,storage){this.env=env;this.storage=storage;this.s=new Store(env);this.square=new Square(env);}
+ constructor(env,storage,services={}){this.env=env;this.storage=storage;this.s=new Store(env);this.square=new Square(env);this.supervision=new Supervision(this,services);}
  async command(id,fingerprint){const previous=await this.s.one('SELECT * FROM mg_commands WHERE id=?',[id]);if(!previous)return null;need(previous.fingerprint===fingerprint,'同じ操作IDの内容を変更できません。',409);return JSON.parse(previous.result_json);}
  async save(id,input,actor){
   identifier(id);operation(input.operationId);const data=draft(input);const fp=await digest(['save',id,input.expectedVersion,input.slug,data]);const previous=await this.command(input.operationId,fp);if(previous)return previous;
@@ -51,8 +52,11 @@ export class Management {
  async queue(kind,id,payload,op,actor,ids,extra=[]){
   operation(op);const fp=await digest([kind,id,payload]);const previous=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[op]);if(previous){need(previous.fingerprint===fp,'同じ操作IDの内容を変更できません。',409);return this.job(op);}
   await this.s.assertUnlocked(ids);await this.assertNoPurchaseHold(ids);const at=now();
+  // Arm before persistence as well: a crash immediately after D1 commit is covered.
+  // Alarm failure never authorizes sending; the independent watchdog finds the row.
+  await this.supervision.arm();
   await this.s.batch([['INSERT INTO mg_jobs(id,kind,resource_id,fingerprint,payload_json,state,next_due,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)',[op,kind,id,fp,json(payload),'queued',Date.now(),at,at]],...ids.map(v=>['INSERT INTO mg_locks VALUES(?,?)',[v,op]]),...extra,this.s.audit(actor,'job_queued',id,{job:op,kind})]);
-  await this.run(op);await this.schedule();return this.job(op);
+  if(await this.schedule())await this.run(op);await this.schedule();return this.job(op);
  }
  async publish(id,input,actor){
   operation(input.operationId);const old=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[input.operationId]);if(old){const q=JSON.parse(old.payload_json);need(old.kind==='publish'&&old.resource_id===id&&q.expectedVersion===input.expectedVersion,'操作IDが別の内容に使われています。',409);return this.job(old.id);}
@@ -90,7 +94,7 @@ export class Management {
   const target=input.kind==='count'?quantity:current+quantity;integer(target,0,1000000);
   return this.queue('stock',id,{kind:input.kind,quantity,reason,before:current,target,mapping:m,requestFingerprint:await digest(input)},input.operationId,actor,[id],[['INSERT INTO mg_inventory_operations VALUES(?,?,?,?,?,?,?,?,?,?)',[input.operationId,id,input.kind,quantity,reason,actor,current,null,'queued',now()]]]);
  }
- async job(id){const r=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(r,'ジョブがありません。',404);return {id:r.id,kind:r.kind,resourceId:r.resource_id,state:r.state,attempts:r.attempts,error:r.last_error,updatedAt:r.updated_at};}
+ async job(id){const r=await this.s.one('SELECT j.*,n.state AS notification_state FROM mg_jobs j LEFT JOIN mg_job_notifications n ON n.job_id=j.id WHERE j.id=?',[id]);need(r,'ジョブがありません。',404);return {id:r.id,kind:r.kind,resourceId:r.resource_id,state:r.state,attempts:r.attempts,error:r.last_error,updatedAt:r.updated_at,notificationState:r.notification_state||'none'};}
  async jobs(){return Promise.all((await this.s.all('SELECT id FROM mg_jobs ORDER BY created_at DESC LIMIT 200')).map(r=>this.job(r.id)));}
  async reconcile(id){
   const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);if(j.state==='done')return this.job(id);
@@ -102,6 +106,7 @@ export class Management {
  async retry(id){const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);need(j.state!=='review','競合・期限切れは自動再送できません。照合が必要です。',409);if(j.state!=='done')await this.run(id);await this.schedule();return this.job(id);}
  async run(id){
   const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);if(!j||['done','review'].includes(j.state))return;
+  if(!await this.schedule())return;
   const p=JSON.parse(j.payload_json);try{
    need(j.result_json||Date.now()-Date.parse(j.created_at)<3600000,'安全な再試行期限を超えました。新しいキーで再送しないでください。',409);
    need(j.result_json||j.attempts<8,'再試行回数を超えました。',409);
@@ -141,14 +146,15 @@ export class Management {
    if(j.kind==='stock')await this.s.run('UPDATE mg_inventory_operations SET state=? WHERE id=?',[state,id]);
   }
  }
- async schedule(){const row=await this.s.one("SELECT MIN(next_due) AS due FROM mg_jobs WHERE state IN ('queued','running','retry')");if(row?.due){const current=await this.storage.getAlarm();if(!current||current<=Date.now()||row.due<current)await this.storage.setAlarm(Math.max(Date.now()+1000,row.due));}}
- async recover(){for(const j of await this.s.all("SELECT id FROM mg_jobs WHERE state IN ('queued','running','retry') AND next_due<=? ORDER BY next_due,created_at LIMIT 1",[Date.now()]))await this.run(j.id);await this.schedule();}
+ async schedule(){return this.supervision.schedule();}
+ async recover(){return this.supervision.tick();}
+ async products(){const products=await this.s.products();for(const p of products){const j=await this.s.one("SELECT state FROM mg_jobs WHERE resource_id=? AND kind IN ('publish','state') ORDER BY rowid DESC LIMIT 1",[p.id]);p.syncState=j?.state||'unlinked';}return products;}
  async handle(path,method,body,actor){
   if(path==='/api/admin/products/import'&&method==='POST')return importLegacy(this,actor);
-  if(path==='/api/admin/products'&&method==='GET')return {products:await this.s.products()};
+  if(path==='/api/admin/products'&&method==='GET')return {products:await this.products()};
   if(path==='/api/admin/inventory'&&method==='GET')return {inventory:await this.inventory()};
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
-  if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs()};
+  if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),monitoring:await this.supervision.status()};
   let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link))?$/);
   if(m){const id=identifier(m[1]);if(method==='GET'&&!m[2]){const product=await this.s.product(id);need(product,'商品がありません。',404);return {product};}
    if(method==='PUT'&&!m[2])return this.save(id,body,actor);

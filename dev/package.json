@@ -5,7 +5,7 @@
   "scripts": {
     "start": "node server.mjs",
     "management": "node management-server.mjs",
-    "test": "node --test isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-local.test.mjs admin-ui.test.mjs",
+    "test": "node --test isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-supervision.test.mjs management-local.test.mjs admin-ui.test.mjs",
     "test:ui": "node --test admin-ui.browser.mjs"
   },
   "devDependencies": {

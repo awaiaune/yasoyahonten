@@ -17,6 +17,13 @@ const MAX_BODY_BYTES = 24_000;
 const MAX_ITEM_TYPES = 20;
 
 export default {
+    async scheduled(event,env,ctx) {
+        if(!managementEnabled(env))return;
+        await managementGuard(env);
+        const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
+        const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/management-monitor',{method:'POST',body:'{}'});
+        if(!r.ok)throw Error('Management watchdog requires review');
+    },
     async fetch(request, env, ctx) {
         const origin = request.headers.get("Origin") || "";
         const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
@@ -1126,8 +1133,23 @@ export class PurchaseCoordinator {
             }
         });
     }
-    serialize(action) {
-        const guarded=async()=>{if(managementEnabled(this.env)){await managementGuard(this.env);await loadCatalog(this.env);}return action();};
+    management() {
+        const env=this.env;
+        const notify=resendKey(env)&&env.RESEND_FROM_EMAIL&&env.ORDER_NOTIFICATION_EMAIL?async(payload,key)=>{
+            await managementGuard(env);
+            await sendResendEmail(env,{from:env.RESEND_FROM_EMAIL,to:[env.ORDER_NOTIFICATION_EMAIL],
+                subject:'【管理同期・要確認】八草屋本店',
+                text:`管理同期ジョブ: ${payload.jobId}\n種類: ${payload.kind}\n対象: ${payload.resourceId}\n検出: ${payload.event}\n新しい操作IDで再送せず、管理画面で照合してください。`},key);
+            return true;
+        }:undefined;
+        return new Management(env,this.ctx.storage,{notify});
+    }
+    serialize(action,{catalog=true}={}) {
+        const guarded=async()=>{if(managementEnabled(this.env)){
+            await managementGuard(this.env);
+            if(!this.managementStarted){try{await this.management().supervision.tick({run:false});this.managementStarted=true;}catch{console.error('Management startup scan requires watchdog review');}}
+            if(catalog)await loadCatalog(this.env);
+        }return action();};
         const job = this.queue.then(guarded, guarded);
         this.queue = job.catch(() => {});
         return job;
@@ -1138,7 +1160,8 @@ export class PurchaseCoordinator {
         return this.serialize(async () => {
             try {
                 let result;
-                if(managementEnabled(this.env)&&path==='/management') return Response.json(await new Management(this.env,this.ctx.storage).handle(body.path,body.method,body.body,body.actor));
+                if(managementEnabled(this.env)&&path==='/management-monitor'){await this.management().recover();return Response.json({ok:true});}
+                if(managementEnabled(this.env)&&path==='/management') return Response.json(await this.management().handle(body.path,body.method,body.body,body.actor));
                 if(managementEnabled(this.env)&&['/managed-stock','/managed-quote'].includes(path)) {
                     const manager=new Management(this.env,this.ctx.storage);
                     if(path==='/managed-quote'){const quote=buildQuote(body.items,this.env);await manager.s.assertUnlocked(quote.items.map(i=>i.id));await manager.assertSalesCatalog(quote);await manager.assertNoPurchaseHold(quote.items.map(i=>i.id));return Response.json({...quote,inventory:await assertSquareInventoryAvailable(this.env,quote)});}
@@ -1156,9 +1179,9 @@ export class PurchaseCoordinator {
                 const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError ? error.status : 503;
                 return Response.json({ error: { message: status === 503 ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-        });
+        },{catalog:path!=='/management-monitor'});
     }
-    alarm() { return this.serialize(async () => { await this.ledger.alarm(); if(managementEnabled(this.env)) await new Management(this.env,this.ctx.storage).recover(); }); }
+    alarm() { return this.serialize(async () => { try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

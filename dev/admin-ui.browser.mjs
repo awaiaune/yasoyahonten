@@ -392,6 +392,13 @@ test('local draft diagnostics expose status and stage without URLs, payloads or 
  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');await page.getByRole('button',{name:'商品編集を閉じる'}).click();
 });
 
+test('public status and Square sync status stay separate; supervision and notification warnings are visible without design changes',async()=>{
+ const id=crypto.randomUUID(),at=new Date().toISOString();await runtime.db.prepare("INSERT INTO mg_jobs(id,kind,resource_id,fingerprint,payload_json,state,next_due,created_at,updated_at) VALUES(?,'publish','lemonbalm','offline','{}','review',0,?,?)").bind(id,at,at).run();
+ await runtime.db.prepare("INSERT INTO mg_job_notifications(job_id,payload_json,state,next_due,created_at) VALUES(?,'{}','blocked',?,?)").bind(id,Date.now()+3600000,at).run();
+ await nav('商品');await page.locator('[data-edit="lemonbalm"]').click();assert.equal(await page.locator('#editorProductStatus').innerText(),'公開中');assert.match(await page.locator('#editorSyncStatus').innerText(),/Square：要確認/);await noOverflow();await page.getByRole('button',{name:'商品編集を閉じる'}).click();
+ await page.getByText('同期・変更履歴',{exact:true}).click();assert.match(await page.locator('#jobList').innerText(),/管理同期の最終監視/);assert.match(await page.locator('#jobList').innerText(),/管理通知の設定・送信結果/);assert.match(await page.locator('#jobList').innerText(),/管理通知：設定待ち/);
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

@@ -46,6 +46,9 @@
   async function jobs() {
     const [result,audit] = await Promise.all([data('/api/admin/jobs'),data('/api/admin/audit')]);
     $('jobList').innerHTML = result.jobs.map(j => `<div class="management-card">${stateBadge(j.state)} <strong>${esc({publish:'商品公開',state:'販売状態の変更',stock:'在庫変更'}[j.kind] || j.kind)}</strong><small>${date(j.updatedAt)}</small><p>${esc(j.error || '')}</p>${j.state === 'retry' ? `<button data-retry="${esc(j.id)}">同じ操作を再試行</button>` : ''}${j.state === 'review' ? `<p class="held">競合や期限切れです。上書きせず照合します。</p><button data-reconcile="${esc(j.id)}">同期結果を照合</button>` : ''}</div>`).join('') || empty('同期処理はありません。');
+    const monitor=result.monitoring;
+    if(monitor)$('jobList').insertAdjacentHTML('afterbegin',`<p role="status">管理同期の最終監視：${date(monitor.lastScanAt)}${monitor.alarmState==='failed'?' ／ Alarm予約失敗：定期監視で再検出します。':''}${monitor.notificationAttention?' ／ 管理通知の設定・送信結果を確認してください。':''}</p>`);
+    for(const [index,j] of result.jobs.entries()){const card=$('jobList').querySelectorAll('.management-card')[index];if(card){const note=document.createElement('small');note.textContent='管理通知：'+({none:'対象外',pending:'再試行待ち',blocked:'設定待ち',sent:'送信受付済み',expired:'要確認',cancelled:'復旧により取消'}[j.notificationState]||'未確認');card.append(note);}}
     $('auditList').innerHTML = audit.events.map(e => `<div class="management-card"><strong>${esc({draft_saved:'下書き保存',job_queued:'同期開始',job_completed:'同期完了',sandbox_linked:'Sandbox関連付け',stopped:'販売停止',archived:'アーカイブ'}[e.action] || e.action)}</strong><small>${esc(e.resource_id)} / ${date(e.created_at)}</small></div>`).join('') || empty('変更履歴はありません。');
   }
   async function loadProducts() { const r = await data('/api/admin/products'); products = r.products; filterProducts(); await jobs(); }
@@ -113,10 +116,15 @@
     }
     if (!current.draft.images.length) list.innerHTML = '<p class="hint">写真を追加すると、ここにプレビューが表示されます。</p>';
   }
+  function drawSyncStatus(){
+    let status=$('editorSyncStatus');if(!status){status=document.createElement('span');status.id='editorSyncStatus';status.className='muted';$('editorProductStatus').after(status);}
+    status.textContent='Square：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
+  }
   function draw() {
     const f = $('productForm'); for (const key of ['name','description','sortOrder','alt']) f.elements.namedItem(key).value = current.draft[key] ?? '';
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
+    drawSyncStatus();
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
     drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true; if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
   }
@@ -147,6 +155,7 @@
     try { result = await write('/api/admin/products/' + current.id,{...current.draft,slug:current.slug,expectedVersion:current.version},'PUT'); }
     catch (error) { const failure=Error(['TypeError','AbortError','TimeoutError'].includes(error.name) ? '下書きの保存結果を確認できません。通信状態を確認して再試行してください。入力内容と写真はこの画面に残っています。' : `下書きを保存できません：${error.message}${error.status ? '（HTTP '+error.status+'）' : ''}`); failure.name=error.name; failure.productDiagnostic=error.productDiagnostic; throw failure; }
     current.version = result.version; current.draft_revision = result.revision; $('productForm').elements.namedItem('slug').disabled = true; setDirty(false);
+    drawSyncStatus();
     if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
     message('editorMessage','下書きを保存しました。公開内容はまだ変わりません。'); notify('下書きを保存しました。'); await loadProducts();
   },'editorMessage'); };

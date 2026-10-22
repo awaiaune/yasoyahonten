@@ -19,15 +19,19 @@ export class SandboxPurchaseCoordinator extends PurchaseCoordinator {
         this.ledger.services = guardBusinessServices(env, this.ledger.services);
         ctx.blockConcurrencyWhile(() => assertDatabase(env));
     }
-    serialize(action) {
+    serialize(action,options) {
         return super.serialize(async () => {
             // Covers both internal fetch and Alarm, including already-running DOs.
             await assertDatabase(this.env);
             return action();
-        });
+        },options);
     }
 }
 export default {
+    async scheduled(event,env,ctx) {
+        await assertDatabase(env);
+        return worker.scheduled(event,env,ctx);
+    },
     async fetch(request, env, ctx) {
         try {
             const m = assertRuntime(env);

@@ -10,7 +10,7 @@ import {managementConfig,checkManagementConfig} from '../validation/prepare-mana
 import {legacyProducts} from '../validation/legacy-products.mjs';
 import {inspectImage,stripImageMetadata} from '../worker/src/management/images.js';
 const bundle=await build({entryPoints:[root+'/worker/src/index.js'],bundle:true,write:false,format:'esm',platform:'browser'});
-const sql=(await readFile(root+'/worker/migrations/0001_management.sql','utf8')).replace(/^--.*$/mg,'').split(';').filter(s=>s.trim());
+const sql=(await Promise.all(['0001_management.sql','0002_management_supervision.sql'].map(file=>readFile(root+'/worker/migrations/'+file,'utf8')))).join('\n').replace(/^--.*$/mg,'').split(';').filter(s=>s.trim());
 const contact={givenName:'試験',familyName:'購入者',email:'test@example.invalid',phone:'09012345678',addressLines:['テスト1'],city:'テスト市',state:'東京都',postalCode:'1000001',countryCode:'JP'};
 async function fixture(t){
  const fake=new ManagementSquare(),o=runtimeOptions(bundle.outputFiles[0].text);Object.assign(o.bindings,{MANAGEMENT_ENABLED:'1',MANAGEMENT_STOCK_WRITES:'single-writer',LOCAL_TEST_MODE:'1',SQUARE_LOCATION_ID:'LOCALMGMTLOCATION',SQUARE_ACCESS_TOKEN:'fake-local-test-only'});o.r2Buckets={PRODUCT_IMAGES:'management-images'};
@@ -119,7 +119,7 @@ test('uploaded JPEG metadata is stripped; legacy three-product importer preserve
 });
 test('management deployment overlay requires dedicated images, Access host and disabled stock writes',async()=>{
  const m={workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://validation.awaiaune.com',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-offline',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'validation@example.invalid',accessTeamDomain:'test.cloudflareaccess.com',accessAudience:'b'.repeat(64)};
- const c=managementConfig(m);assert.doesNotThrow(()=>checkManagementConfig(c,m));assert.throws(()=>checkManagementConfig({...c,r2_buckets:[{binding:'PRODUCT_IMAGES',bucket_name:'production-images'}]},m));assert.throws(()=>checkManagementConfig({...c,vars:{...c.vars,MANAGEMENT_STOCK_WRITES:'single-writer'}},m));assert.throws(()=>managementConfig({...m,workerOrigin:'https://yasoya-payments-validation.test.workers.dev'}));
+ const c=managementConfig(m);assert.doesNotThrow(()=>checkManagementConfig(c,m));assert.deepEqual(c.triggers,{crons:['*/5 * * * *']});assert.throws(()=>checkManagementConfig({...c,triggers:{crons:['* * * * *']}},m));assert.throws(()=>checkManagementConfig({...c,r2_buckets:[{binding:'PRODUCT_IMAGES',bucket_name:'production-images'}]},m));assert.throws(()=>checkManagementConfig({...c,vars:{...c.vars,MANAGEMENT_STOCK_WRITES:'single-writer'}},m));assert.throws(()=>managementConfig({...m,workerOrigin:'https://yasoya-payments-validation.test.workers.dev'}));
 });
 
 test('admin imports existing three products and photos as drafts without Square writes, preserves IDs on repeat',async t=>{

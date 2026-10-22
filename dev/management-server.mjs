@@ -29,7 +29,7 @@ options.serviceBindings={LOCAL_SQUARE:r=>square.fetch(r),LOCAL_RESEND:async()=>R
 const mf=new Miniflare(options);
 try {
 await mf.ready;const db=await mf.getD1Database('ORDERS_DB');
-const schema=await readFile(root+'/worker/migrations/0001_management.sql','utf8');for(const statement of schema.replace(/^--.*$/mg,'').split(';').filter(s=>s.trim()))await db.prepare(statement).run();
+for(const file of ['0001_management.sql','0002_management_supervision.sql']) { const schema=await readFile(root+'/worker/migrations/'+file,'utf8');for(const statement of schema.replace(/^--.*$/mg,'').split(';').filter(s=>s.trim()))await db.prepare(statement).run(); }
 if(seed){
  const count=await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first();
  if(!count.n){
@@ -101,5 +101,9 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const server=createManagementServer(runtime);
  server.on('error',async()=>{console.error('Local port 8000 unavailable; no data reset performed.');await runtime.mf.dispose();process.exitCode=1;});
  server.listen(8000,'127.0.0.1',()=>{console.log('Offline management: port 8000 /admin/ (local-development-only). Keep Codespaces port Private. No real payments or email.');console.log('Local access configuration: '+runtime.access.mode+' (no origins are learned from requests).');});
+ // Local equivalent of the independent remote Cron watchdog. Bindings remain fake.
+ let monitoring=false;
+ const watchdog=setInterval(async()=>{if(monitoring)return;monitoring=true;try{const ns=await runtime.mf.getDurableObjectNamespace('PURCHASE_COORDINATOR');const r=await ns.get(ns.idFromName('yasoya-honten-global-purchase-lock')).fetch('https://purchase.internal/management-monitor',{method:'POST',body:'{}'});if(!r.ok)throw Error();}catch{console.error('Offline management watchdog requires review');}finally{monitoring=false;}},60000);
+ watchdog.unref();server.on('close',()=>clearInterval(watchdog));
  for(const signal of ['SIGTERM','SIGINT'])process.once(signal,async()=>{server.close();await runtime.mf.dispose();process.exit(0);});
 }
