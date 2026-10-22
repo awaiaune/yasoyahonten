@@ -48,6 +48,14 @@ export function managementAccess(environment = {}) {
                 : origin === forwardedOrigin && forwardedOrigin ? 'codespace' : loopbackOrigins.includes(origin) ? 'loopback' : 'other'
         };
     }
+    function proxyPhotoOrigin(headers,target,context={}) {
+        // The server supplies csrfValid after verifying a process-local random token.
+        // Request headers (including diagnostic hashes and X-Forwarded-*) cannot set it.
+        const origin=normalizedOrigin(headers.origin);
+        return !!forwardedOrigin && target==='/api/admin/images' && context.method==='POST' && context.csrfValid===true &&
+            (headers['sec-fetch-site']===undefined||headers['sec-fetch-site']==='same-origin') && typeof headers.host==='string' && loopbackHosts.includes(headers.host.toLowerCase()) &&
+            !!origin && ['https://127.0.0.1:8000','https://localhost:8000','https://[::1]:8000'].includes(origin);
+    }
     function deny(reason,headers) { throw Object.assign(new Error('Local host/origin denied'),{localAccess:{reason,...classify(headers)}}); }
     return Object.freeze({
         origins: Object.freeze(origins),
@@ -55,14 +63,15 @@ export function managementAccess(environment = {}) {
         mode: forwardedOrigin ? 'codespaces' : 'loopback',
         classify,
         canonicalOrigin(value) { return normalizedOrigin(value); },
-        requestUrl(headers, target) {
+        workerOrigin(headers,target,context={}) { return proxyPhotoOrigin(headers,target,context) ? forwardedOrigin : normalizedOrigin(headers.origin); },
+        requestUrl(headers, target, context={}) {
             const kind = classify(headers);
             if (kind.hostClass === 'missing') deny('HOST_MISSING',headers);
             if (kind.hostClass === 'other') deny('HOST_NOT_ALLOWED',headers);
             if (headers.origin !== undefined) {
                 if (headers.origin === 'null') deny('ORIGIN_NULL',headers);
                 if (!normalizedOrigin(headers.origin)) deny('ORIGIN_MALFORMED',headers);
-                if (!origins.includes(normalizedOrigin(headers.origin))) deny('ORIGIN_NOT_ALLOWED',headers);
+                if (!origins.includes(normalizedOrigin(headers.origin)) && !proxyPhotoOrigin(headers,target,context)) deny('ORIGIN_NOT_ALLOWED',headers);
             }
             // A proxy may omit the loopback port, but only the exact configured
             // Codespace Origin can authorize that transport form. Never trust X-Forwarded-*.

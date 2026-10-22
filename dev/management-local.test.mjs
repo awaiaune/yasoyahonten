@@ -221,3 +221,36 @@ test('forged page hints never authorize a rejected Origin or Host, and neither h
  const report=logs.join('\n')+denied.text;for(const value of [hash,forwarded,'https://localhost','private-image-not-decoded','local-development-only'])assert(!report.includes(value));
  assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,0);assert.equal(runtime.square.payments.size,0);
 });
+
+test('HTTPS loopback photo normalization requires Codespaces metadata and verified CSRF, with exact scope and cross-site rejection',()=>{
+ const p=managementAccess(environment),headers={host:'localhost:8000',origin:'https://localhost:8000','sec-fetch-site':'same-origin'},ctx={method:'POST',csrfValid:true};
+ assert.equal(p.requestUrl(headers,'/api/admin/images',ctx),forwarded+'/api/admin/images');assert.equal(p.workerOrigin(headers,'/api/admin/images',ctx),forwarded);
+ assert(!p.origins.includes('https://localhost:8000'));assert.equal(p.workerOrigin({...headers,'sec-fetch-site':undefined},'/api/admin/images',ctx),forwarded);
+ for(const context of [{},{method:'POST',csrfValid:false},{method:'GET',csrfValid:true},{method:'OPTIONS',csrfValid:true}])assert.throws(()=>p.requestUrl(headers,'/api/admin/images',context));
+ for(const patch of [{host:'localhost'},{host:'localhost:8001'},{host:'other-8000.app.github.dev'},{origin:'https://localhost:9000'},{origin:'https://other-8000.app.github.dev'},{origin:'null'},{'sec-fetch-site':'cross-site'}])assert.throws(()=>p.requestUrl({...headers,...patch},'/api/admin/images',ctx));
+ for(const path of ['/api/admin/images?x=1','/api/admin/products','/api/admin/orders','/api/admin/inventory'])assert.throws(()=>p.requestUrl(headers,path,ctx));
+ assert.throws(()=>managementAccess().requestUrl(headers,'/api/admin/images',ctx));
+});
+
+test('authenticated process-local CSRF fixes only rewritten photo POSTs; forged hints, cross-site reads and other Origins stay rejected',async t=>{
+ const {readFile}=await import('node:fs/promises');const bytes=await readFile(new URL('../images/lemonbalm.jpg',import.meta.url));
+ const runtime=await createManagementRuntime({environment});t.after(()=>runtime.mf.dispose());
+ const makeClient=async()=>{
+  const server=createManagementServer(runtime);server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(r=>server.close(r)));
+  return (path,method='GET',headers={},body)=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,path,method,headers:Object.fromEntries(Object.entries({Host:'localhost:8000',Origin:forwarded,Authorization:'Bearer local-development-only','Sec-Fetch-Site':'same-origin',...headers}).filter(([,v])=>v!==undefined))},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>{const text=Buffer.concat(parts).toString();let body;try{body=JSON.parse(text);}catch{body={error:{message:text}};}resolve({status:res.statusCode,headers:res.headers,body});});});req.on('error',reject);req.end(body);});
+ };
+ const call=await makeClient();const csrf='/api/admin/local-csrf';
+ for(const headers of [{Authorization:'Bearer wrong-token'},{Authorization:''}])assert.equal((await call(csrf,'GET',headers)).status,401);
+ for(const headers of [{'Sec-Fetch-Site':'cross-site'},{'Sec-Fetch-Site':''},{Origin:'https://other-8000.app.github.dev'},{Origin:'https://localhost:8000'}])assert.equal((await call(csrf,'GET',headers)).status,403);
+ assert.equal((await call(csrf,'POST')).status,405);
+ const session=await call(csrf);assert.equal(session.status,200);assert(/^[a-f0-9]{64}$/.test(session.body.token));assert.equal(session.headers['access-control-allow-origin'],undefined);assert.equal(session.headers['cache-control'],'no-store');
+ const withoutMetadata=await call(csrf,'GET',{'Sec-Fetch-Site':undefined});assert.equal(withoutMetadata.status,200);assert.equal((await call(csrf,'GET',{'Sec-Fetch-Site':undefined,Origin:'https://evil.example'})).status,403);
+ const token=session.body.token;const original=console.info,logs=[];console.info=(...a)=>logs.push(a.join(' '));t.after(()=>{console.info=original;});
+ const photoHeaders={Origin:'https://localhost:8000','Content-Type':'image/jpeg','X-Yasoya-Local-CSRF':token};
+ for(const patch of [{'X-Yasoya-Local-CSRF':''},{'X-Yasoya-Local-CSRF':'a'.repeat(64)},{'Sec-Fetch-Site':'cross-site'},{'Sec-Fetch-Site':''},{Host:'localhost:9000'},{Origin:'https://other-8000.app.github.dev'},{Origin:'https://localhost:9000'}])assert.equal((await call('/api/admin/images','POST',{...photoHeaders,...patch},bytes)).status,403);
+ assert.equal((await call('/api/admin/images','POST',{...photoHeaders,Authorization:'Bearer wrong-token'},bytes)).status,401);
+ assert.equal((await call('/api/admin/images','POST',{...photoHeaders,'Sec-Fetch-Site':undefined},bytes)).status,200);
+ let id;for(const origin of ['https://localhost:8000','https://127.0.0.1:8000','https://[::1]:8000']){const r=await call('/api/admin/images','POST',{...photoHeaders,Origin:origin},bytes);assert.equal(r.status,200);if(id)assert.equal(r.body.id,id);id=r.body.id;}
+ const other=await makeClient();assert.equal((await other('/api/admin/images','POST',photoHeaders,bytes)).status,403);
+ assert(!logs.join('\n').includes(token));assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,1);assert.equal(runtime.square.payments.size,0);
+});

@@ -1,3 +1,4 @@
+import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {createServer} from 'node:http';
 import {pathToFileURL} from 'node:url';
 import {managementAccess,managementOriginEvidence,seedLocalOrders} from './management-local.mjs';
@@ -21,7 +22,7 @@ options.r2Buckets={PRODUCT_IMAGES:'local-management-images'};options.r2Persist=s
 const types={html:'text/html',js:'application/javascript',css:'text/css',jpg:'image/jpeg',png:'image/png',svg:'image/svg+xml',webp:'image/webp'};
 options.serviceBindings={LOCAL_SQUARE:r=>square.fetch(r),LOCAL_RESEND:async()=>Response.json({id:'offline-mail-not-sent'}),ASSETS:async request=>{
  const url=new URL(request.url);let path=decodeURIComponent(url.pathname);if(path.endsWith('/'))path+='index.html';
- if(path==='/js/store-config.js')return new Response('window.YASOYA_STORE_CONFIG=Object.freeze({environment:"sandbox",squareApplicationId:"sandbox-local-only",squareLocationId:"LOCALMGMTLOCATION",workerBaseUrl:location.origin,currency:"JPY"});',{headers:{'Content-Type':'application/javascript'}});
+ if(path==='/js/store-config.js')return new Response('window.YASOYA_STORE_CONFIG=Object.freeze({environment:"sandbox",squareApplicationId:"sandbox-local-only",squareLocationId:"LOCALMGMTLOCATION",workerBaseUrl:location.origin,currency:"JPY",localCsrfOrigin:'+JSON.stringify(access.mode==='codespaces'?access.siteOrigin:null)+'});',{headers:{'Content-Type':'application/javascript'}});
  if(!/^\/(?:[\w-]+\.html|(?:admin|products)\/[\w-]+\.html|(?:js|css|images)\/[\w./-]+)$/.test(path)||path.split('/').some(p=>p.startsWith('.')))return new Response('Not found',{status:404});
  try{const file=await realpath(root+path);if(!file.startsWith(root+'/'))return new Response('Not found',{status:404});let bytes=await readFile(file);if(file.endsWith('.html'))bytes=bytes.toString().replace(/<script\b[^>]*src=["']https:\/\/(?:web|sandbox)\.squarecdn\.com[^"']*["'][^>]*>\s*<\/script>/gi,'');if(path==='/admin/index.html')bytes=bytes.toString().replace(/<body\b[^>]*>/i,'$&<p role="note" style="padding:12px;background:#fff4d6;color:#332b1f">ローカル検証専用：架空データを使用します。発送ボタンを押しても実際のメールは送信されません。</p>');return new Response(bytes,{headers:{'Content-Type':types[file.split('.').pop()]||'application/octet-stream'}});}catch{return new Response('Not found',{status:404});}
 }};
@@ -52,6 +53,8 @@ return runtime;
 }
 
 export function createManagementServer({mf,options,access}) {
+const csrfToken=randomBytes(32).toString('hex');
+const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 return createServer(async(req,res)=>{
  const security={'content-security-policy':CSP.replace("img-src 'self' data:","img-src 'self' data: blob:"),'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'};
  const photo=req.method==='POST'&&req.url==='/api/admin/images';
@@ -67,12 +70,23 @@ return createServer(async(req,res)=>{
  };
  const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code,...(code==='LOCAL_HOST_ORIGIN_DENIED'?accessInfo:{})}}):message);};
  try {
-  let url;try{url=access.requestUrl(req.headers,req.url);}catch(error){accessInfo={...(error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)}),originEvidence:managementOriginEvidence(access,req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
+  const requestContext={method:req.method,csrfValid:equal(req.headers['x-yasoya-local-csrf'],csrfToken)};
+  let url;try{url=access.requestUrl(req.headers,req.url,requestContext);}catch(error){accessInfo={...(error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)}),originEvidence:managementOriginEvidence(access,req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
+  if(new URL(url).pathname==='/api/admin/local-csrf') {
+   const respond=(status,body)=>{res.writeHead(status,{...security,'content-type':'application/json','cross-origin-resource-policy':'same-origin'});res.end(JSON.stringify(body));};
+   if(req.method!=='GET')return respond(405,{error:{message:'Method not allowed'}});
+   // The nonce is protected by Bearer auth + same-origin policy (no CORS opt-in).
+   // Fetch Metadata is an extra check when the browser/proxy supplies it.
+   if(access.mode!=='codespaces'||(req.headers['sec-fetch-site']!==undefined&&req.headers['sec-fetch-site']!=='same-origin')||(req.headers.origin!==undefined&&access.canonicalOrigin(req.headers.origin)!==access.siteOrigin))return respond(403,{error:{message:'同じCodespaceの管理画面から開いてください。'}});
+   const admin=options.bindings?.ADMIN_TOKEN;
+   if(!admin||!equal(req.headers.authorization,'Bearer '+admin))return respond(401,{error:{message:'管理者認証が必要です。'}});
+   return respond(200,{token:csrfToken});
+  }
   stage='body-read';const chunks=[];
   for await(const chunk of req){length+=chunk.length;if(length>8*1024*1024)return fail(413,'画像は8MB以下にしてください。','LOCAL_BODY_TOO_LARGE');chunks.push(chunk);}
   const requestHeaders={...req.headers};
-  if(requestHeaders.origin!==undefined)requestHeaders.origin=access.canonicalOrigin(requestHeaders.origin);
-  for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-')||key==='x-yasoya-page-origin-sha256'||key==='x-yasoya-api-same-origin')delete requestHeaders[key];
+  if(requestHeaders.origin!==undefined)requestHeaders.origin=access.workerOrigin(req.headers,req.url,requestContext);
+  for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-')||key==='x-yasoya-page-origin-sha256'||key==='x-yasoya-api-same-origin'||key==='x-yasoya-local-csrf')delete requestHeaders[key];
   stage='dispatch';let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   if(r.status===404&&!new URL(url).pathname.startsWith('/api/'))r=await options.serviceBindings.ASSETS(new Request(url));
   stage='response-read';const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());

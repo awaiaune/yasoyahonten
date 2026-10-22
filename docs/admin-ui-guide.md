@@ -249,3 +249,44 @@ node dev/check-management-origin.mjs --live
 最終テスト：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **112件成功・失敗0・スキップ0**。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **31件成功・失敗0・スキップ0**。通常の転送、Originをhttpsループバックへ変更した転送モデル、別Codespaceのページという3条件を区別できた。後二者は従来どおり403になり、ヒント偽装や認証なしで許可されない。通常経路および転送モデルを正常に戻した経路では編集済みJPEGの追加・保存・再表示・ページ再読み込み後の保持に成功した。実際のGitHub転送プロキシやAndroidの到着ヘッダーを観測した結果ではない。
 
 前回からの未コミット準備も含め、保存予定の対象は8件：`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/check-management-origin.mjs`（新規）、`dev/admin-ui.browser.mjs`、`js/admin.js`、`js/admin-management.js`、本書。画像読み取り関数とHost/Originの許可判定関数は基準HEADから同一。既存の未追跡ファイルは保持し、コミット・プッシュ・デプロイは実行していない。
+
+## HTTPSループバックOriginの限定修正
+
+基準HEAD：`4b87d6358f4c84e87bff224a19ff36340280580e`。Android実機で `originMatch:loopback-wrong-scheme`、`pageMatchesExpected:true`、`pageMatchesReceivedOrigin:false`、`apiMatchesPage:true` が確認された。このコード経路は、許可されたループバック8000番Hostに、`https://localhost:8000`、`https://127.0.0.1:8000`、`https://[::1]:8000`のいずれかのOriginが届いた場合に該当する。HTTP版は元から許可されるため、この分類はHTTPS版を指す。特定のホスト表記の生値は記録していない。
+
+Codespacesの外側はHTTPS、ローカルの8000番サーバーはHTTP。閲覧ページとAPI接続先は正しいHTTPS転送URLに一致しており、ブラウザーから到着までの経路でOriginだけがHTTPSループバック表現へ変わっている。元コードはこの表現を拒否していた。ローカルサーバーをHTTPS化したり、任意Originを許可したりする必要はない。
+
+### 正規化の条件
+
+HTTPSループバックを一般の許可Originへ追加しない。次の条件が**すべて**揃った写真POSTに限り、Workerへ渡すOriginを環境変数から構成した正規Codespace Originへ置き換える。
+
+- `CODESPACES=true`、厳密に検証済みのCodespace名と`app.github.dev`から構成した現在の8000番Originがある。
+- 受信Hostが固定のループバック8000番。ポートなしHost、別ポート、外部Hostはこの特例の対象外。
+- 受信Originが上記3表現のHTTPSループバック8000番。
+- メソッドはPOST、対象はクエリーなしの`/api/admin/images`のみ。注文、在庫、商品保存、GET/OPTIONS等にはこの特例を適用しない。
+- Sec-Fetch-Siteがある場合はsame-originである。プロキシ等で省略されても、認証済み同一Origin取得で保護された秘密CSRFトークンの照合は必須。
+- 認証済み同一Originページから取得した、起動中サーバー専用のランダムCSRFトークンが一致する。
+
+通常のOriginチェックとWorkerのBearer認証は維持する。正規化後もWorkerが管理者認証と許可Originを検証する。診断用ハッシュやX-Forwarded-*を許可の根拠にしない。別Codespace・任意Origin・null Origin・別ポートは有効なCSRFトークンがあっても拒否する。
+
+### CSRFトークンの扱い
+
+開発サーバーだけが`GET /api/admin/local-csrf`を提供する。同一Origin送信と既存のローカル管理者Bearer認証が必要。正規Origin以外からのOrigin付きアクセスを拒否し、CORS許可ヘッダーも返さない。応答はno-store・同一Origin限定。トークンは起動時に暗号学的乱数32バイトから生成し、サーバー再起動で失効する。
+
+ローカル設定スクリプトは環境変数から構成したCSRF取得先Originを返す。管理画面はそれが`location.origin`と完全一致するときだけ取得するため、別の転送URLから取得を試みない。トークンはJavaScriptメモリー内だけに保持し、写真APIへ送る。localStorage、DB、Git、診断JSON、ログへは保存せず、Workerへ渡す前にヘッダーから除去する。診断用Originハッシュとは独立した値である。
+
+CSRFヘッダーなし・誤った値・前回起動時の値・クロスサイト送信は、これまでどおり403になる。Workerの認証情報が誤っていれば401になる。非Codespacesのローカル環境、公開/Sandbox検証Workerにはこの機構を追加しない。
+
+### Androidでの最終確認（承認後に修正版を取得してから）
+
+1. Codespacesで管理サーバーをCtrl+Cで停止し、`npm --prefix dev run management -- --seed --seed-orders`で再起動する。ローカルデータは削除しない。
+2. 8000番をPrivateのままOpen in Browserし、管理画面を再読み込みする。サーバー再起動後は古いタブのまま送信しない。
+3. 成功済みの編集済みJPEG（7,567,886 bytes）を選び、アップロードとプレビューを確認する。
+4. 下書き保存→閉じる→開き直す→ページ再読み込み後の再表示を確認する。
+5. JPEG/PNG/WebP、スワイプ・並び替え・削除・メイン指定も確認する。
+
+実Androidと実Codespacesの最終成功確認は利用者による上記確認が必要。代理テストは転送時のOrigin変更をループバックだけで再現し、外部サービスへ接続しない。Sec-Fetch-Siteが省略される環境でも秘密CSRFトークンと認証を必須とし、明示的なcross-site等は拒否する。認証・CSRFを外して回避しない。
+
+最終テスト結果：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **114件成功・失敗0・スキップ0**、続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **31件成功・失敗0・スキップ0**。実機と同じHTTPSループバックOriginを保持した転送モデルで、初回の写真追加・プレビュー・下書き保存・再表示・再読み込み後の保持に成功した。別Codespace、CSRF欠落/誤値/別プロセスの値、クロスサイト、別ポート・経路・メソッド・誤認証を拒否し、トークンがログに出ないことも検証した。Fetch Metadataが省略される経路も、CSRFを必須にして成功を確認した。
+
+変更6ファイル：`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/admin-ui.browser.mjs`、`js/admin.js`、本書。画像読み取り処理の`js/admin-management.js`、HTML/CSS、Worker本体、DBスキーマ、本番設定は変更していない。既存の未追跡ファイルは保持。コミット・プッシュ・デプロイは実行していない。

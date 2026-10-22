@@ -11,11 +11,25 @@
   let token = sessionStorage.getItem('yasoyaAdminToken') || '', current = 'pending', orderGeneration = 0, loggingIn = false, shipping = false, toastTimer;
   function message(id, text = '', state = 'success') { $(id).textContent = text; $(id).dataset.state = state; }
   function notify(text, state = 'success') { clearTimeout(toastTimer); message('toast', text, state); $('toast').hidden = false; toastTimer = setTimeout(() => $('toast').hidden = true, 6000); }
+  let localCsrfRequest;
+  async function photoCsrfToken() {
+    // The absolute origin is rendered from trusted server-side Codespaces metadata.
+    // Never fetch a nonce from a different page origin or persist it in storage.
+    if (!config?.localCsrfOrigin || config.localCsrfOrigin !== location.origin) return undefined;
+    if (!localCsrfRequest) localCsrfRequest = (async () => {
+      const r = await fetch(config.localCsrfOrigin+'/api/admin/local-csrf',{method:'GET',headers:{Authorization:'Bearer '+token},signal:AbortSignal.timeout(10000)});
+      if (!r.ok) throw Error('管理画面の安全な送信設定を取得できません。正しいCodespaceのPrivate URLから開き直してください。');
+      const result = await r.json(); if (!/^[a-f0-9]{64}$/.test(result.token || '')) throw Error('送信設定を確認できません。管理画面を再読み込みしてください。');
+      return result.token;
+    })().catch(error => { localCsrfRequest = undefined; throw error; });
+    return localCsrfRequest;
+  }
   async function api(path, options = {}) {
     if (!base) throw Error('管理APIの設定がありません。接続先を確認してください。');
     if (!token) throw Error('先にログインしてください。');
     const headers = {Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers};
     if (local && path === '/api/admin/images') {
+      const csrf = await photoCsrfToken(); if (csrf) headers['X-Yasoya-Local-CSRF'] = csrf;
       // Diagnostic only. Do not send the page URL, and never use this hint as authorization.
       try {
         const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(location.origin));
