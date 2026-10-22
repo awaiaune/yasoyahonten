@@ -184,3 +184,68 @@ Private転送を前提とし、Bearer認証は従来どおりWorkerで必須。O
 今回の最終結果：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **106件成功・失敗0・スキップ0**（約39秒）。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **29件成功・失敗0・スキップ0**（約36秒）。既存104件/25件に加え、接続元の分類・正規化と認証/拒否、7.57MBの編集書き出し相当JPEG、FileReader代替とタイムアウト、同じ画像の再試行、ローカルの転送モデル経由のプレビュー→保存→再表示→再読み込みを検証した。転送モデルはブラウザーが使う仮のCodespace Originを全てループバックHTTPサーバーへ差し替えたもので、GitHubの転送先や外部APIには接続しない。
 
 変更ファイル7件：`js/admin-management.js`、`js/admin.js`、`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/admin-ui.browser.mjs`、本書。今回のコードは未コミット・未プッシュ。実Androidの編集アプリ/写真プロバイダーと実Codespacesの転送ヘッダーは未検証で、成功は実機で確認する必要がある。
+
+## 転送Origin不一致の切り分け（画像読み取り成功後）
+
+基準コミット：`5f14e64765860148482e532dbd980ff542467505`。実機で7,567,886バイトの編集済みJPEGの読み取り・形式検証・デコード・Canvas・JPEG変換が成功し、残るエラーは `ORIGIN_NOT_ALLOWED / loopback-port / other`。画像読み取り処理とUI/CSSは変更しない。
+
+この組み合わせは、Hostが固定のループバック8000番として許可され、Originが正しいHTTP(S)形式として解析されたものの、サーバーの許可Originと一致しなかったことを示す。HostとOriginが違うこと自体はプロキシ経由では正常であり、Hostに合わせてOriginを無条件に書き換えたり、すべてのapp.github.devを許可したりしてはいけない。
+
+利用者のターミナルで `CODESPACES=true`、Codespace名あり、転送ドメインapp.github.devを確認済み。フラグ欠落は実機の原因ではないため、CODESPACESフラグの判定や許可Origin集合は今回変更しない。現在のサーバープロセスの設定がターミナルと一致するか、閲覧中のURLが同じCodespace/8000番か、プロキシがOriginを変更しているかを分けて確認する必要がある。
+
+### URLを表示しない確認コマンド
+
+修正ファイルをCodespacesへ反映した後、管理サーバーを動かしたまま、別ターミナルのリポジトリ直下で次を実行する。
+
+```bash
+node dev/check-management-origin.mjs --live
+```
+
+入力待ちになったら、Androidで現在開いている8000番のPrivate URLをアドレスバーからコピーして貼り、Enterを押す。入力は非表示。URLをコマンド引数に書かないのでシェル履歴へ残らず、結果にも含まれない。Secretやパスワードは入力しない。
+
+コマンドは環境変数の有無・設定モード・一致分類だけを表示する。`--live`のときだけ固定の`127.0.0.1:8000/api/health`へOriginを付けたGETを行う。貼り付けたURL自体へアクセスせず、リダイレクトも追わない。画像APIへの書き込み・注文取得・Square/Cloudflare接続・ローカルDBの初期化はしない。`--live`なしなら通信しない。
+
+| 結果 | 意味と次の確認 |
+| --- | --- |
+| `originMatch:expected`、`runningServerOriginAccepted:true` | 閲覧URLはターミナルの想定と一致し、起動中サーバーもそのOriginを許可している。それでもAndroid実送信が拒否される場合は、実際のOriginがプロキシ等で変わっている可能性を調べる。 |
+| `originMatch:expected`、実行中サーバーが403/ORIGIN_NOT_ALLOWED | ターミナルと起動中プロセスの許可設定が一致していない。8000番を使っているプロセス・起動ディレクトリ・再起動の成功を確認する。許可対象は広げない。 |
+| `different-codespace` | 閲覧URLと現在のCodespace名が違う。古いタブを閉じ、現在のCodespaceのPortsで8000番をPrivateのままOpen in Browserする。別Codespaceを追加許可しない。 |
+| `different-forwarded-port` / `wrong-port` | 別ポートを閲覧している。8000番を開き直す。 |
+| `wrong-scheme` / `different-domain` | HTTPSの正規転送URLとの不一致。Portsから開き直して確認する。 |
+| `runningServerCheck:unavailable` | サーバー未起動や接続失敗。Originの許可判断とは分けてサーバーの起動を確認する。 |
+
+写真追加の診断とローカルサーバーの `[local-photo]` 行には、`configurationMode`と`originMatch`を追加した。元のHost/Originは表示せず、同じCodespaceか、別名・別ポート・別スキームかを固定分類だけで識別する。`loopback-wrong-scheme` / `loopback-wrong-port` はプロキシによるループバックOriginへの変更を調べるための分類であり、それを理由に自動許可する処理はない。
+
+この段階で実機の不一致原因は未確定。検証結果なしにOriginの許可範囲を広げる変更は行わない。認証・CSRF検証・Privateポート・画像処理・注文/在庫の処理は維持する。診断結果と上記比較結果に基づいて、設定の修正か、特定できたプロキシ動作への限定対応かを判断する。
+
+今回の準備のテスト結果：自動テスト **110件成功・失敗0・スキップ0**、ブラウザーテスト **29件成功・失敗0・スキップ0**。追加確認は、不一致理由の秘匿分類、非表示入力のCLI、固定ループバックGET以外へ接続しないこと、応答データやURLをログへ出さないこと。既存の写真追加→保存→再表示→再読み込み、注文・在庫の回帰も成功している。実機の403を解消したという結果ではなく、実機側の照合結果を待っている段階。
+
+変更ファイル：`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/check-management-origin.mjs`（新規）、`dev/admin-ui.browser.mjs`、`js/admin.js`、`js/admin-management.js`、本書。管理画面JSの変更は診断の固定分類の転記だけ。画像読み取り関数・写真処理・UI/CSS・注文/在庫・認証・許可Origin集合は変更していない。コミット・プッシュは未実行。
+
+## 実際のアップロード経路のOrigin照合
+
+利用者の追加確認で、環境変数から構成したOriginを付けたローカル`GET /api/health`が **200** になった。想定Originが起動中サーバーに許可されていることは確認済みで、同じ確認の再実行は不要。Androidの写真アップロードだけ403になる原因は、閲覧URLとの相違か、ブラウザーからサーバーへ届く間のOrigin変化かを区別する必要がある。
+
+ローカル写真アップロードに限り、管理APIラッパーがブラウザーの`location.origin`のSHA-256と、API接続先が同一Originかどうかのフラグを診断ヘッダーへ付ける。サーバーは設定Origin・到着Originとの一致を比較し、下表の固定値/真偽値だけを返す。URL、生のHost/Origin、ハッシュ値、認証情報、写真内容は診断JSONにもログにも保存しない。これらのヘッダーは利用者が偽装可能な**診断用ヒント**であり、認証・CSRF・Host/Originの許可判定には一切使用しない。診断ヘッダーはローカルHTTPブリッジで除去し、Workerには渡さない。ヒント計算が使えなくても通常の送信は妨げない。
+
+| originEvidence項目 | 意味 |
+| --- | --- |
+| `hintState` | valid / missing / invalid。比較ができたか。 |
+| `pageMatchesExpected` | ブラウザー自身のOriginがサーバーの設定Originと一致するか。 |
+| `pageMatchesReceivedOrigin` | ブラウザー自身のOriginがサーバーへ実際に届いたOriginと一致するか。 |
+| `apiMatchesPage` | フロントエンドが送ろうとしたAPIのOriginと、閲覧ページのOriginが一致するか。 |
+
+解釈はCodespacesモードかつ`hintState:valid`のときに行う。
+
+- `pageMatchesExpected:true / pageMatchesReceivedOrigin:false / apiMatchesPage:true`：ページと設定は一致し、送信時のAPIも同一Origin。転送やリダイレクト等で届いたOriginが変わっていることを調べる。`originMatch`でループバックへの変更・別スキーム・別ポート等を識別する。
+- `pageMatchesExpected:false / pageMatchesReceivedOrigin:true / apiMatchesPage:true`：閲覧ページと届いたOriginは一致し、サーバー設定と違う。`different-codespace`なら別CodespaceのURL、`different-forwarded-port`なら別ポートを確認する。
+- `apiMatchesPage:false`：ページから別OriginのAPIへ向かっている。読み込まれたローカル設定や古いタブ、リクエスト経路を確認する。
+- `hintState:missing/invalid`やnull値：比較証拠が不足している。許可条件を緩和する理由にはしない。
+
+修正版をCodespacesへ反映した後、サーバーを再起動して管理画面を再読み込みし、成功済みの編集JPEGを1枚選ぶ。再び403になったら既存の「写真追加の診断（ローカル専用）」を開き、JSONをコピーする。`originMatch`と`originEvidence`が入ったJSONだけで上記を切り分けられる。URLやSecret、写真、ターミナル全体を送る必要はない。
+
+許可条件は従来のまま。プロキシ変更を模したOriginも拒否し、偽装したヒントで拒否を回避できないことをテストする。実機のヘッダー変化そのものはまだ観測できておらず、この段階で403の根本解消済みとは扱わない。正しいOriginのローカル転送モデルでは写真追加→プレビュー→下書き保存→再表示→ページ再読み込みを確認する。画像読み取り・変換関数、UI/CSS、注文/在庫の実装は変更しない。
+
+最終テスト：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **112件成功・失敗0・スキップ0**。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **31件成功・失敗0・スキップ0**。通常の転送、Originをhttpsループバックへ変更した転送モデル、別Codespaceのページという3条件を区別できた。後二者は従来どおり403になり、ヒント偽装や認証なしで許可されない。通常経路および転送モデルを正常に戻した経路では編集済みJPEGの追加・保存・再表示・ページ再読み込み後の保持に成功した。実際のGitHub転送プロキシやAndroidの到着ヘッダーを観測した結果ではない。
+
+前回からの未コミット準備も含め、保存予定の対象は8件：`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/check-management-origin.mjs`（新規）、`dev/admin-ui.browser.mjs`、`js/admin.js`、`js/admin-management.js`、本書。画像読み取り関数とHost/Originの許可判定関数は基準HEADから同一。既存の未追跡ファイルは保持し、コミット・プッシュ・デプロイは実行していない。

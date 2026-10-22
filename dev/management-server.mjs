@@ -1,6 +1,6 @@
 import {createServer} from 'node:http';
 import {pathToFileURL} from 'node:url';
-import {managementAccess,seedLocalOrders} from './management-local.mjs';
+import {managementAccess,managementOriginEvidence,seedLocalOrders} from './management-local.mjs';
 import {readFile,realpath,mkdir} from 'node:fs/promises';
 import {build} from 'esbuild';
 import {Miniflare} from 'miniflare';
@@ -57,7 +57,7 @@ return createServer(async(req,res)=>{
  const photo=req.method==='POST'&&req.url==='/api/admin/images';
  const supplied=req.headers['x-yasoya-photo-trace'];
  const trace=typeof supplied==='string'&&/^[a-f0-9-]{36}$/.test(supplied)?supplied:crypto.randomUUID();
- let stage='access',length=0,accessInfo={reason:'ALLOWED',...access.classify(req.headers)};
+ let stage='access',length=0,accessInfo={reason:'ALLOWED',...access.classify(req.headers),originEvidence:managementOriginEvidence(access,req.headers)};
  // Deliberately exclude URL, Host/Origin, filenames, body, authorization and raw errors.
  const diagnostic=(result,error)=>{
   if(!photo)return;
@@ -67,12 +67,12 @@ return createServer(async(req,res)=>{
  };
  const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code,...(code==='LOCAL_HOST_ORIGIN_DENIED'?accessInfo:{})}}):message);};
  try {
-  let url;try{url=access.requestUrl(req.headers,req.url);}catch(error){accessInfo=error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
+  let url;try{url=access.requestUrl(req.headers,req.url);}catch(error){accessInfo={...(error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)}),originEvidence:managementOriginEvidence(access,req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
   stage='body-read';const chunks=[];
   for await(const chunk of req){length+=chunk.length;if(length>8*1024*1024)return fail(413,'画像は8MB以下にしてください。','LOCAL_BODY_TOO_LARGE');chunks.push(chunk);}
   const requestHeaders={...req.headers};
   if(requestHeaders.origin!==undefined)requestHeaders.origin=access.canonicalOrigin(requestHeaders.origin);
-  for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-'))delete requestHeaders[key];
+  for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-')||key==='x-yasoya-page-origin-sha256'||key==='x-yasoya-api-same-origin')delete requestHeaders[key];
   stage='dispatch';let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   if(r.status===404&&!new URL(url).pathname.startsWith('/api/'))r=await options.serviceBindings.ASSETS(new Request(url));
   stage='response-read';const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());
@@ -85,6 +85,6 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const runtime=await createManagementRuntime({state:root+'/dev/.state/management',environment:{CODESPACES:process.env.CODESPACES,CODESPACE_NAME:process.env.CODESPACE_NAME,GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN},seed:process.argv.includes('--seed'),seedOrders:process.argv.includes('--seed-orders')});
  const server=createManagementServer(runtime);
  server.on('error',async()=>{console.error('Local port 8000 unavailable; no data reset performed.');await runtime.mf.dispose();process.exitCode=1;});
- server.listen(8000,'127.0.0.1',()=>console.log('Offline management: port 8000 /admin/ (local-development-only). Keep Codespaces port Private. No real payments or email.'));
+ server.listen(8000,'127.0.0.1',()=>{console.log('Offline management: port 8000 /admin/ (local-development-only). Keep Codespaces port Private. No real payments or email.');console.log('Local access configuration: '+runtime.access.mode+' (no origins are learned from requests).');});
  for(const signal of ['SIGTERM','SIGINT'])process.once(signal,async()=>{server.close();await runtime.mf.dispose();process.exit(0);});
 }

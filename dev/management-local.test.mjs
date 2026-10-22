@@ -160,3 +160,64 @@ test('forwarded binary upload authenticates, normalizes equivalent Origins and d
  }
  const row=await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first();assert.equal(row.n,1);assert.equal(runtime.square.payments.size,0);
 });
+
+test('redacted Origin classification distinguishes wrong scheme, port, Codespace and absent configuration without changing authorization',()=>{
+ const p=managementAccess(environment);assert.equal(p.mode,'codespaces');
+ assert.equal(p.requestUrl({host:'localhost:8000',origin:forwarded},'/api/admin/images'),forwarded+'/api/admin/images');
+ assert.deepEqual(p.classify({host:'localhost:8000',origin:forwarded}),{configurationMode:'codespaces',originMatch:'expected',hostClass:'loopback-port',originClass:'codespace'});
+ for(const origin of ['https://other-8000.app.github.dev','https://yasoya-local-example-8001.app.github.dev','http://yasoya-local-example-8000.app.github.dev','https://yasoya-local-example-8000.app.github.dev.evil.example'])assert.throws(()=>p.requestUrl({host:'localhost:8000',origin,'x-forwarded-host':host},'/api/admin/images'));
+ const local=managementAccess({});assert.equal(local.mode,'loopback');assert.throws(()=>local.requestUrl({host:'localhost:8000',origin:forwarded},'/api/admin/images'),e=>e.localAccess.originMatch==='not-configured');
+});
+
+test('redacted Origin preflight identifies metadata, name, port, scheme and domain mismatches without leaking input',async()=>{
+ const {checkManagementOrigin:check}=await import('./check-management-origin.mjs');
+ const metadata={...environment};
+ const good=check(metadata,forwarded+'/admin/?private=NEVER-LOG-THIS');assert.equal(good.allowed,true);assert.equal(good.originMatch,'expected');assert.equal(good.codespacesFlag,true);assert.equal(good.configurationMode,'codespaces');
+ const cases=[['https://private-name-8000.app.github.dev/admin/','different-codespace'],[forwarded.replace('-8000.','-8001.'),'different-forwarded-port'],[forwarded+':8443','wrong-port'],[forwarded.replace('https:','http:'),'wrong-scheme'],['https://private-domain.invalid','different-domain']];
+ for(const [url,match] of cases){const r=check(metadata,url);assert.equal(r.allowed,false);assert.equal(r.originMatch,match);assert.equal(r.reason,'ORIGIN_NOT_ALLOWED');}
+ assert.equal(check({},forwarded).originMatch,'not-configured');assert.equal(check({CODESPACES:'true',CODESPACE_NAME:'private-name'},forwarded).reason,'INVALID_CODESPACES_METADATA');
+ for(const input of ['not-a-url','https://private-user:private-password@'+host,'file:///private-file'])assert.equal(check(metadata,input).reason,'INVALID_INPUT_URL');
+ for(const r of [good,...cases.map(([url])=>check(metadata,url))])for(const value of ['yasoya-local-example','private-name','private-domain','NEVER-LOG-THIS','https://'])assert(!JSON.stringify(r).includes(value));
+});
+
+test('Origin preflight CLI consumes a URL on stdin without echoing or persisting it',async()=>{
+ const {spawn}=await import('node:child_process');const result=await new Promise((resolve,reject)=>{
+  const child=spawn(process.execPath,[new URL('./check-management-origin.mjs',import.meta.url).pathname],{env:{PATH:process.env.PATH,CODESPACES:'true',CODESPACE_NAME:'yasoya-local-example',GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'app.github.dev'},stdio:['pipe','pipe','pipe']});
+  let stdout='',stderr='';child.stdout.on('data',c=>stdout+=c);child.stderr.on('data',c=>stderr+=c);child.on('error',reject);child.on('close',code=>resolve({code,stdout,stderr}));child.stdin.end(forwarded+'/admin/?private=NEVER-LOG-THIS\n');
+ });
+ assert.equal(result.code,0);assert.equal(JSON.parse(result.stdout).allowed,true);for(const value of ['yasoya-local-example',forwarded,'NEVER-LOG-THIS'])assert(!(result.stdout+result.stderr).includes(value));
+});
+
+test('live Origin check sends only a fixed loopback GET, never follows redirects or logs returned data',async()=>{
+ const {probeRunningManagementOrigin:probe}=await import('./check-management-origin.mjs');let calls=0;
+ const result=await probe('https://private-url.invalid/admin/?private=NEVER-LOG-THIS',async(url,options)=>{
+  calls++;assert.equal(url,'http://127.0.0.1:8000/api/health');assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert.equal(options.headers.Origin,'https://private-url.invalid');
+  return Response.json({error:{reason:'ORIGIN_NOT_ALLOWED',private:'NEVER-LOG-THIS'}},{status:403});
+ });
+ assert.equal(calls,1);assert.equal(result.runningServerStatus,403);assert.equal(result.runningServerOriginAccepted,false);assert.equal(result.runningServerReason,'ORIGIN_NOT_ALLOWED');assert(!JSON.stringify(result).includes('private'));
+ const ok=await probe(forwarded,async()=>Response.json({private:'NEVER-LOG-THIS'}));assert.equal(ok.runningServerOriginAccepted,true);
+ assert.equal((await probe(forwarded,async()=>{throw Error('private failure');})).runningServerCheck,'unavailable');
+ assert.equal((await probe('file:///private-file',async()=>{throw Error('must not fetch');})).runningServerCheck,'invalid-input');
+});
+
+test('page-Origin evidence distinguishes a rewritten Origin from a different browser URL using comparisons only',async()=>{
+ const {createHash}=await import('node:crypto');const {managementOriginEvidence:evidence}=await import('./management-local.mjs');const access=managementAccess(environment),hash=s=>createHash('sha256').update(s).digest('hex');
+ const headers={host:'localhost:8000',origin:forwarded,'x-yasoya-page-origin-sha256':hash(forwarded),'x-yasoya-api-same-origin':'1'};
+ assert.deepEqual(evidence(access,headers),{hintState:'valid',pageMatchesExpected:true,pageMatchesReceivedOrigin:true,apiMatchesPage:true});
+ const rewritten=evidence(access,{...headers,origin:'https://localhost:8000'});assert.equal(rewritten.pageMatchesExpected,true);assert.equal(rewritten.pageMatchesReceivedOrigin,false);assert.equal(access.classify({...headers,origin:'https://localhost:8000'}).originMatch,'loopback-wrong-scheme');
+ const wrong='https://other-8000.app.github.dev',mismatch=evidence(access,{...headers,origin:wrong,'x-yasoya-page-origin-sha256':hash(wrong)});assert.equal(mismatch.pageMatchesExpected,false);assert.equal(mismatch.pageMatchesReceivedOrigin,true);
+ assert.equal(evidence(access,{...headers,'x-yasoya-api-same-origin':'0'}).apiMatchesPage,false);
+ for(const hint of [undefined,'private malformed hint',['a'.repeat(64)]]){const r=evidence(access,{...headers,'x-yasoya-page-origin-sha256':hint});assert.equal(r.pageMatchesExpected,null);assert.equal(r.pageMatchesReceivedOrigin,null);}
+ const report=JSON.stringify([rewritten,mismatch,evidence(access,headers)]);for(const value of [forwarded,wrong,hash(forwarded),'localhost','https://'])assert(!report.includes(value));
+});
+
+test('forged page hints never authorize a rejected Origin or Host, and neither hints nor URLs enter server logs',async t=>{
+ const {createHash}=await import('node:crypto');const hash=createHash('sha256').update(forwarded).digest('hex');const runtime=await createManagementRuntime({environment});t.after(()=>runtime.mf.dispose());const call=await httpClient(t,runtime);
+ const original=console.info,logs=[];console.info=(...a)=>logs.push(a.join(' '));t.after(()=>{console.info=original;});
+ const hints={'X-Yasoya-Page-Origin-SHA256':hash,'X-Yasoya-API-Same-Origin':'1'};
+ const denied=await call('/api/admin/images','POST','private-image-not-decoded',{...hints,Origin:'https://localhost:8000'});assert.equal(denied.status,403);assert.equal(denied.json().error.originEvidence.pageMatchesExpected,true);assert.equal(denied.json().error.originEvidence.pageMatchesReceivedOrigin,false);
+ assert.equal((await call('/api/admin/images','POST','private-image-not-decoded',{...hints,Host:'evil.example'})).status,403);
+ assert.equal((await call('/api/admin/images','POST','private-image-not-decoded',hints,false)).status,401);
+ const report=logs.join('\n')+denied.text;for(const value of [hash,forwarded,'https://localhost','private-image-not-decoded','local-development-only'])assert(!report.includes(value));
+ assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,0);assert.equal(runtime.square.payments.size,0);
+});

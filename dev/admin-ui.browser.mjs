@@ -223,14 +223,14 @@ test('diagnostics distinguish Access/proxy HTML, origin denial, local dispatch e
  await photoProduct('写真接続診断試験','photo-response-diagnostic');const file=await generatedPhoto('image/jpeg','response-test.jpg');
  for(const spec of [
   {status:413,contentType:'text/html',body:'<html>PRIVATE proxy error</html>',kind:'html'},
-  {status:403,contentType:'application/json',headers:{'X-Yasoya-Photo-Stage':'access'},body:JSON.stringify({error:{message:'接続元が許可されていません',code:'LOCAL_HOST_ORIGIN_DENIED',reason:'ORIGIN_NOT_ALLOWED',hostClass:'loopback-port',originClass:'other'}}),kind:'json',code:'LOCAL_HOST_ORIGIN_DENIED',serverStage:'access'},
+  {status:403,contentType:'application/json',headers:{'X-Yasoya-Photo-Stage':'access'},body:JSON.stringify({error:{message:'接続元が許可されていません',code:'LOCAL_HOST_ORIGIN_DENIED',reason:'ORIGIN_NOT_ALLOWED',hostClass:'loopback-port',originClass:'other',configurationMode:'codespaces',originMatch:'different-codespace'}}),kind:'json',code:'LOCAL_HOST_ORIGIN_DENIED',serverStage:'access'},
   {status:500,contentType:'application/json',headers:{'X-Yasoya-Photo-Stage':'dispatch'},body:JSON.stringify({error:{message:'ローカル画像処理でエラー',code:'LOCAL_UPLOAD_FAILED'}}),kind:'json',code:'LOCAL_UPLOAD_FAILED',serverStage:'dispatch'},
   {status:200,contentType:'text/html',body:'<html>PRIVATE login page</html>',parse:true}
  ]){
   const {kind,code,serverStage,parse,...response}=spec;
   await page.route('**/api/admin/images',route=>route.fulfill(response));
   try{await choosePhoto(file);const rows=JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records,last=rows.at(-1);
-   assert.equal(last.result,'failed');assert.equal(last.stage,parse?'response-parse':'upload');if(!parse){assert.equal(last.httpStatus,spec.status);assert.equal(last.responseKind,kind);if(code)assert.equal(last.serverCode,code);if(code==='LOCAL_HOST_ORIGIN_DENIED'){assert.equal(last.accessReason,'ORIGIN_NOT_ALLOWED');assert.equal(last.hostClass,'loopback-port');assert.equal(last.originClass,'other');}if(serverStage)assert.equal(last.serverStage,serverStage);}
+   assert.equal(last.result,'failed');assert.equal(last.stage,parse?'response-parse':'upload');if(!parse){assert.equal(last.httpStatus,spec.status);assert.equal(last.responseKind,kind);if(code)assert.equal(last.serverCode,code);if(code==='LOCAL_HOST_ORIGIN_DENIED'){assert.equal(last.accessReason,'ORIGIN_NOT_ALLOWED');assert.equal(last.hostClass,'loopback-port');assert.equal(last.originClass,'other');assert.equal(last.configurationMode,'codespaces');assert.equal(last.originMatch,'different-codespace');}if(serverStage)assert.equal(last.serverStage,serverStage);}
    assert.equal(await page.locator('.gallery-slide').count(),0);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert(!JSON.stringify(rows).includes('PRIVATE'));
   }finally{await page.unroute('**/api/admin/images');}
  }
@@ -252,12 +252,12 @@ test('file read and canvas failures are diagnosed at their own stages before any
 test('photo diagnostics and trace headers stay disabled outside the local-only application configuration',async()=>{
  const tab=await context.newPage();const diagnosticLogs=[];tab.on('console',message=>{if(message.text().includes('[local-photo]'))diagnosticLogs.push(message.text());});
  await tab.route('**/js/store-config.js',route=>route.fulfill({contentType:'application/javascript',body:'window.YASOYA_STORE_CONFIG={environment:"sandbox",squareApplicationId:"sandbox-non-local",workerBaseUrl:location.origin};'}));
- let trace;await tab.route('**/api/admin/images',route=>{trace=route.request().headers()['x-yasoya-photo-trace'];return route.fulfill({status:503,contentType:'text/plain',body:'injected offline failure'});});
+ let trace,hint;await tab.route('**/api/admin/images',route=>{trace=route.request().headers()['x-yasoya-photo-trace'];hint=route.request().headers()['x-yasoya-page-origin-sha256'];return route.fulfill({status:503,contentType:'text/plain',body:'injected offline failure'});});
  try{
   await tab.goto(base+'/admin/');await tab.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await tab.getByRole('button',{name:'管理画面を開く',exact:true}).click();await tab.locator('#app').waitFor({state:'visible'});await tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
   await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));await tab.getByRole('button',{name:'＋ 商品登録',exact:true}).click();
   await tab.locator('#imageFiles').setInputFiles({name:'private.png',mimeType:'image/png',buffer:(await generatedPhoto('image/png','test.png')).buffer});await tab.waitForFunction(()=>document.querySelector('#photoUploadMessage').dataset.state==='error');
-  assert.equal(trace,undefined);assert.equal(await tab.evaluate(()=>typeof window.YasoyaPhotoDiagnostics),'undefined');assert.equal(await tab.locator('#photoDiagnosticDetails').count(),0);assert.deepEqual(diagnosticLogs,[]);
+  assert.equal(trace,undefined);assert.equal(hint,undefined);assert.equal(await tab.evaluate(()=>typeof window.YasoyaPhotoDiagnostics),'undefined');assert.equal(await tab.locator('#photoDiagnosticDetails').count(),0);assert.deepEqual(diagnosticLogs,[]);
  }finally{await tab.close();}
 });
 
@@ -300,17 +300,18 @@ test('FileReader timeout aborts safely, releases the picker and allows retry of 
  await choosePhoto(file);assert.equal(await page.locator('.gallery-slide').count(),1);await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
 });
 
-test('private Codespaces proxy transport supports edited-photo upload, save and reload with exact-Origin authorization',async()=>{
+for (const routeCase of ['normal','rewritten-origin','different-page']) test('Codespaces Origin evidence and photo persistence: '+routeCase,async()=>{
  const {request}=await import('node:http');
  const environment={CODESPACES:'true',CODESPACE_NAME:'yasoya-local-example',GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'app.github.dev'};
- const origin='https://yasoya-local-example-8000.app.github.dev';
+ const origin=routeCase==='different-page'?'https://other-8000.app.github.dev':'https://yasoya-local-example-8000.app.github.dev';
  const isolated=await createManagementRuntime({environment}),gateway=createManagementServer(isolated);await new Promise(r=>gateway.listen(0,'127.0.0.1',r));
- const proxyContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});const proxyErrors=[];let uploads=0;
+ const proxyContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});const proxyErrors=[];let uploads=0,rewrite=routeCase==='rewritten-origin';
  await proxyContext.route('**/*',async route=>{
   const incoming=route.request(),url=new URL(incoming.url());if(url.origin!==origin){external.push(url.origin);return route.abort();}
   const photo=url.pathname==='/api/admin/images'&&incoming.method()==='POST';if(photo)uploads++;
   // Tunnel behavior is simulated entirely on loopback. No request goes to GitHub.
-  const headers={...incoming.headers(),host:photo?'localhost':'localhost:8000'};delete headers['content-length'];delete headers['transfer-encoding'];delete headers.connection;
+  const headers={...incoming.headers(),host:'localhost:8000'};delete headers['content-length'];delete headers['transfer-encoding'];delete headers.connection;
+  if(photo&&rewrite)headers.origin='https://localhost:8000';
   const body=incoming.postDataBuffer();
   const response=await new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:gateway.address().port,path:url.pathname+url.search,method:incoming.method(),headers},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(parts)}));});req.on('error',reject);req.end(body||undefined);});
   await route.fulfill(response);
@@ -319,7 +320,17 @@ test('private Codespaces proxy transport supports edited-photo upload, save and 
  try{
   await tab.goto(origin+'/admin/');await tab.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await tab.getByRole('button',{name:'管理画面を開く',exact:true}).click();await tab.locator('#app').waitFor({state:'visible'});const settled=()=>tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));await settled();
   await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await settled();await tab.getByRole('button',{name:'＋ 商品登録',exact:true}).click();await tab.getByLabel('商品名',{exact:true}).fill('転送経由の編集写真');await tab.getByLabel('URL識別子',{exact:true}).fill('proxy-edited-photo');await tab.locator('[name=vname]').fill('転送経由の編集写真 10g');
-  await tab.locator('#imageFiles').setInputFiles({name:'PRIVATE-proxy-edited.jpg',mimeType:'image/jpeg',buffer:editedJpeg(await readFile(new URL('../images/yomogi.jpg',import.meta.url)))});await settled();assert.equal(uploads,1);await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.match(await tab.locator('#photoUploadMessage').innerText(),/1枚追加/);
+  const photo={name:'PRIVATE-proxy-edited.jpg',mimeType:'image/jpeg',buffer:editedJpeg(await readFile(new URL('../images/yomogi.jpg',import.meta.url)))};
+  await tab.locator('#imageFiles').setInputFiles(photo);await settled();assert.equal(uploads,1);
+  if(routeCase!=='normal'){
+   const report=await tab.locator('#photoDiagnosticReport').inputValue(),last=JSON.parse(report).records.at(-1);assert.equal(last.httpStatus,403);assert.equal(last.accessReason,'ORIGIN_NOT_ALLOWED');assert.equal(last.hostClass,'loopback-port');assert.equal(last.originClass,'other');assert.equal(last.originEvidence.hintState,'valid');assert.equal(last.originEvidence.apiMatchesPage,true);
+   assert.equal(last.originEvidence.pageMatchesExpected,routeCase==='rewritten-origin');assert.equal(last.originEvidence.pageMatchesReceivedOrigin,routeCase==='different-page');assert.equal(last.originMatch,routeCase==='rewritten-origin'?'loopback-wrong-scheme':'different-codespace');
+   for(const value of [origin,'https://localhost','PRIVATE-proxy-edited.jpg','local-development-only'])assert(!report.includes(value));
+   assert.equal((await isolated.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,0);
+   if(routeCase==='different-page'){assert.deepEqual(proxyErrors,[]);return;}
+   rewrite=false;await tab.locator('#imageFiles').setInputFiles(photo);await settled();assert.equal(uploads,2);
+  }
+  await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.match(await tab.locator('#photoUploadMessage').innerText(),/1枚追加/);
   await tab.getByRole('button',{name:'下書き保存',exact:true}).click();await settled();await tab.getByRole('button',{name:'商品編集を閉じる'}).click();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);await tab.getByRole('button',{name:'商品編集を閉じる'}).click();
   await tab.reload();await tab.locator('#app').waitFor({state:'visible'});await settled();await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await settled();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.equal(await tab.locator('.gallery-slide').count(),1);assert.deepEqual(proxyErrors,[]);assert.equal(isolated.square.payments.size,0);
  }finally{await proxyContext.close();await new Promise(r=>gateway.close(r));await isolated.mf.dispose();}

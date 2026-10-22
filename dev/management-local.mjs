@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 // Local development only. Never import this module into the deployed Worker.
 export const localOrigin = 'http://127.0.0.1:8000';
 export function managementAccess(environment = {}) {
@@ -21,10 +22,25 @@ export function managementAccess(environment = {}) {
         if (!parts) return undefined;
         try { const url = new URL(value); return url.hostname === parts[2].toLowerCase() ? url.origin : undefined; } catch { return undefined; }
     }
+    function originMatch(value) {
+        const origin = normalizedOrigin(value);
+        if (!origin) return value === undefined ? 'missing' : 'malformed';
+        if (loopbackOrigins.includes(origin)) return 'loopback';
+        if (!forwardedOrigin) return 'not-configured';
+        if (origin === forwardedOrigin) return 'expected';
+        const url = new URL(origin);
+        if (['localhost','127.0.0.1','[::1]'].includes(url.hostname)) return url.port === '8000' ? 'loopback-wrong-scheme' : 'loopback-wrong-port';
+        if (url.hostname === forwardedHost) return url.protocol !== 'https:' ? 'wrong-scheme' : 'wrong-port';
+        const parts = /^([a-z0-9-]+)-([0-9]{1,5})\.app\.github\.dev$/.exec(url.hostname);
+        if (parts) return parts[1] === environment.CODESPACE_NAME ? 'different-forwarded-port' : 'different-codespace';
+        return url.hostname.endsWith('.app.github.dev') ? 'unsupported-host-form' : 'different-domain';
+    }
     function classify(headers) {
         const host = typeof headers.host === 'string' ? headers.host.toLowerCase() : '';
         const origin = normalizedOrigin(headers.origin);
         return {
+            configurationMode: forwardedOrigin ? 'codespaces' : 'loopback',
+            originMatch: originMatch(headers.origin),
             hostClass: !host ? 'missing' : loopbackHosts.includes(host) ? 'loopback-port'
                 : bareLoopbackHosts.includes(host) ? 'loopback-no-port'
                 : forwardedHost && [forwardedHost,forwardedHost+':443'].includes(host) ? 'codespace' : 'other',
@@ -36,6 +52,7 @@ export function managementAccess(environment = {}) {
     return Object.freeze({
         origins: Object.freeze(origins),
         siteOrigin: forwardedOrigin || localOrigin,
+        mode: forwardedOrigin ? 'codespaces' : 'loopback',
         classify,
         canonicalOrigin(value) { return normalizedOrigin(value); },
         requestUrl(headers, target) {
@@ -61,6 +78,22 @@ export function managementAccess(environment = {}) {
             return url.href;
         }
     });
+}
+
+// Diagnostic hints are untrusted and never consulted by requestUrl/authentication.
+// Return comparisons only: neither URL values nor digest values may enter logs.
+export function managementOriginEvidence(access,headers) {
+    const hint=headers['x-yasoya-page-origin-sha256'];
+    const valid=typeof hint==='string'&&/^[a-f0-9]{64}$/.test(hint);
+    const digest=value=>createHash('sha256').update(value).digest('hex');
+    const received=access.canonicalOrigin(headers.origin);
+    const sameApi=headers['x-yasoya-api-same-origin'];
+    return {
+        hintState:hint===undefined?'missing':valid?'valid':'invalid',
+        pageMatchesExpected:valid?hint===digest(access.siteOrigin):null,
+        pageMatchesReceivedOrigin:valid&&received?hint===digest(received):null,
+        apiMatchesPage:sameApi==='1'?true:sameApi==='0'?false:null
+    };
 }
 
 // Explicit, additive UI fixtures: no purchase call, payment, stock mutation or real customer data.

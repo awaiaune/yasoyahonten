@@ -14,7 +14,16 @@
   async function api(path, options = {}) {
     if (!base) throw Error('管理APIの設定がありません。接続先を確認してください。');
     if (!token) throw Error('先にログインしてください。');
-    const response = await fetch(base + path, {...options, headers:{Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers}});
+    const headers = {Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers};
+    if (local && path === '/api/admin/images') {
+      // Diagnostic only. Do not send the page URL, and never use this hint as authorization.
+      try {
+        const digest = await crypto.subtle.digest('SHA-256',new TextEncoder().encode(location.origin));
+        headers['X-Yasoya-Page-Origin-SHA256'] = [...new Uint8Array(digest)].map(v => v.toString(16).padStart(2,'0')).join('');
+        headers['X-Yasoya-API-Same-Origin'] = new URL(base + path,location.href).origin === location.origin ? '1' : '0';
+      } catch { /* Missing diagnostics must not prevent a normal upload. */ }
+    }
+    const response = await fetch(base + path, {...options, headers});
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status;
@@ -29,6 +38,13 @@
         if (['HOST_MISSING','HOST_NOT_ALLOWED','ORIGIN_NULL','ORIGIN_MALFORMED','ORIGIN_NOT_ALLOWED','HOST_ORIGIN_PAIR_NOT_ALLOWED','INVALID_TARGET'].includes(reason)) error.photoAccessReason = reason;
         if (['missing','loopback-port','loopback-no-port','codespace','other'].includes(hostClass)) error.photoHostClass = hostClass;
         if (['missing','null','loopback','codespace','other'].includes(originClass)) error.photoOriginClass = originClass;
+        if (['codespaces','loopback'].includes(data.error?.configurationMode)) error.photoConfigurationMode = data.error.configurationMode;
+        if (['missing','malformed','loopback','not-configured','expected','wrong-scheme','wrong-port','different-forwarded-port','different-codespace','unsupported-host-form','different-domain','loopback-wrong-scheme','loopback-wrong-port'].includes(data.error?.originMatch)) error.photoOriginMatch = data.error.originMatch;
+        const evidence = data.error?.originEvidence;
+        if (evidence && ['missing','valid','invalid'].includes(evidence.hintState)) {
+          error.photoOriginEvidence = {hintState:evidence.hintState};
+          for (const key of ['pageMatchesExpected','pageMatchesReceivedOrigin','apiMatchesPage']) if (typeof evidence[key] === 'boolean' || evidence[key] === null) error.photoOriginEvidence[key] = evidence[key];
+        }
       }
       throw error;
     }

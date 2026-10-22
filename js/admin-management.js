@@ -151,6 +151,9 @@
       if (error.photoAccessReason) row.accessReason = error.photoAccessReason;
       if (error.photoHostClass) row.hostClass = error.photoHostClass;
       if (error.photoOriginClass) row.originClass = error.photoOriginClass;
+      if (error.photoConfigurationMode) row.configurationMode = error.photoConfigurationMode;
+      if (error.photoOriginMatch) row.originMatch = error.photoOriginMatch;
+      if (error.photoOriginEvidence) row.originEvidence = error.photoOriginEvidence;
     }
     photoRecords.push(row); if (photoRecords.length > 80) photoRecords.shift();
     console.debug('[local-photo]',JSON.stringify(row));
