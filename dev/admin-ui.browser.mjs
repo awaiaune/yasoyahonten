@@ -205,6 +205,62 @@ test('canvas conversion failure is visible and a partially successful batch keep
  await choosePhoto([png,{name:'unsupported.heic',mimeType:'image/heic',buffer:Buffer.from('unsupported-heic-fixture')}]);assert.equal(await page.locator('.gallery-slide').count(),1);assert.match(await page.locator('#photoUploadMessage').innerText(),/HEIC/);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
 });
 
+test('reported generic upload error is isolated to HTTP and diagnostics exclude photo data, names, response bodies and tokens',async()=>{
+ await photoProduct('写真HTTP診断試験','photo-http-diagnostic');const file=await generatedPhoto('image/png','PRIVATE-person-photo.png');
+ await page.route('**/api/admin/images',route=>route.fulfill({status:500,contentType:'text/plain',body:'PRIVATE server exception details'}));
+ try{
+  await choosePhoto(file);assert.match(await page.locator('#photoUploadMessage').innerText(),/写真を追加できません：処理できませんでした/);
+  const report=await page.locator('#photoDiagnosticReport').inputValue();const rows=JSON.parse(report).records,failed=rows.at(-1);assert(rows.length<=80);
+  assert.equal(failed.stage,'upload');assert.equal(failed.result,'failed');assert.equal(failed.httpStatus,500);assert.equal(failed.responseKind,'text');assert.equal(failed.serverStage,'unavailable');
+  const run=rows.filter(r=>r.trace===failed.trace);for(const stage of ['header-read','decode','canvas-draw','blob-encode'])assert(run.some(r=>r.stage===stage&&r.result==='ok'));
+  assert(run.some(r=>r.stage==='selection'&&r.sourceBytes===file.buffer.length&&r.sourceMime==='image/png'&&r.fileReaderUsed===false));
+  for(const value of ['PRIVATE-person-photo.png','PRIVATE server exception details','local-development-only','data:image','blob:','127.0.0.1'])assert(!report.includes(value));
+  await page.getByText('写真追加の診断（ローカル専用）',{exact:true}).click();assert(await page.getByRole('button',{name:'診断をコピー',exact:true}).isVisible());
+ }finally{await page.unroute('**/api/admin/images');}
+ await choosePhoto(file);assert.equal(await page.locator('.gallery-slide').count(),1);await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
+});
+test('diagnostics distinguish Access/proxy HTML, origin denial, local dispatch errors and invalid successful responses',async()=>{
+ await photoProduct('写真接続診断試験','photo-response-diagnostic');const file=await generatedPhoto('image/jpeg','response-test.jpg');
+ for(const spec of [
+  {status:413,contentType:'text/html',body:'<html>PRIVATE proxy error</html>',kind:'html'},
+  {status:403,contentType:'application/json',headers:{'X-Yasoya-Photo-Stage':'access'},body:JSON.stringify({error:{message:'接続元が許可されていません',code:'LOCAL_HOST_ORIGIN_DENIED'}}),kind:'json',code:'LOCAL_HOST_ORIGIN_DENIED',serverStage:'access'},
+  {status:500,contentType:'application/json',headers:{'X-Yasoya-Photo-Stage':'dispatch'},body:JSON.stringify({error:{message:'ローカル画像処理でエラー',code:'LOCAL_UPLOAD_FAILED'}}),kind:'json',code:'LOCAL_UPLOAD_FAILED',serverStage:'dispatch'},
+  {status:200,contentType:'text/html',body:'<html>PRIVATE login page</html>',parse:true}
+ ]){
+  const {kind,code,serverStage,parse,...response}=spec;
+  await page.route('**/api/admin/images',route=>route.fulfill(response));
+  try{await choosePhoto(file);const rows=JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records,last=rows.at(-1);
+   assert.equal(last.result,'failed');assert.equal(last.stage,parse?'response-parse':'upload');if(!parse){assert.equal(last.httpStatus,spec.status);assert.equal(last.responseKind,kind);if(code)assert.equal(last.serverCode,code);if(serverStage)assert.equal(last.serverStage,serverStage);}
+   assert.equal(await page.locator('.gallery-slide').count(),0);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert(!JSON.stringify(rows).includes('PRIVATE'));
+  }finally{await page.unroute('**/api/admin/images');}
+ }
+ await page.route('**/api/admin/images',route=>route.abort('failed'));
+ try{await choosePhoto(file);const last=JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records.at(-1);assert.equal(last.stage,'upload');assert.equal(last.errorType,'TypeError');assert.equal(last.httpStatus,undefined);}finally{await page.unroute('**/api/admin/images');}
+});
+test('file read and canvas failures are diagnosed at their own stages before any upload',async()=>{
+ await photoProduct('写真段階診断試験','photo-stage-diagnostic');const file=await generatedPhoto('image/png','PRIVATE-stage.png');let posts=0;const watch=r=>{if(r.method()==='POST'&&r.url()===base+'/api/admin/images')posts++;};page.on('request',watch);
+ try{
+  await page.evaluate(()=>{window.__diagnosticArrayBuffer=Blob.prototype.arrayBuffer;Blob.prototype.arrayBuffer=function(){return Promise.reject(new DOMException('PRIVATE read error','NotReadableError'));};});
+  try{await choosePhoto(file);const last=JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records.at(-1);assert.equal(last.stage,'header-read');assert.equal(last.errorType,'NotReadableError');assert.match(await page.locator('#photoUploadMessage').innerText(),/読み込めません/);}finally{await page.evaluate(()=>{Blob.prototype.arrayBuffer=window.__diagnosticArrayBuffer;delete window.__diagnosticArrayBuffer;});}
+  await page.evaluate(()=>{window.__diagnosticContext=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(){return null;};});
+  try{await choosePhoto(file);const last=JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records.at(-1);assert.equal(last.stage,'canvas-draw');assert.equal(last.result,'failed');}finally{await page.evaluate(()=>{HTMLCanvasElement.prototype.getContext=window.__diagnosticContext;delete window.__diagnosticContext;});}
+  await choosePhoto({name:'PRIVATE-corrupt.jpg',mimeType:'image/jpeg',buffer:Buffer.from([255,216,255,...new Array(32).fill(0)])});assert.equal(JSON.parse(await page.locator('#photoDiagnosticReport').inputValue()).records.at(-1).stage,'decode');
+  assert.equal(posts,0);assert(!await page.locator('#photoDiagnosticReport').inputValue().then(s=>s.includes('PRIVATE')));
+ }finally{page.off('request',watch);}
+});
+
+test('photo diagnostics and trace headers stay disabled outside the local-only application configuration',async()=>{
+ const tab=await context.newPage();const diagnosticLogs=[];tab.on('console',message=>{if(message.text().includes('[local-photo]'))diagnosticLogs.push(message.text());});
+ await tab.route('**/js/store-config.js',route=>route.fulfill({contentType:'application/javascript',body:'window.YASOYA_STORE_CONFIG={environment:"sandbox",squareApplicationId:"sandbox-non-local",workerBaseUrl:location.origin};'}));
+ let trace;await tab.route('**/api/admin/images',route=>{trace=route.request().headers()['x-yasoya-photo-trace'];return route.fulfill({status:503,contentType:'text/plain',body:'injected offline failure'});});
+ try{
+  await tab.goto(base+'/admin/');await tab.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await tab.getByRole('button',{name:'管理画面を開く',exact:true}).click();await tab.locator('#app').waitFor({state:'visible'});await tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
+  await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));await tab.getByRole('button',{name:'＋ 商品登録',exact:true}).click();
+  await tab.locator('#imageFiles').setInputFiles({name:'private.png',mimeType:'image/png',buffer:(await generatedPhoto('image/png','test.png')).buffer});await tab.waitForFunction(()=>document.querySelector('#photoUploadMessage').dataset.state==='error');
+  assert.equal(trace,undefined);assert.equal(await tab.evaluate(()=>typeof window.YasoyaPhotoDiagnostics),'undefined');assert.equal(await tab.locator('#photoDiagnosticDetails').count(),0);assert.deepEqual(diagnosticLogs,[]);
+ }finally{await tab.close();}
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

@@ -93,3 +93,33 @@ test('management runtime still denies Square, Resend, Cloudflare and production 
   const response=await probe.dispatchFetch('http://local/?target='+encodeURIComponent(target));assert.equal(response.status,503);assert.match(await response.text(),/outbound network denied/);
  }
 });
+
+test('photo transport diagnostics identify forwarding denial and dispatch failures without logging private data',async t=>{
+ const logs=[];const original=console.info;console.info=(...args)=>logs.push(args.join(' '));t.after(()=>{console.info=original;});
+ const runtime={access:managementAccess(environment),options:{},mf:{dispatchFetch:async()=>{throw Object.assign(new Error('PRIVATE-error-contents'),{cause:{code:'UND_ERR_REQ_CONTENT_LENGTH_MISMATCH'}});}}};
+ const call=await httpClient(t,runtime);
+ const headers={'Content-Type':'image/jpeg','X-Yasoya-Photo-Trace':'12345678-1234-1234-1234-123456789abc','X-Private-Test':'PRIVATE-header-value'};
+ const failed=await call('/api/admin/images','POST','PRIVATE-body',headers);
+ assert.equal(failed.status,500);assert.equal(failed.json().error.code,'LOCAL_UPLOAD_FAILED');assert.equal(failed.headers['x-yasoya-photo-stage'],'dispatch');
+ assert(logs.some(line=>line.includes('UND_ERR_REQ_CONTENT_LENGTH_MISMATCH')));
+ const denied=await call('/api/admin/images','POST','PRIVATE-body',{...headers,Origin:'https://private-origin.invalid'});
+ assert.equal(denied.status,403);assert.equal(denied.json().error.code,'LOCAL_HOST_ORIGIN_DENIED');assert.equal(denied.headers['x-yasoya-photo-stage'],'access');
+ const tooBig=await call('/api/admin/images','POST','x'.repeat(8*1024*1024),headers);
+ assert.equal(tooBig.status,413);assert.equal(tooBig.json().error.code,'LOCAL_BODY_TOO_LARGE');assert.equal(tooBig.headers['x-yasoya-photo-stage'],'body-read');
+ const report=logs.join('\n');for(const value of ['PRIVATE-error-contents','PRIVATE-body','PRIVATE-header-value','private-origin.invalid','local-development-only'])assert(!report.includes(value));
+});
+
+test('Codespaces-style fixed-length and chunked binary image uploads persist and can be read back',async t=>{
+ const {readFile}=await import('node:fs/promises');const bytes=await readFile(new URL('../images/lemonbalm.jpg',import.meta.url));
+ const runtime=await createManagementRuntime({environment});t.after(()=>runtime.mf.dispose());assert.equal(runtime.options.cf,false);
+ const server=createManagementServer(runtime);server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(r=>server.close(r)));
+ let id;
+ for(const chunked of [false,true]){
+  const response=await new Promise((resolve,reject)=>{
+   const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/api/admin/images',method:'POST',headers:{Host:'localhost:8000',Origin:forwarded,Authorization:'Bearer local-development-only','Content-Type':'image/jpeg',...(chunked?{'Transfer-Encoding':'chunked'}:{'Content-Length':bytes.length})}},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(parts))}));});req.on('error',reject);req.end(bytes);
+  });
+  assert.equal(response.status,200);assert.match(response.body.id,/^[a-f0-9]{64}$/);if(id)assert.equal(response.body.id,id);id=response.body.id;
+ }
+ const saved=await runtime.mf.dispatchFetch('http://127.0.0.1:8000/api/admin/images/'+id,{headers:{Authorization:'Bearer local-development-only'}});assert.equal(saved.status,200);assert((await saved.arrayBuffer()).byteLength>0);
+ assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,1);
+});

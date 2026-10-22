@@ -15,7 +15,19 @@
     if (!base) throw Error('管理APIの設定がありません。接続先を確認してください。');
     if (!token) throw Error('先にログインしてください。');
     const response = await fetch(base + path, {...options, headers:{Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers}});
-    if (!response.ok) { const data = await response.json().catch(() => ({})); const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status; throw error; }
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status;
+      if (local && path === '/api/admin/images') {
+        const type = response.headers.get('Content-Type') || '';
+        error.photoResponse = /json/i.test(type) ? 'json' : /html/i.test(type) ? 'html' : /text/i.test(type) ? 'text' : 'other';
+        const code = data.error?.code;
+        error.photoCode = ['LOCAL_HOST_ORIGIN_DENIED','LOCAL_BODY_TOO_LARGE','LOCAL_UPLOAD_FAILED'].includes(code) ? code : 'UNCLASSIFIED_RESPONSE';
+        const stage = response.headers.get('X-Yasoya-Photo-Stage');
+        error.photoServerStage = ['access','body-read','dispatch','response-read','response-write'].includes(stage) ? stage : 'unavailable';
+      }
+      throw error;
+    }
     return response;
   }
   const data = async (path, options) => (await api(path, options)).json();

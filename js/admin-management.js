@@ -105,7 +105,7 @@
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
-    drawImages(); message('editorMessage'); message('photoUploadMessage');
+    drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true;
   }
   function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
   function newProduct() { open({id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
@@ -133,12 +133,46 @@
   function closeEditor() { if (!busy && (!dirty || confirm('未保存の変更があります。保存せずに閉じますか？'))) { $('productEditor').close(); setDirty(false); } }
   $('closeEditor').onclick = closeEditor;
   $('productEditor').addEventListener('cancel',e => { e.preventDefault(); closeEditor(); });
+  // Local-only, bounded and memory-only diagnostics. Never include names, image data,
+  // EXIF, URLs, credentials, server response bodies or raw exception messages.
+  const photoRecords = []; let photoTrace, photoStage, photoStarted;
+  const photoReport = () => JSON.stringify({version:1,records:photoRecords},null,2);
+  if (A.local) window.YasoyaPhotoDiagnostics = Object.freeze({report:photoReport});
+  function photoDiagnostic(stage,result,error,extra={}) {
+    if (!A.local) return;
+    photoStage = stage;
+    const row = {trace:photoTrace,stage,result,elapsedMs:Math.round(performance.now()-photoStarted),...extra};
+    if (error) {
+      row.errorType = ['Error','TypeError','SyntaxError','InvalidStateError','AbortError','TimeoutError','NotReadableError','SecurityError','EncodingError'].includes(error.name) ? error.name : 'OtherError';
+      if (Number.isInteger(error.status)) row.httpStatus = error.status;
+      if (error.photoResponse) row.responseKind = error.photoResponse;
+      if (error.photoCode) row.serverCode = error.photoCode;
+      if (error.photoServerStage) row.serverStage = error.photoServerStage;
+    }
+    photoRecords.push(row); if (photoRecords.length > 80) photoRecords.shift();
+    console.debug('[local-photo]',JSON.stringify(row));
+  }
+  function showPhotoDiagnostic() {
+    if (!A.local) return;
+    let details = $('photoDiagnosticDetails');
+    if (!details) {
+      details = document.createElement('details'); details.id = 'photoDiagnosticDetails';
+      const summary = document.createElement('summary'); summary.textContent = '写真追加の診断（ローカル専用）';
+      const report = document.createElement('textarea'); report.id = 'photoDiagnosticReport'; report.readOnly = true; report.rows = 8; report.setAttribute('aria-label','写真追加の診断結果');
+      const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = '診断をコピー';
+      copy.onclick = async () => { report.focus(); report.select(); try { await navigator.clipboard.writeText(report.value); copy.textContent = 'コピーしました'; } catch { copy.textContent = '診断欄を長押ししてコピーしてください'; } };
+      details.append(summary,report,copy); $('photoUploadMessage').after(details);
+    }
+    $('photoDiagnosticReport').value = photoReport(); details.hidden = false;
+  }
   async function preparePhoto(file) {
     if (!file.size) throw Error('写真データが空です。端末に写真を保存してから選び直してください。');
     if (file.size > 30*1024*1024) throw Error('元の写真は30MB以下にしてください。');
-    let header;
+    let header; photoDiagnostic('header-read','begin');
     try { header = new Uint8Array(await file.slice(0,32).arrayBuffer()); }
-    catch { throw Error('写真ファイルを読み込めません。端末に保存してから選び直してください。'); }
+    catch (error) { photoDiagnostic('header-read','failed',error); throw Object.assign(Error('写真ファイルを読み込めません。端末に保存してから選び直してください。'),{photoLogged:true}); }
+    photoDiagnostic('header-read','ok');
+    photoDiagnostic('format-check','begin');
     const ascii = (start,end) => String.fromCharCode(...header.slice(start,end));
     const mime = header[0] === 255 && header[1] === 216 && header[2] === 255 ? 'image/jpeg'
       : [137,80,78,71,13,10,26,10].every((v,i) => header[i] === v) ? 'image/png'
@@ -147,8 +181,10 @@
       if (/image\/hei[cf]/i.test(file.type) || /\.hei[cf]$/i.test(file.name) || ascii(4,8) === 'ftyp') throw Error('HEIC/HEIFなどの形式は追加できません。JPEG・PNG・WebPに変換して選び直してください。');
       throw Error('対応している写真はJPEG・PNG・WebPです。形式を確認して選び直してください。');
     }
+    photoDiagnostic('format-check','ok',null,{detectedMime:mime});
     // Android document/photo providers can return an empty or generic MIME type.
     // Decode a typed local Blob with the browser image element instead of ImageBitmap.
+    photoDiagnostic('decode','begin');
     const url = URL.createObjectURL(new Blob([file],{type:mime})), image = new Image();
     try {
       await new Promise((resolve,reject) => {
@@ -158,6 +194,8 @@
         image.onerror = () => { cleanup(); reject(Error('写真を読み込めません。破損していないJPEG・PNG・WebPで選び直してください。')); };
         image.src = url;
       });
+      photoDiagnostic('decode','ok');
+      photoDiagnostic('canvas-draw','begin');
       const width = image.naturalWidth, height = image.naturalHeight;
       if (!width || !height) throw Error('写真のサイズを取得できません。別の写真で試してください。');
       const scale = Math.min(1,2000/Math.max(width,height)), canvas = document.createElement('canvas');
@@ -165,9 +203,12 @@
       const context = canvas.getContext('2d');
       if (!context) throw Error('端末で写真を変換できません。写真を縮小し、JPEGで選び直してください。');
       context.drawImage(image,0,0,canvas.width,canvas.height);
+      photoDiagnostic('canvas-draw','ok',null,{width:canvas.width,height:canvas.height});
+      photoDiagnostic('blob-encode','begin');
       const blob = await new Promise(resolve => canvas.toBlob(resolve,'image/jpeg',.85));
       if (!blob || !blob.size || blob.type !== 'image/jpeg') throw Error('写真の変換に失敗しました。縮小したJPEGで選び直してください。');
       if (blob.size > 8*1024*1024) throw Error('変換後の写真が8MBを超えています。縮小して選び直してください。');
+      photoDiagnostic('blob-encode','ok',null,{outputMime:blob.type,outputBytes:blob.size});
       return blob;
     } finally { image.removeAttribute('src'); URL.revokeObjectURL(url); }
   }
@@ -181,16 +222,25 @@
     work(async () => {
       capture(); let added = 0;
       for (const [i,file] of files.entries()) {
-        if (current.draft.images.length >= 10) throw Error('写真は10枚までです。不要な写真を外してから追加してください。');
-        message('photoUploadMessage',`写真を読み込んでいます…（${i+1}/${files.length}）`,'loading');
-        const blob = await preparePhoto(file);
-        message('photoUploadMessage',`写真を送信しています…（${i+1}/${files.length}）`,'loading');
-        let result;
-        try { result = await data('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg'},body:blob,signal:AbortSignal.timeout(20000)}); }
-        catch (error) { throw Error(error.status ? `写真を追加できません：${error.message}` : '写真を送信できません。通信状態を確認し、同じ写真を選び直してください。'); }
-        if (!/^[a-f0-9]{64}$/.test(result.id || '')) throw Error('写真の保存結果を確認できません。同じ写真を選び直してください。');
-        if (!current.draft.images.includes(result.id)) { current.draft.images.push(result.id); added++; setDirty(true); }
-        await drawImages(result.id);
+        photoTrace = crypto.randomUUID(); photoStarted = performance.now();
+        photoDiagnostic('selection','ok',null,{sourceMime:['image/jpeg','image/png','image/webp','image/heic','image/heif','application/octet-stream',''].includes(file.type)?file.type:'other',sourceBytes:file.size,android:/Android/.test(navigator.userAgent),fileReaderUsed:false});
+        try {
+          photoDiagnostic('file-validation','begin');
+          if (current.draft.images.length >= 10) throw Error('写真は10枚までです。不要な写真を外してから追加してください。');
+          message('photoUploadMessage',`写真を読み込んでいます…（${i+1}/${files.length}）`,'loading');
+          const blob = await preparePhoto(file);
+          message('photoUploadMessage',`写真を送信しています…（${i+1}/${files.length}）`,'loading');
+          let result; photoDiagnostic('upload','begin');
+          let response;
+          try { response = await A.api('/api/admin/images',{method:'POST',headers:{'Content-Type':'image/jpeg',...(A.local?{'X-Yasoya-Photo-Trace':photoTrace}:{})},body:blob,signal:AbortSignal.timeout(20000)}); }
+          catch (error) { photoDiagnostic('upload','failed',error); throw Object.assign(Error(error.status ? `写真を追加できません：${error.message}` : '写真を送信できません。通信状態を確認し、同じ写真を選び直してください。'),{photoLogged:true}); }
+          photoDiagnostic('upload','ok',null,{httpStatus:response.status});
+          photoDiagnostic('response-parse','begin'); result = await response.json(); photoDiagnostic('response-parse','ok');
+          photoDiagnostic('response-validation','begin');
+          if (!/^[a-f0-9]{64}$/.test(result.id || '')) throw Error('写真の保存結果を確認できません。同じ写真を選び直してください。');
+          if (!current.draft.images.includes(result.id)) { current.draft.images.push(result.id); added++; setDirty(true); }
+          photoDiagnostic('preview-fetch','begin'); await drawImages(result.id); await preview(result.id); photoDiagnostic('preview-fetch','ok'); photoDiagnostic('complete','ok');
+        } catch (error) { if (!error.photoLogged) photoDiagnostic(photoStage || 'unknown','failed',error); showPhotoDiagnostic(); throw error; }
       }
       message('photoUploadMessage',added ? `写真を${added}枚追加しました。下書きを保存すると商品に反映されます。` : '選択した写真は追加済みです。');
       $('photoGalleryTrack').scrollIntoView({block:'center',behavior:'instant'});

@@ -91,3 +91,45 @@ Androidでの再確認：承認後に修正版をCodespacesへ取得し、Privat
 ## 残る制約（実機・実サービス）
 
 実Android・実Codespaces転送・実Square Sandbox・Cloudflare Access・実メール送信は今回検証していない。Chromiumのスマホ相当幅・タッチ設定で確認した結果であり、Androidのキーボード/IME、HEIC変換、スクリーンリーダー、OSの文字拡大は実機で確認する。390×420pxへの縮小で入力欄が固定ヘッダー/フッターに隠れないことを確認する試験は、実際のキーボード表示の代用であって実機検証ではない。大量商品でのページ分割や検索のサーバー化は今回追加していない。ページ再読込をまたぐ管理操作IDの保存方式は今回拡張していない。通信断後は編集を閉じず同じ内容で再試行し、再読込した場合は同期履歴と現在値を先に確認する。Square外部販売経路との在庫競合など、既存の安全性上の制約は `management-system.md` を引き継ぐ。
+
+## Android写真追加：アップロード失敗の段階別診断
+
+対象の基準コミット：`c2b5e647e035c57489938d234f4ce1634dc184fa`。実機で報告された「写真を追加できません：処理できませんでした。再試行してください。」は、写真アップロードのHTTP応答が非成功で、管理APIが返す `error.message` を取得できなかった経路の文言である。この経路では、ヘッダー読み取り、画像デコード、Canvasへの描画、JPEG Blob生成を通過している。HTTPステータスや本文形式が残っていなかったため、Codespaces転送側の拒否なのかローカルサーバーの例外なのかは断定できない。Android固有の不具合や画像形式を原因と決めつけて処理を差し替えない。
+
+実装した診断は **ローカル用設定（`sandbox-local-only`）でのみ有効**。通常の管理画面の色・配置・ギャラリー操作は変更していない。失敗時だけ写真追加欄の下に「写真追加の診断（ローカル専用）」を表示する。
+
+- `selection` / `file-validation`：選択時の形式（固定の分類）・バイト数・Androidかどうか。名前・パスは取得しない。
+- `header-read` / `format-check`：Blobの先頭32バイトを読み取って形式を判定する。内容自体は記録しない。FileReaderは使用していないため `fileReaderUsed:false` と明記する。
+- `decode` / `canvas-draw` / `blob-encode`：HTMLImageElementによる読み込み、縮小描画、JPEG Blob生成。出力の幅・高さ・バイト数・形式を記録する。
+- `upload`：HTTPステータス、応答形式（json/html/text/other）、許可リスト内のエラー種別・ローカルエラーコードを記録する。HTML、本文、例外メッセージは診断に転記しない。
+- `response-parse` / `response-validation` / `preview-fetch` / `complete`：応答JSON、ID、プレビュー取得、編集データへの追加完了。ギャラリー画像の実表示・保存後の再表示はブラウザーテストで別途検証する。
+
+ブラウザーの診断は最大80レコードのメモリー内リングバッファ。自動送信、localStorageへの保存、ファイル出力は行わない。ページ再読み込みで消える。ローカルサーバーは `[local-photo]` の行をターミナルへ出力し、同じ `trace` でブラウザー側と照合できる。値は段階・結果・数量・通信方式の有無・固定分類の例外種別/コードだけで、写真、ファイル名、URL、Host/Origin、Authorization、Cookie、応答本文、スタックトレースは記録しない。ブラウザー標準のDevTools全体を共有する必要はない。
+
+サーバー側の到達段階：
+
+| serverStage | 意味・次の切り分け |
+| --- | --- |
+| access | ローカルのHost/Originチェックで拒否。許可対象を広げず、現在のCodespaceのPrivate転送設定との対応を調べる。 |
+| body-read | 画像本文の読み取り。8MB超は413 `LOCAL_BODY_TOO_LARGE`。 |
+| dispatch | Miniflareへの引き渡しで例外。`[local-photo]` の同じtraceの固定エラーコードを確認する。 |
+| response-read | Worker応答の読み取りで例外。 |
+| response-write | Workerから応答を取得済み。HTTPステータスと画面の通常エラーメッセージを確認する。 |
+| unavailable | このローカルサーバーの診断ヘッダーがない。Private転送/ログイン画面等の応答も候補だが、これだけで発生元は断定しない。 |
+
+ローカルのMiniflareが外部のRequest.cfメタデータを取得しないよう、管理ランタイムは `cf:false` を明示する。Square/Resendの代替実装、D1/R2のローカル保存先、Host/Originの許可条件は維持している。写真APIのローカル拒否・例外は固定コード付きJSON応答にして、以前の汎用メッセージだけになる問題を改善した。アップロード失敗そのものの根本原因が解消したとはまだ扱わない。
+
+### Androidで診断を取得する手順（修正版をCodespacesへ反映した後）
+
+1. Codespacesのターミナルで起動中の管理サーバーをCtrl+Cで停止する。データディレクトリは削除しない。
+2. リポジトリ直下で `npm --prefix dev run management -- --seed --seed-orders` を実行する。既存のローカルデータは保持される。8000番はPrivateのままにする。
+3. 8000番のOpen in Browserから `/admin/` を開き、ページを再読み込みする。ローカル用トークンでログインする。
+4. 商品編集でJPEG写真を1枚選ぶ。失敗したら「写真追加の診断（ローカル専用）」を開き、「診断をコピー」を押す。コピーが使えない場合は診断欄を長押しして全選択・コピーする。
+5. コピーした診断JSONをこのチャットへ貼る。ファイル名や写真そのもの、URL、認証情報は送らない。必要な場合のみ、Codespacesターミナルの同じtraceの `[local-photo]` 行も添える。ターミナル全体は共有しない。
+6. ページを再読み込みして、必要ならPNG/WebPも各1枚ずつ試す。成功した場合は下書き保存→閉じる→再表示で確認する。HEICは変換案内が出ることを確認する。
+
+この変更は未コミット・未プッシュのため、承認前の `git pull` だけではCodespacesへ反映されない。診断結果に基づく追加修正も開発ブランチに限定し、外部サービスの認証設定変更やPrivateポートの公開によって回避しない。
+
+今回の最終テスト結果：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **104件成功・失敗0・スキップ0**（既存102件＋ローカルHTTP診断/バイナリ保存2件）。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **25件成功・失敗0・スキップ0**（既存21件＋診断4件）。両スイートは8000番を使うため順番に実行した。非JSONのHTTP 500で実機と同じ文言を再現し、変換成功とHTTP失敗を区別できること、403/413/HTML/通信断/不正な成功応答、ファイル読み取り/デコード/Canvasの失敗、ログの秘匿、非ローカル設定での診断無効化を確認した。JPEG/PNG/WebPの追加・保存・再表示、写真操作、注文・在庫の既存回帰も成功。Android実機のエラー原因とその解消は未確認のままであり、上記の診断結果を取得してから根本対策を判断する。
+
+変更は6ファイル：`js/admin.js`、`js/admin-management.js`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/admin-ui.browser.mjs`、本書。Worker本体・D1スキーマ・CSS・本番設定は変更していない。既存の未追跡ファイルも維持。コミット・プッシュ・デプロイは未実施。

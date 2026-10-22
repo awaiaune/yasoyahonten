@@ -13,6 +13,8 @@ if(state)await mkdir(state,{recursive:true});
 const square=await new ManagementSquare(state ? state+'/square.json' : undefined).load();
 const bundle=await build({entryPoints:[root+'/worker/src/index.js'],bundle:true,write:false,format:'esm',platform:'browser'});
 const options=runtimeOptions(bundle.outputFiles[0].text,state);
+// Do not fetch Cloudflare's Request.cf metadata during offline development.
+options.cf=false;
 Object.assign(options.bindings,{MANAGEMENT_ENABLED:'1',MANAGEMENT_STOCK_WRITES:'single-writer',LOCAL_TEST_MODE:'1',SQUARE_LOCATION_ID:'LOCALMGMTLOCATION',SQUARE_ACCESS_TOKEN:'fake-local-test-only',RESEND_API_KEY:'local-test-not-a-secret',RESEND_FROM_EMAIL:'sender@example.invalid',ORDER_NOTIFICATION_EMAIL:'test@example.invalid'});
 options.bindings.ALLOWED_ORIGINS=access.origins.join(',');options.bindings.SITE_URL=access.siteOrigin;
 options.r2Buckets={PRODUCT_IMAGES:'local-management-images'};options.r2Persist=state ? state+'/r2' : false;
@@ -52,17 +54,29 @@ return runtime;
 export function createManagementServer({mf,options,access}) {
 return createServer(async(req,res)=>{
  const security={'content-security-policy':CSP.replace("img-src 'self' data:","img-src 'self' data: blob:"),'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'};
- const fail=(status,message)=>{res.writeHead(status,security);res.end(message);};
+ const photo=req.method==='POST'&&req.url==='/api/admin/images';
+ const supplied=req.headers['x-yasoya-photo-trace'];
+ const trace=typeof supplied==='string'&&/^[a-f0-9-]{36}$/.test(supplied)?supplied:crypto.randomUUID();
+ let stage='access',length=0;
+ // Deliberately exclude URL, Host/Origin, filenames, body, authorization and raw errors.
+ const diagnostic=(result,error)=>{
+  if(!photo)return;
+  const codes=['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH','UND_ERR_INVALID_ARG','ERR_HTTP_INVALID_HEADER_VALUE','ERR_INVALID_ARG_TYPE','ECONNRESET','EPIPE','UND_ERR_SOCKET','ERR_STREAM_PREMATURE_CLOSE','ERR_HTTP_HEADERS_SENT'];
+  const code=[error?.code,error?.cause?.code].find(c=>codes.includes(c))||(error?'UNCLASSIFIED_EXCEPTION':'NONE');
+  console.info('[local-photo]',JSON.stringify({trace,stage,result,bytes:length,errorType:error?(['Error','TypeError','RangeError'].includes(error.name)?error.name:'OtherError'):'NONE',chunked:req.headers['transfer-encoding']==='chunked',hasContentLength:req.headers['content-length']!==undefined,code}));
+ };
+ const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code}}):message);};
  try {
-  let url;try{url=access.requestUrl(req.headers,req.url);}catch{return fail(403,'Local host/origin denied');}
-  const chunks=[];let length=0;
-  for await(const chunk of req){length+=chunk.length;if(length>8*1024*1024)return fail(413,'Body too large');chunks.push(chunk);}
+  let url;try{url=access.requestUrl(req.headers,req.url);}catch{return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
+  stage='body-read';const chunks=[];
+  for await(const chunk of req){length+=chunk.length;if(length>8*1024*1024)return fail(413,'画像は8MB以下にしてください。','LOCAL_BODY_TOO_LARGE');chunks.push(chunk);}
   const requestHeaders={...req.headers};
   for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-'))delete requestHeaders[key];
-  let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
+  stage='dispatch';let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   if(r.status===404&&!new URL(url).pathname.startsWith('/api/'))r=await options.serviceBindings.ASSETS(new Request(url));
-  res.writeHead(r.status,{...Object.fromEntries(r.headers),...security});res.end(req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer()));
- }catch{fail(500,'Local error');}
+  stage='response-read';const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());
+  stage='response-write';res.writeHead(r.status,{...Object.fromEntries(r.headers),...security,...(photo?{'x-yasoya-photo-stage':stage}:{})});res.end(body);diagnostic(r.ok?'ok':'worker-rejected');
+ }catch(error){diagnostic('exception',error);if(!res.headersSent)fail(500,photo?'ローカル画像処理でエラーが発生しました。診断情報を確認してください。':'Local error','LOCAL_UPLOAD_FAILED');else res.end();}
 });
 }
 
