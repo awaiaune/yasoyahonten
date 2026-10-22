@@ -338,6 +338,41 @@ for (const routeCase of ['normal','rewritten-origin','different-page']) test('Co
  }finally{await proxyContext.close();await new Promise(r=>gateway.close(r));await isolated.mf.dispose();}
 });
 
+test('draft validation explains blocked submit before the API and preserves uploaded photos',async()=>{
+ if(!await page.locator('#app').isVisible()){await page.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await page.getByRole('button',{name:'管理画面を開く',exact:true}).click();await page.locator('#app').waitFor({state:'visible'});await idle();}
+ await page.setViewportSize({width:390,height:844});await nav('商品');await page.getByRole('button',{name:'＋ 商品登録',exact:true}).click();
+ await choosePhoto(await generatedPhoto('image/jpeg','local-draft.jpg'));
+ let writes=0;const watch=r=>{if(r.method()==='PUT'&&r.url().includes('/api/admin/products/'))writes++;};page.on('request',watch);
+ try {
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
+  assert.match(await page.locator('#editorMessage').innerText(),/商品名.*入力/);assert.equal(writes,0);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');
+  await page.getByLabel('商品名',{exact:true}).fill('保存検証ハーブ');await page.getByRole('button',{name:'下書き保存',exact:true}).click();assert.match(await page.locator('#editorMessage').innerText(),/URL識別子/);assert.equal(writes,0);
+  await page.getByLabel('URL識別子',{exact:true}).fill('draft-validation-photo');await page.getByRole('button',{name:'下書き保存',exact:true}).click();assert.match(await page.locator('#editorMessage').innerText(),/バリエーション1.*バリエーション名/);assert.equal(writes,0);
+  await page.locator('[name=vname]').fill('保存検証ハーブ 10g');await page.locator('[name=price]').fill('0');await page.getByRole('button',{name:'下書き保存',exact:true}).click();assert.match(await page.locator('#editorMessage').innerText(),/価格/);assert.equal(writes,0);
+  await page.locator('[name=price]').fill('980');await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.equal(writes,1);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert.equal(await page.locator('.gallery-slide').count(),1);
+  await page.getByRole('button',{name:'保存内容を公開',exact:true}).click();await idle();assert.match(await page.locator('#editorMessage').innerText(),/同期が完了/);
+  await page.getByRole('button',{name:'商品編集を閉じる'}).click();await page.reload();await page.locator('#app').waitFor({state:'visible'});await idle();await nav('商品');await page.getByRole('button',{name:'保存検証ハーブを編集',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert.equal(await page.locator('#editorProductStatus').innerText(),'公開中');
+ } finally {page.off('request',watch);await page.getByRole('button',{name:'商品編集を閉じる'}).click();}
+});
+
+test('draft save failures explain the cause; lost-response retry and double tap save photos exactly once',async()=>{
+ await nav('商品');await page.getByRole('button',{name:'保存検証ハーブを編集',exact:true}).click();await page.getByLabel('商品名',{exact:true}).fill('保存検証ハーブ再試行');
+ const product=(await runtime.db.prepare("SELECT id,draft_revision FROM mg_products WHERE slug='draft-validation-photo'").first());assert(product);
+ const path='**/api/admin/products/'+product.id;let mode='conflict',calls=0,release;const keys=[];const gate=new Promise(resolve=>release=resolve);
+ await page.route(path,async route=>{
+  if(route.request().method()!=='PUT')return route.continue();calls++;keys.push(route.request().postDataJSON().operationId);
+  if(mode==='conflict')return route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({error:{message:'別の操作で更新されています。再読み込みして確認してください。'}})});
+  if(mode==='lost'){await route.fetch();return route.abort('failed');}
+  await gate;return route.continue();
+ });
+ try {
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.match(await page.locator('#editorMessage').innerText(),/下書きを保存できません.*別の操作/);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');
+  mode='lost';await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.match(await page.locator('#editorMessage').innerText(),/保存結果を確認できません.*再試行/);assert.equal(await page.locator('.gallery-slide').count(),1);assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');
+  mode='retry';await page.locator('#saveProduct').evaluate(b=>{b.click();b.click();});await page.waitForFunction(()=>document.querySelector('#productsPanel').getAttribute('aria-busy')==='true');assert(await page.locator('#saveProduct').isDisabled());release();await idle();
+  assert.equal(calls,3);assert.equal(new Set(keys).size,1);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert.equal((await runtime.db.prepare('SELECT draft_revision FROM mg_products WHERE id=?').bind(product.id).first()).draft_revision,product.draft_revision+1);
+ } finally {release();await page.unroute(path);await page.getByRole('button',{name:'商品編集を閉じる'}).click();}
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

@@ -15,7 +15,7 @@
     controls.forEach(([button]) => button.disabled = true); $('productForm').inert = true; $('inventoryForm').inert = true;
     $(activePanel).setAttribute('aria-busy','true'); message(place,'処理しています…','loading');
     try { await fn(); if ($(place).dataset.state === 'loading') message(place,'最新の情報を表示しています。'); }
-    catch (error) { message(place,error.message,'error'); notify(error.message,'error'); if (place === 'photoUploadMessage') $(place).scrollIntoView({block:'center',behavior:'instant'}); }
+    catch (error) { message(place,error.message,'error'); notify(error.message,'error'); if (place === 'photoUploadMessage' || place === 'editorMessage') $(place).scrollIntoView({block:'center',behavior:'instant'}); }
     finally { busy = false; $('productForm').inert = false; $('inventoryForm').inert = false; screens.forEach(id => $(id).setAttribute('aria-busy','false')); controls.forEach(([button,disabled]) => { if (button.isConnected) button.disabled = disabled; }); }
   }
   async function preview(id) {
@@ -113,9 +113,26 @@
   $('importProducts').onclick = () => { if (confirm('既存3商品の説明・写真を下書きとして取り込みます。公開やSquareへの書込みは行いません。')) work(async () => { await write('/api/admin/products/import',{}); await loadProducts(); notify('下書きとして取り込みました。'); }); };
   $('productList').onclick = e => { const b = e.target.closest('[data-edit]'); if (b) open(products.find(p => p.id === b.dataset.edit)); };
   $('productForm').addEventListener('input',event => { if (event.target.id !== 'imageFiles') setDirty(true); });
+  // Native constraint validation runs BEFORE submit and invalid does not bubble.
+  // Surface its first failure in the editor instead of silently skipping save.
+  $('productForm').addEventListener('invalid',event => {
+    event.preventDefault();
+    const input = event.target;
+    if (input !== $('productForm').querySelector('input:invalid,textarea:invalid,select:invalid')) return;
+    const labels = {name:'商品名',slug:'URL識別子',sortOrder:'表示順',alt:'写真の説明',description:'説明',vname:'バリエーション名',price:'価格（円）',max:'購入上限',amount:'内容量'};
+    const variant = input.closest('#variantList fieldset');
+    const label = (variant ? `バリエーション${[...$('variantList').children].indexOf(variant)+1}の` : '') + (labels[input.name] || '入力項目');
+    const v = input.validity;
+    const reason = v.valueMissing ? '入力してください。' : v.rangeUnderflow || v.rangeOverflow ? `${input.min}〜${input.max}の範囲で入力してください。` : v.stepMismatch || v.badInput ? '整数で入力してください。' : v.patternMismatch ? '半角英小文字・数字・ハイフンで入力してください（先頭は英数字、80文字以内）。' : v.tooLong ? `${input.maxLength}文字以内で入力してください。` : '入力内容を確認してください。';
+    const text = `下書きは保存されていません。${label}：${reason}`;
+    message('editorMessage',text,'error'); notify(text,'error');
+    input.focus({preventScroll:true}); input.scrollIntoView({block:'center',behavior:'instant'});
+  },true);
   $('addVariant').onclick = () => { capture(); if (current.draft.variants.length >= 20) { message('editorMessage','バリエーションは20件までです。','error'); return; } current.draft.variants.push({id:crypto.randomUUID(),name:'',price:980,amount:'',maxQuantity:10,active:true}); setDirty(true); draw(); };
   $('productForm').onsubmit = e => { e.preventDefault(); work(async () => {
-    capture(); const result = await write('/api/admin/products/' + current.id,{...current.draft,slug:current.slug,expectedVersion:current.version},'PUT');
+    capture(); let result;
+    try { result = await write('/api/admin/products/' + current.id,{...current.draft,slug:current.slug,expectedVersion:current.version},'PUT'); }
+    catch (error) { throw Error(['TypeError','AbortError','TimeoutError'].includes(error.name) ? '下書きの保存結果を確認できません。通信状態を確認して再試行してください。入力内容と写真はこの画面に残っています。' : `下書きを保存できません：${error.message}`); }
     current.version = result.version; current.draft_revision = result.revision; $('productForm').elements.namedItem('slug').disabled = true; setDirty(false);
     message('editorMessage','下書きを保存しました。公開内容はまだ変わりません。'); notify('下書きを保存しました。'); await loadProducts();
   },'editorMessage'); };
