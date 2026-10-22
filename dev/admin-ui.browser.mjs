@@ -312,13 +312,13 @@ for (const routeCase of ['normal','rewritten-origin','different-page']) test('Co
   const photo=url.pathname==='/api/admin/images'&&incoming.method()==='POST';if(photo)uploads++;
   // Tunnel behavior is simulated entirely on loopback. No request goes to GitHub.
   const headers={...await incoming.allHeaders(),host:'localhost:8000'};delete headers['content-length'];delete headers['transfer-encoding'];delete headers.connection;
-  if(photo&&rewrite)headers.origin='https://localhost:8000';
+  if(['POST','PUT'].includes(incoming.method())&&rewrite)headers.origin='https://localhost:8000';
   const body=incoming.postDataBuffer();
   const response=await new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:gateway.address().port,path:url.pathname+url.search,method:incoming.method(),headers},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:Buffer.concat(parts)}));});req.on('error',reject);req.end(body||undefined);});
   if(url.pathname==='/api/admin/local-csrf'){nonceStatus=response.status;nonceFetchSite=headers['sec-fetch-site']||'missing';}
   await route.fulfill(response);
  });
- const tab=await proxyContext.newPage();tab.on('pageerror',error=>proxyErrors.push(error.name));
+ const tab=await proxyContext.newPage();tab.on('pageerror',error=>proxyErrors.push(error.name));tab.on('dialog',d=>d.accept());
  try{
   await tab.goto(origin+'/admin/');await tab.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await tab.getByRole('button',{name:'管理画面を開く',exact:true}).click();await tab.locator('#app').waitFor({state:'visible'});const settled=()=>tab.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));await settled();
   await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await settled();await tab.getByRole('button',{name:'＋ 商品登録',exact:true}).click();await tab.getByLabel('商品名',{exact:true}).fill('転送経由の編集写真');await tab.getByLabel('URL識別子',{exact:true}).fill('proxy-edited-photo');await tab.locator('[name=vname]').fill('転送経由の編集写真 10g');
@@ -333,8 +333,10 @@ for (const routeCase of ['normal','rewritten-origin','different-page']) test('Co
 
   }
   assert.equal(nonceReads,1);await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.match(await tab.locator('#photoUploadMessage').innerText(),/1枚追加/);
-  await tab.getByRole('button',{name:'下書き保存',exact:true}).click();await settled();await tab.getByRole('button',{name:'商品編集を閉じる'}).click();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);await tab.getByRole('button',{name:'商品編集を閉じる'}).click();
-  await tab.reload();await tab.locator('#app').waitFor({state:'visible'});await settled();await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await settled();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.equal(await tab.locator('.gallery-slide').count(),1);assert.deepEqual(proxyErrors,[]);assert.equal(isolated.square.payments.size,0);
+  await tab.getByRole('button',{name:'下書き保存',exact:true}).click();await settled();assert.equal(await tab.locator('#dirtyStatus').innerText(),'保存済み');await tab.getByRole('button',{name:'商品編集を閉じる'}).click();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);await tab.getByRole('button',{name:'商品編集を閉じる'}).click();
+  await tab.reload();await tab.locator('#app').waitFor({state:'visible'});await settled();await tab.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await settled();await tab.getByRole('button',{name:'転送経由の編集写真を編集',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.gallery-slide img')?.naturalWidth>0);assert.equal(await tab.locator('.gallery-slide').count(),1);
+  await tab.getByRole('button',{name:'保存内容を公開',exact:true}).click();await settled();assert.match(await tab.locator('#editorMessage').innerText(),/同期が完了/);
+  const catalog=await tab.evaluate(async()=>{const r=await fetch('/api/catalog');return r.json();});assert(catalog.products.some(p=>p.name==='転送経由の編集写真'&&p.images.length===1));assert.deepEqual(proxyErrors,[]);assert.equal(isolated.square.payments.size,0);
  }finally{await proxyContext.close();await new Promise(r=>gateway.close(r));await isolated.mf.dispose();}
 });
 
@@ -371,6 +373,23 @@ test('draft save failures explain the cause; lost-response retry and double tap 
   mode='retry';await page.locator('#saveProduct').evaluate(b=>{b.click();b.click();});await page.waitForFunction(()=>document.querySelector('#productsPanel').getAttribute('aria-busy')==='true');assert(await page.locator('#saveProduct').isDisabled());release();await idle();
   assert.equal(calls,3);assert.equal(new Set(keys).size,1);assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');assert.equal((await runtime.db.prepare('SELECT draft_revision FROM mg_products WHERE id=?').bind(product.id).first()).draft_revision,product.draft_revision+1);
  } finally {release();await page.unroute(path);await page.getByRole('button',{name:'商品編集を閉じる'}).click();}
+});
+
+test('local draft diagnostics expose status and stage without URLs, payloads or credentials and never clear unsaved errors',async()=>{
+ await nav('商品');await page.getByRole('button',{name:'保存検証ハーブ再試行を編集',exact:true}).click();await page.getByLabel('商品名',{exact:true}).fill('診断後の写真下書き');
+ const secret='PRIVATE-DO-NOT-REPORT',url='https://private.example/secret';
+ for(const kind of ['access','html','exception']){
+  await page.route('**/api/admin/products/*',route=>{
+   if(route.request().method()!=='PUT')return route.continue();
+   if(kind==='html')return route.fulfill({status:502,contentType:'text/html',body:'<html>'+secret+url+'</html>'});
+   return route.fulfill({status:kind==='access'?403:500,contentType:'application/json',headers:{'X-Yasoya-Product-Stage':kind==='access'?'access':'dispatch'},body:JSON.stringify({error:{message:'ローカル試験の拒否',code:kind==='access'?'LOCAL_HOST_ORIGIN_DENIED':'LOCAL_PRODUCT_FAILED',reason:'ORIGIN_NOT_ALLOWED',originMatch:'loopback-wrong-scheme',private:secret,url}})});
+  });
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.equal(await page.locator('#dirtyStatus').innerText(),'未保存の変更あり');assert.equal(await page.locator('.gallery-slide').count(),1);
+  const text=await page.locator('#productDiagnosticReport').inputValue(),report=JSON.parse(text);assert.equal(report.httpStatus,kind==='access'?403:kind==='html'?502:500);assert.equal(report.serverStage,kind==='html'?'unavailable':kind==='access'?'access':'dispatch');assert.equal(report.responseKind,kind==='html'?'html':'json');
+  for(const value of [secret,url,'local-development-only','診断後の写真下書き',base])assert(!text.includes(value));
+  await page.unroute('**/api/admin/products/*');
+ }
+ await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();assert.equal(await page.locator('#dirtyStatus').innerText(),'保存済み');await page.getByRole('button',{name:'商品編集を閉じる'}).click();
 });
 
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{

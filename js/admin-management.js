@@ -9,13 +9,26 @@
   const previews = new Map();
   const stateBadge = UI.statusBadge, empty = UI.emptyState;
   function setDirty(value) { dirty = value; $('dirtyStatus').textContent = value ? '未保存の変更あり' : '保存済み'; $('dirtyStatus').className = 'badge ' + (value ? 'draft' : 'done'); }
+  function showProductDiagnostic(error) {
+    if (!A.local) return;
+    let details = $('productDiagnosticDetails');
+    if (!details) {
+      details = document.createElement('details'); details.id = 'productDiagnosticDetails';
+      const summary = document.createElement('summary'); summary.textContent = '商品保存・公開の診断（ローカル専用）';
+      const report = document.createElement('textarea'); report.id = 'productDiagnosticReport'; report.readOnly = true; report.rows = 9; report.setAttribute('aria-label','商品保存・公開の診断JSON');
+      details.append(summary,report); $('editorMessage').after(details);
+    }
+    // Only enums and HTTP status prepared by api(); never serialize the Error or body.
+    $('productDiagnosticReport').value = JSON.stringify({version:1,...(error.productDiagnostic || {httpStatus:null,serverStage:'unavailable',serverCode:'NO_SERVER_DIAGNOSTIC'}),errorType:['Error','TypeError','SyntaxError','AbortError','TimeoutError'].includes(error.name)?error.name:'OtherError'},null,2);
+    details.hidden = false;
+  }
   async function work(fn, place = activePanel === 'inventoryPanel' ? 'inventoryMessage' : activePanel === 'homePanel' ? 'homeMessage' : 'managementMessage') {
     if (busy) return; busy = true;
     const controls = [...document.querySelectorAll('#app button, dialog button, #logout')].map(button => [button,button.disabled]);
     controls.forEach(([button]) => button.disabled = true); $('productForm').inert = true; $('inventoryForm').inert = true;
     $(activePanel).setAttribute('aria-busy','true'); message(place,'処理しています…','loading');
     try { await fn(); if ($(place).dataset.state === 'loading') message(place,'最新の情報を表示しています。'); }
-    catch (error) { message(place,error.message,'error'); notify(error.message,'error'); if (place === 'photoUploadMessage' || place === 'editorMessage') $(place).scrollIntoView({block:'center',behavior:'instant'}); }
+    catch (error) { if (place === 'editorMessage') showProductDiagnostic(error); message(place,error.message,'error'); notify(error.message,'error'); if (place === 'photoUploadMessage' || place === 'editorMessage') $(place).scrollIntoView({block:'center',behavior:'instant'}); }
     finally { busy = false; $('productForm').inert = false; $('inventoryForm').inert = false; screens.forEach(id => $(id).setAttribute('aria-busy','false')); controls.forEach(([button,disabled]) => { if (button.isConnected) button.disabled = disabled; }); }
   }
   async function preview(id) {
@@ -105,7 +118,7 @@
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
-    drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true;
+    drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true; if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
   }
   function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
   function newProduct() { open({id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
@@ -132,8 +145,9 @@
   $('productForm').onsubmit = e => { e.preventDefault(); work(async () => {
     capture(); let result;
     try { result = await write('/api/admin/products/' + current.id,{...current.draft,slug:current.slug,expectedVersion:current.version},'PUT'); }
-    catch (error) { throw Error(['TypeError','AbortError','TimeoutError'].includes(error.name) ? '下書きの保存結果を確認できません。通信状態を確認して再試行してください。入力内容と写真はこの画面に残っています。' : `下書きを保存できません：${error.message}`); }
+    catch (error) { const failure=Error(['TypeError','AbortError','TimeoutError'].includes(error.name) ? '下書きの保存結果を確認できません。通信状態を確認して再試行してください。入力内容と写真はこの画面に残っています。' : `下書きを保存できません：${error.message}${error.status ? '（HTTP '+error.status+'）' : ''}`); failure.name=error.name; failure.productDiagnostic=error.productDiagnostic; throw failure; }
     current.version = result.version; current.draft_revision = result.revision; $('productForm').elements.namedItem('slug').disabled = true; setDirty(false);
+    if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
     message('editorMessage','下書きを保存しました。公開内容はまだ変わりません。'); notify('下書きを保存しました。'); await loadProducts();
   },'editorMessage'); };
   async function action(action,extra = {}) {

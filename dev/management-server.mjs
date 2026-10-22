@@ -1,7 +1,7 @@
 import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {createServer} from 'node:http';
 import {pathToFileURL} from 'node:url';
-import {managementAccess,managementOriginEvidence,seedLocalOrders} from './management-local.mjs';
+import {managementAccess,managementOriginEvidence,seedLocalOrders,localProductMutation} from './management-local.mjs';
 import {readFile,realpath,mkdir} from 'node:fs/promises';
 import {build} from 'esbuild';
 import {Miniflare} from 'miniflare';
@@ -58,17 +58,18 @@ const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&Buffer.byteLength(a
 return createServer(async(req,res)=>{
  const security={'content-security-policy':CSP.replace("img-src 'self' data:","img-src 'self' data: blob:"),'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'};
  const photo=req.method==='POST'&&req.url==='/api/admin/images';
+ const product=localProductMutation(req.url,req.method),tracked=photo||product;
  const supplied=req.headers['x-yasoya-photo-trace'];
  const trace=typeof supplied==='string'&&/^[a-f0-9-]{36}$/.test(supplied)?supplied:crypto.randomUUID();
  let stage='access',length=0,accessInfo={reason:'ALLOWED',...access.classify(req.headers),originEvidence:managementOriginEvidence(access,req.headers)};
  // Deliberately exclude URL, Host/Origin, filenames, body, authorization and raw errors.
- const diagnostic=(result,error)=>{
-  if(!photo)return;
+ const diagnostic=(result,error,httpStatus)=>{
+  if(!tracked)return;
   const codes=['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH','UND_ERR_INVALID_ARG','ERR_HTTP_INVALID_HEADER_VALUE','ERR_INVALID_ARG_TYPE','ECONNRESET','EPIPE','UND_ERR_SOCKET','ERR_STREAM_PREMATURE_CLOSE','ERR_HTTP_HEADERS_SENT'];
   const code=[error?.code,error?.cause?.code].find(c=>codes.includes(c))||(error?'UNCLASSIFIED_EXCEPTION':'NONE');
-  console.info('[local-photo]',JSON.stringify({trace,stage,result,...accessInfo,bytes:length,errorType:error?(['Error','TypeError','RangeError'].includes(error.name)?error.name:'OtherError'):'NONE',chunked:req.headers['transfer-encoding']==='chunked',hasContentLength:req.headers['content-length']!==undefined,code}));
+  console.info(photo?'[local-photo]':'[local-product]',JSON.stringify({trace,stage,result,...accessInfo,...(product&&Number.isInteger(httpStatus)?{httpStatus}:{}),bytes:length,errorType:error?(['Error','TypeError','RangeError'].includes(error.name)?error.name:'OtherError'):'NONE',chunked:req.headers['transfer-encoding']==='chunked',hasContentLength:req.headers['content-length']!==undefined,code}));
  };
- const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code,...(code==='LOCAL_HOST_ORIGIN_DENIED'?accessInfo:{})}}):message);};
+ const fail=(status,message,code)=>{diagnostic('rejected',undefined,status);res.writeHead(status,{...security,...(tracked?{'content-type':'application/json',[photo?'x-yasoya-photo-stage':'x-yasoya-product-stage']:stage}:{})});res.end(tracked?JSON.stringify({error:{message,code,...(code==='LOCAL_HOST_ORIGIN_DENIED'?accessInfo:{})}}):message);};
  try {
   const requestContext={method:req.method,csrfValid:equal(req.headers['x-yasoya-local-csrf'],csrfToken)};
   let url;try{url=access.requestUrl(req.headers,req.url,requestContext);}catch(error){accessInfo={...(error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)}),originEvidence:managementOriginEvidence(access,req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
@@ -90,8 +91,8 @@ return createServer(async(req,res)=>{
   stage='dispatch';let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   if(r.status===404&&!new URL(url).pathname.startsWith('/api/'))r=await options.serviceBindings.ASSETS(new Request(url));
   stage='response-read';const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());
-  stage='response-write';res.writeHead(r.status,{...Object.fromEntries(r.headers),...security,...(photo?{'x-yasoya-photo-stage':stage}:{})});res.end(body);diagnostic(r.ok?'ok':'worker-rejected');
- }catch(error){diagnostic('exception',error);if(!res.headersSent)fail(500,photo?'ローカル画像処理でエラーが発生しました。診断情報を確認してください。':'Local error','LOCAL_UPLOAD_FAILED');else res.end();}
+  stage='response-write';res.writeHead(r.status,{...Object.fromEntries(r.headers),...security,...(tracked?{[photo?'x-yasoya-photo-stage':'x-yasoya-product-stage']:stage}:{})});res.end(body);diagnostic(r.ok?'ok':'worker-rejected',undefined,r.status);
+ }catch(error){diagnostic('exception',error);if(!res.headersSent)fail(500,photo?'ローカル画像処理でエラーが発生しました。診断情報を確認してください。':product?'ローカル商品処理でエラーが発生しました。診断情報を確認してください。':'Local error',product?'LOCAL_PRODUCT_FAILED':'LOCAL_UPLOAD_FAILED');else res.end();}
 });
 }
 

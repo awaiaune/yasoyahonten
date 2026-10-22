@@ -28,7 +28,8 @@
     if (!base) throw Error('管理APIの設定がありません。接続先を確認してください。');
     if (!token) throw Error('先にログインしてください。');
     const headers = {Authorization:'Bearer ' + token, ...(typeof options.body === 'string' ? {'Content-Type':'application/json'} : {}), ...options.headers};
-    if (local && path === '/api/admin/images') {
+    const productWrite = options.method === 'PUT' && /^\/api\/admin\/products\/[a-z0-9][a-z0-9-]{0,79}$/.test(path) || options.method === 'POST' && /^\/api\/admin\/products\/[a-z0-9][a-z0-9-]{0,79}\/publish$/.test(path);
+    if (local && (path === '/api/admin/images' || productWrite)) {
       const csrf = await photoCsrfToken(); if (csrf) headers['X-Yasoya-Local-CSRF'] = csrf;
       // Diagnostic only. Do not send the page URL, and never use this hint as authorization.
       try {
@@ -41,6 +42,18 @@
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status;
+      if (local && productWrite) {
+        const allowed = (value,list,fallback) => list.includes(value) ? value : fallback;
+        const type = response.headers.get('Content-Type') || '';
+        error.productDiagnostic = {
+          httpStatus:response.status,
+          responseKind:/json/i.test(type)?'json':/html/i.test(type)?'html':/text/i.test(type)?'text':'other',
+          serverCode:allowed(data.error?.code,['LOCAL_HOST_ORIGIN_DENIED','LOCAL_BODY_TOO_LARGE','LOCAL_PRODUCT_FAILED'],'UNCLASSIFIED_RESPONSE'),
+          serverStage:allowed(response.headers.get('X-Yasoya-Product-Stage'),['access','body-read','dispatch','response-read','response-write'],'unavailable'),
+          accessReason:allowed(data.error?.reason,['HOST_MISSING','HOST_NOT_ALLOWED','ORIGIN_NULL','ORIGIN_MALFORMED','ORIGIN_NOT_ALLOWED','HOST_ORIGIN_PAIR_NOT_ALLOWED','INVALID_TARGET'],'unavailable'),
+          originMatch:allowed(data.error?.originMatch,['missing','malformed','loopback','not-configured','expected','wrong-scheme','wrong-port','different-forwarded-port','different-codespace','unsupported-host-form','different-domain','loopback-wrong-scheme','loopback-wrong-port'],'unavailable')
+        };
+      }
       if (local && path === '/api/admin/images') {
         const type = response.headers.get('Content-Type') || '';
         error.photoResponse = /json/i.test(type) ? 'json' : /html/i.test(type) ? 'html' : /text/i.test(type) ? 'text' : 'other';

@@ -1,6 +1,11 @@
 import {createHash} from 'node:crypto';
 // Local development only. Never import this module into the deployed Worker.
 export const localOrigin = 'http://127.0.0.1:8000';
+// Explicit local mutation scope; never include orders, stock, state changes or arbitrary paths.
+export function localProductMutation(target,method) {
+    return method==='PUT' && /^\/api\/admin\/products\/[a-z0-9][a-z0-9-]{0,79}$/.test(target) ||
+        method==='POST' && /^\/api\/admin\/products\/[a-z0-9][a-z0-9-]{0,79}\/publish$/.test(target);
+}
 export function managementAccess(environment = {}) {
     let forwardedOrigin;
     if (environment.CODESPACES === 'true') {
@@ -52,7 +57,8 @@ export function managementAccess(environment = {}) {
         // The server supplies csrfValid after verifying a process-local random token.
         // Request headers (including diagnostic hashes and X-Forwarded-*) cannot set it.
         const origin=normalizedOrigin(headers.origin);
-        return !!forwardedOrigin && target==='/api/admin/images' && context.method==='POST' && context.csrfValid===true &&
+        const scoped=target==='/api/admin/images' && context.method==='POST' || localProductMutation(target,context.method);
+        return !!forwardedOrigin && scoped && context.csrfValid===true &&
             (headers['sec-fetch-site']===undefined||headers['sec-fetch-site']==='same-origin') && typeof headers.host==='string' && loopbackHosts.includes(headers.host.toLowerCase()) &&
             !!origin && ['https://127.0.0.1:8000','https://localhost:8000','https://[::1]:8000'].includes(origin);
     }

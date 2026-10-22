@@ -254,3 +254,40 @@ test('authenticated process-local CSRF fixes only rewritten photo POSTs; forged 
  const other=await makeClient();assert.equal((await other('/api/admin/images','POST',photoHeaders,bytes)).status,403);
  assert(!logs.join('\n').includes(token));assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,1);assert.equal(runtime.square.payments.size,0);
 });
+
+test('rewritten product Origins require verified CSRF and exact save/publish paths, never stock or orders',()=>{
+ const access=managementAccess(environment),headers={host:'localhost:8000',origin:'https://localhost:8000','sec-fetch-site':'same-origin'};
+ for(const [path,method] of [['/api/admin/products/test-herb','PUT'],['/api/admin/products/test-herb/publish','POST']]){
+  const ctx={method,csrfValid:true};assert.equal(access.workerOrigin(headers,path,ctx),forwarded);assert.equal(access.requestUrl(headers,path,ctx),forwarded+path);
+  for(const patch of [{csrfValid:false},{method:'DELETE'},{method:'GET'}])assert.throws(()=>access.requestUrl(headers,path,{...ctx,...patch}));
+  for(const patch of [{origin:'https://other-8000.app.github.dev'},{origin:'https://evil.example'},{origin:'null'},{host:'localhost:9000'},{host:'other-8000.app.github.dev'},{'sec-fetch-site':'cross-site'}])assert.throws(()=>access.requestUrl({...headers,...patch},path,ctx));
+  assert.throws(()=>managementAccess().requestUrl(headers,path,ctx));
+ }
+ for(const [path,method] of [['/api/admin/orders/order-1','PUT'],['/api/admin/inventory/herb','POST'],['/api/admin/products/herb/state','POST'],['/api/admin/products/herb/link','POST'],['/api/admin/products/herb?x=1','PUT'],['/api/admin/products/herb/publish?x=1','POST'],['/api/admin/products/herb/publish/','POST']])assert.throws(()=>access.requestUrl(headers,path,{method,csrfValid:true}));
+ assert(!access.origins.includes('https://localhost:8000'));
+});
+
+test('rewritten product HTTP requests keep access/auth/image/variant/version checks and persist only valid drafts',async t=>{
+ const runtime=await createManagementRuntime({environment});t.after(()=>runtime.mf.dispose());const server=createManagementServer(runtime);server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(r=>server.close(r)));
+ const call=(path,method='GET',body,patch={})=>new Promise((resolve,reject)=>{
+  const req=request({hostname:'127.0.0.1',port:server.address().port,path,method,headers:{Host:'localhost:8000',Origin:forwarded,Authorization:'Bearer local-development-only','Content-Type':'application/json','Sec-Fetch-Site':'same-origin',...patch}},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>resolve({status:res.statusCode,headers:res.headers,body:JSON.parse(Buffer.concat(parts))}));});req.on('error',reject);req.end(body===undefined?undefined:JSON.stringify(body));
+ });
+ const token=(await call('/api/admin/local-csrf')).body.token;
+ const headers={Origin:'https://localhost:8000','X-Yasoya-Local-CSRF':token};
+ const payload={slug:'safe-herb',expectedVersion:0,operationId:crypto.randomUUID(),name:'架空ハーブ',description:'説明',alt:'写真',sortOrder:0,images:[],variants:[{id:'safe-herb-10g',name:'架空ハーブ 10g',price:980,amount:'10g',maxQuantity:10,active:true}]};
+ for(const patch of [{'X-Yasoya-Local-CSRF':''},{Origin:'https://other-8000.app.github.dev'},{'Sec-Fetch-Site':'cross-site'}]){const r=await call('/api/admin/products/safe-herb','PUT',payload,{...headers,...patch});assert.equal(r.status,403);assert.equal(r.body.error.code,'LOCAL_HOST_ORIGIN_DENIED');assert.equal(r.headers['x-yasoya-product-stage'],'access');}
+ assert.equal((await call('/api/admin/products/safe-herb','PUT',payload,{...headers,Authorization:'Bearer wrong'})).status,401);
+ assert.equal((await call('/api/admin/products/safe-herb','PUT',{...payload,images:['a'.repeat(64)]},headers)).status,400);
+ assert.equal((await call('/api/admin/products/safe-herb','PUT',{...payload,variants:[{...payload.variants[0],price:0}]},headers)).status,400);
+ assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,0);
+ await runtime.db.prepare("CREATE TRIGGER reject_local_draft BEFORE INSERT ON mg_revisions BEGIN SELECT RAISE(FAIL,'offline draft write failure'); END").run();
+ const failed=await call('/api/admin/products/safe-herb','PUT',payload,headers);assert.equal(failed.status,503);assert.equal(failed.headers['x-yasoya-product-stage'],'response-write');
+ assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,0);assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_commands').first()).n,0);
+ await runtime.db.prepare('DROP TRIGGER reject_local_draft').run();
+ const saved=await call('/api/admin/products/safe-herb','PUT',payload,headers);assert.equal(saved.status,200);assert.equal(saved.body.version,1);
+ assert.equal((await call('/api/admin/products/safe-herb','PUT',payload,headers)).status,200);
+ assert.equal((await call('/api/admin/products/safe-herb','PUT',{...payload,operationId:crypto.randomUUID()},headers)).status,409);
+ assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_revisions').first()).n,1);
+ assert.equal((await call('/api/admin/products/safe-herb/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:1},headers)).status,200);
+ assert.equal(runtime.square.payments.size,0);
+});
