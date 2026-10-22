@@ -15,12 +15,12 @@ const host=new URL(forwarded).host;
 test('management forwarding allows exactly the current Codespace and loopback; forwarded headers grant no access',()=>{
  const plain=managementAccess();assert.equal(plain.requestUrl({host:'127.0.0.1:8000'},'/admin/'),localOrigin+'/admin/');
  assert.throws(()=>plain.requestUrl({host},'/admin/'));
- const p=managementAccess(environment);assert.deepEqual(p.origins,[localOrigin,forwarded]);
- for(const h of [host,'127.0.0.1:8000','localhost:8000'])assert.equal(p.requestUrl({host:h,origin:forwarded},'/admin/'),forwarded+'/admin/');
+ const p=managementAccess(environment);assert.deepEqual(p.origins,[localOrigin,'http://localhost:8000','http://[::1]:8000',forwarded]);
+ for(const h of [host,'127.0.0.1:8000','localhost:8000','[::1]:8000','localhost','127.0.0.1','[::1]'])assert.equal(p.requestUrl({host:h,origin:forwarded},'/admin/'),forwarded+'/admin/');
  for(const h of ['evil.example',host+'.evil.example','other-8000.app.github.dev',host.replace('-8000.','-8001.'),'127.0.0.1:9000']){
   assert.throws(()=>p.requestUrl({host:h,origin:forwarded,'x-forwarded-host':host},'/admin/'));
  }
- for(const origin of ['null','https://evil.example',forwarded+'/',forwarded+':443',localOrigin+'.evil.example'])assert.throws(()=>p.requestUrl({host,origin},'/api/admin/products'));
+ for(const origin of ['null','https://evil.example',forwarded+'/',localOrigin+'.evil.example'])assert.throws(()=>p.requestUrl({host,origin},'/api/admin/products'));
  for(const target of ['https://evil.example/','//evil.example/','/\\evil.example/'])assert.throws(()=>p.requestUrl({host},target));
  assert.equal(p.requestUrl({host,'x-forwarded-host':'evil.example',forwarded:'host=evil.example'},'/'),forwarded+'/');
 });
@@ -28,7 +28,7 @@ test('invalid Codespaces metadata fails closed instead of accepting arbitrary fo
  for(const patch of [{CODESPACE_NAME:''},{CODESPACE_NAME:'foo.evil'},{CODESPACE_NAME:'foo/../bar'},{CODESPACE_NAME:'a'.repeat(59)},
   {GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:undefined},{GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'evil.example'},
   {GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'app.github.dev.evil.example'}])assert.throws(()=>managementAccess({...environment,...patch}));
- assert.deepEqual(managementAccess({...environment,CODESPACES:undefined}).origins,[localOrigin]);
+ assert.deepEqual(managementAccess({...environment,CODESPACES:undefined}).origins,[localOrigin,'http://localhost:8000','http://[::1]:8000']);
 });
 
 async function httpClient(t,runtime){
@@ -122,4 +122,41 @@ test('Codespaces-style fixed-length and chunked binary image uploads persist and
  }
  const saved=await runtime.mf.dispatchFetch('http://127.0.0.1:8000/api/admin/images/'+id,{headers:{Authorization:'Bearer local-development-only'}});assert.equal(saved.status,200);assert((await saved.arrayBuffer()).byteLength>0);
  assert.equal((await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,1);
+});
+
+
+test('proxy host forms stay tied to the exact Codespace Origin, with safe rejection reasons',()=>{
+ const p=managementAccess(environment),plain=managementAccess();
+ for(const h of ['localhost','127.0.0.1','[::1]']){
+  assert.equal(p.requestUrl({host:h,origin:forwarded},'/api/admin/images'),forwarded+'/api/admin/images');
+  for(const origin of [undefined,localOrigin,'null','https://other-8000.app.github.dev'])assert.throws(()=>p.requestUrl({host:h,...(origin===undefined?{}:{origin})},'/api/admin/images'));
+  assert.throws(()=>plain.requestUrl({host:h,origin:forwarded},'/api/admin/images'));
+ }
+ for(const origin of [forwarded,forwarded+':443',forwarded.toUpperCase()])assert.equal(p.canonicalOrigin(origin),forwarded);
+ const cases=[
+  [{origin:forwarded},'HOST_MISSING'],
+  [{host:'other-8000.app.github.dev',origin:forwarded},'HOST_NOT_ALLOWED'],
+  [{host:'localhost:8001',origin:forwarded},'HOST_NOT_ALLOWED'],
+  [{host,origin:'null'},'ORIGIN_NULL'],
+  [{host,origin:forwarded+'/'},'ORIGIN_MALFORMED'],
+  [{host,origin:'https://private.example'},'ORIGIN_NOT_ALLOWED'],
+  [{host:'localhost',origin:localOrigin},'HOST_ORIGIN_PAIR_NOT_ALLOWED'],
+  [{host,origin:localOrigin},'HOST_ORIGIN_PAIR_NOT_ALLOWED']
+ ];
+ for(const [headers,reason] of cases){let e;try{p.requestUrl({...headers,'x-forwarded-host':host,'x-forwarded-proto':'https'},'/api/admin/images');}catch(error){e=error;}assert(e);assert.equal(e.localAccess.reason,reason);assert(!JSON.stringify(e.localAccess).includes('private.example'));}
+ for(const origin of ['https://user:pass@'+host,forwarded+'?secret=test',forwarded+'#fragment','http://127.1:8000'])assert.throws(()=>p.requestUrl({host,origin},'/api/admin/images'));
+});
+
+test('forwarded binary upload authenticates, normalizes equivalent Origins and diagnoses denials without trusting proxy headers',async t=>{
+ const {readFile}=await import('node:fs/promises');const bytes=await readFile(new URL('../images/yomogi.jpg',import.meta.url));
+ const runtime=await createManagementRuntime({environment});t.after(()=>runtime.mf.dispose());
+ const server=createManagementServer(runtime);server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>new Promise(r=>server.close(r)));
+ const upload=(headers)=>new Promise((resolve,reject)=>{const r=request({hostname:'127.0.0.1',port:server.address().port,path:'/api/admin/images',method:'POST',headers:{Host:'localhost',Origin:forwarded,Authorization:'Bearer local-development-only','Content-Type':'image/jpeg',...headers}},res=>{const parts=[];res.on('data',c=>parts.push(c));res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(Buffer.concat(parts))}));});r.on('error',reject);r.end(bytes);});
+ let id;
+ for(const headers of [{},{Origin:forwarded+':443'},{Host:'[::1]'},{Host:host.toUpperCase()+':443'}]){const r=await upload(headers);assert.equal(r.status,200);if(id)assert.equal(r.body.id,id);id=r.body.id;}
+ assert.equal((await upload({Authorization:'Bearer wrong-local-token'})).status,401);
+ for(const headers of [{Host:'other-8000.app.github.dev','X-Forwarded-Host':host},{Origin:'https://private-origin.invalid'},{Origin:'null'},{Host:'localhost:9000'}]){
+  const r=await upload(headers);assert.equal(r.status,403);assert.equal(r.body.error.code,'LOCAL_HOST_ORIGIN_DENIED');assert(r.body.error.reason);assert(!JSON.stringify(r.body).includes('private-origin.invalid'));
+ }
+ const row=await runtime.db.prepare('SELECT COUNT(*) AS n FROM mg_images').first();assert.equal(row.n,1);assert.equal(runtime.square.payments.size,0);
 });

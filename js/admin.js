@@ -25,6 +25,10 @@
         error.photoCode = ['LOCAL_HOST_ORIGIN_DENIED','LOCAL_BODY_TOO_LARGE','LOCAL_UPLOAD_FAILED'].includes(code) ? code : 'UNCLASSIFIED_RESPONSE';
         const stage = response.headers.get('X-Yasoya-Photo-Stage');
         error.photoServerStage = ['access','body-read','dispatch','response-read','response-write'].includes(stage) ? stage : 'unavailable';
+        const reason = data.error?.reason, hostClass = data.error?.hostClass, originClass = data.error?.originClass;
+        if (['HOST_MISSING','HOST_NOT_ALLOWED','ORIGIN_NULL','ORIGIN_MALFORMED','ORIGIN_NOT_ALLOWED','HOST_ORIGIN_PAIR_NOT_ALLOWED','INVALID_TARGET'].includes(reason)) error.photoAccessReason = reason;
+        if (['missing','loopback-port','loopback-no-port','codespace','other'].includes(hostClass)) error.photoHostClass = hostClass;
+        if (['missing','null','loopback','codespace','other'].includes(originClass)) error.photoOriginClass = originClass;
       }
       throw error;
     }

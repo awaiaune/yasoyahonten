@@ -11,22 +11,53 @@ export function managementAccess(environment = {}) {
         }
         forwardedOrigin = `https://${name}-8000.app.github.dev`;
     }
-    const origins = [localOrigin, ...(forwardedOrigin ? [forwardedOrigin] : [])];
-    const hosts = origins.map(value => new URL(value).host);
-    if (forwardedOrigin) hosts.push('localhost:8000'); // Codespaces may rewrite Host to its loopback backend.
+    const loopbackOrigins = [localOrigin, 'http://localhost:8000', 'http://[::1]:8000'];
+    const origins = [...loopbackOrigins, ...(forwardedOrigin ? [forwardedOrigin] : [])];
+    const loopbackHosts = ['127.0.0.1:8000','localhost:8000','[::1]:8000'];
+    const bareLoopbackHosts = ['127.0.0.1','localhost','[::1]'];
+    const forwardedHost = forwardedOrigin && new URL(forwardedOrigin).host;
+    function normalizedOrigin(value) {
+        const parts = typeof value === 'string' && /^(https?):\/\/([a-z0-9.-]+|\[::1\])(?::([0-9]{1,5}))?$/i.exec(value);
+        if (!parts) return undefined;
+        try { const url = new URL(value); return url.hostname === parts[2].toLowerCase() ? url.origin : undefined; } catch { return undefined; }
+    }
+    function classify(headers) {
+        const host = typeof headers.host === 'string' ? headers.host.toLowerCase() : '';
+        const origin = normalizedOrigin(headers.origin);
+        return {
+            hostClass: !host ? 'missing' : loopbackHosts.includes(host) ? 'loopback-port'
+                : bareLoopbackHosts.includes(host) ? 'loopback-no-port'
+                : forwardedHost && [forwardedHost,forwardedHost+':443'].includes(host) ? 'codespace' : 'other',
+            originClass: headers.origin === undefined ? 'missing' : headers.origin === 'null' ? 'null'
+                : origin === forwardedOrigin && forwardedOrigin ? 'codespace' : loopbackOrigins.includes(origin) ? 'loopback' : 'other'
+        };
+    }
+    function deny(reason,headers) { throw Object.assign(new Error('Local host/origin denied'),{localAccess:{reason,...classify(headers)}}); }
     return Object.freeze({
         origins: Object.freeze(origins),
         siteOrigin: forwardedOrigin || localOrigin,
+        classify,
+        canonicalOrigin(value) { return normalizedOrigin(value); },
         requestUrl(headers, target) {
-            if (!hosts.includes(headers.host) || (headers.origin !== undefined && !origins.includes(headers.origin))) {
-                throw new Error('Local host/origin denied');
+            const kind = classify(headers);
+            if (kind.hostClass === 'missing') deny('HOST_MISSING',headers);
+            if (kind.hostClass === 'other') deny('HOST_NOT_ALLOWED',headers);
+            if (headers.origin !== undefined) {
+                if (headers.origin === 'null') deny('ORIGIN_NULL',headers);
+                if (!normalizedOrigin(headers.origin)) deny('ORIGIN_MALFORMED',headers);
+                if (!origins.includes(normalizedOrigin(headers.origin))) deny('ORIGIN_NOT_ALLOWED',headers);
             }
-            // Ignore all forwarded host/protocol headers. Only a relative request target is accepted.
+            // A proxy may omit the loopback port, but only the exact configured
+            // Codespace Origin can authorize that transport form. Never trust X-Forwarded-*.
+            if ((kind.hostClass === 'loopback-no-port' && kind.originClass !== 'codespace') ||
+                (kind.hostClass === 'codespace' && !['codespace','missing'].includes(kind.originClass))) {
+                deny('HOST_ORIGIN_PAIR_NOT_ALLOWED',headers);
+            }
             if (typeof target !== 'string' || !target.startsWith('/') || target.startsWith('//') || target.includes('\\')) {
-                throw new Error('Invalid local request target');
+                deny('INVALID_TARGET',headers);
             }
             const url = new URL(target, forwardedOrigin || localOrigin);
-            if (url.origin !== (forwardedOrigin || localOrigin)) throw new Error('Invalid local request target');
+            if (url.origin !== (forwardedOrigin || localOrigin)) deny('INVALID_TARGET',headers);
             return url.href;
         }
     });

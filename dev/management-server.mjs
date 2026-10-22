@@ -57,20 +57,21 @@ return createServer(async(req,res)=>{
  const photo=req.method==='POST'&&req.url==='/api/admin/images';
  const supplied=req.headers['x-yasoya-photo-trace'];
  const trace=typeof supplied==='string'&&/^[a-f0-9-]{36}$/.test(supplied)?supplied:crypto.randomUUID();
- let stage='access',length=0;
+ let stage='access',length=0,accessInfo={reason:'ALLOWED',...access.classify(req.headers)};
  // Deliberately exclude URL, Host/Origin, filenames, body, authorization and raw errors.
  const diagnostic=(result,error)=>{
   if(!photo)return;
   const codes=['UND_ERR_REQ_CONTENT_LENGTH_MISMATCH','UND_ERR_INVALID_ARG','ERR_HTTP_INVALID_HEADER_VALUE','ERR_INVALID_ARG_TYPE','ECONNRESET','EPIPE','UND_ERR_SOCKET','ERR_STREAM_PREMATURE_CLOSE','ERR_HTTP_HEADERS_SENT'];
   const code=[error?.code,error?.cause?.code].find(c=>codes.includes(c))||(error?'UNCLASSIFIED_EXCEPTION':'NONE');
-  console.info('[local-photo]',JSON.stringify({trace,stage,result,bytes:length,errorType:error?(['Error','TypeError','RangeError'].includes(error.name)?error.name:'OtherError'):'NONE',chunked:req.headers['transfer-encoding']==='chunked',hasContentLength:req.headers['content-length']!==undefined,code}));
+  console.info('[local-photo]',JSON.stringify({trace,stage,result,...accessInfo,bytes:length,errorType:error?(['Error','TypeError','RangeError'].includes(error.name)?error.name:'OtherError'):'NONE',chunked:req.headers['transfer-encoding']==='chunked',hasContentLength:req.headers['content-length']!==undefined,code}));
  };
- const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code}}):message);};
+ const fail=(status,message,code)=>{diagnostic('rejected');res.writeHead(status,{...security,...(photo?{'content-type':'application/json','x-yasoya-photo-stage':stage}:{})});res.end(photo?JSON.stringify({error:{message,code,...(code==='LOCAL_HOST_ORIGIN_DENIED'?accessInfo:{})}}):message);};
  try {
-  let url;try{url=access.requestUrl(req.headers,req.url);}catch{return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
+  let url;try{url=access.requestUrl(req.headers,req.url);}catch(error){accessInfo=error.localAccess || {reason:'INVALID_TARGET',...access.classify(req.headers)};return fail(403,'ローカルの接続元が許可されていません。','LOCAL_HOST_ORIGIN_DENIED');}
   stage='body-read';const chunks=[];
   for await(const chunk of req){length+=chunk.length;if(length>8*1024*1024)return fail(413,'画像は8MB以下にしてください。','LOCAL_BODY_TOO_LARGE');chunks.push(chunk);}
   const requestHeaders={...req.headers};
+  if(requestHeaders.origin!==undefined)requestHeaders.origin=access.canonicalOrigin(requestHeaders.origin);
   for(const key of Object.keys(requestHeaders))if(key==='host'||key==='forwarded'||key.startsWith('x-forwarded-'))delete requestHeaders[key];
   stage='dispatch';let r=await mf.dispatchFetch(url,{method:req.method,headers:requestHeaders,...(!['GET','HEAD'].includes(req.method)?{body:Buffer.concat(chunks)}:{})});
   if(r.status===404&&!new URL(url).pathname.startsWith('/api/'))r=await options.serviceBindings.ASSETS(new Request(url));

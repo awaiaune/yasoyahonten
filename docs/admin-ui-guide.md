@@ -73,6 +73,8 @@ Phase 2の実行結果：`npm --prefix dev test` は **102件成功、失敗0、
 
 ## Android写真追加の修正
 
+この節は以前の修正時点の記録。最新の読み取り・接続元検証は末尾の「Android編集済み写真とCodespaces 403への対応」を参照。
+
 基準HEADは `345cb2605e95938f370c4c5329db3bfc6b7ce63e`。実機のログや問題の写真は取得していないため、その端末の原因は断定しない。既存コードにはImageBitmapデコードだけに依存する経路、失敗後に同じファイルを再選択してもchangeが発火しない問題、写真から離れたフォーム末尾だけのエラー表示があった。ImageBitmapを使えない条件と選択失敗/再選択をブラウザーで再現する回帰試験を追加した。
 
 - input/changeの両方を受け付け、最初のイベントでFileListを配列へ取り出してから入力値をクリア。後続イベントとの二重アップロードを防ぎ、失敗した同じ写真も選び直せる。空の選択は処理しない。
@@ -99,9 +101,9 @@ Androidでの再確認：承認後に修正版をCodespacesへ取得し、Privat
 実装した診断は **ローカル用設定（`sandbox-local-only`）でのみ有効**。通常の管理画面の色・配置・ギャラリー操作は変更していない。失敗時だけ写真追加欄の下に「写真追加の診断（ローカル専用）」を表示する。
 
 - `selection` / `file-validation`：選択時の形式（固定の分類）・バイト数・Androidかどうか。名前・パスは取得しない。
-- `header-read` / `format-check`：Blobの先頭32バイトを読み取って形式を判定する。内容自体は記録しない。FileReaderは使用していないため `fileReaderUsed:false` と明記する。
+- `file-read` / `header-read` / `format-check`：元ファイル全体を読み取ってメモリー上へ固定した後、先頭32バイトから形式を判定する。`array-buffer`失敗時は`file-reader`で代替する。内容自体は記録せず、読取方式・成否・取得バイト数・FileReader使用の有無を記録する。
 - `decode` / `canvas-draw` / `blob-encode`：HTMLImageElementによる読み込み、縮小描画、JPEG Blob生成。出力の幅・高さ・バイト数・形式を記録する。
-- `upload`：HTTPステータス、応答形式（json/html/text/other）、許可リスト内のエラー種別・ローカルエラーコードを記録する。HTML、本文、例外メッセージは診断に転記しない。
+- `upload`：HTTPステータス、応答形式（json/html/text/other）、許可リスト内のエラー種別・ローカルエラーコード・接続拒否理由とHost/Originの分類を記録する。HTML、本文、例外メッセージは診断に転記しない。
 - `response-parse` / `response-validation` / `preview-fetch` / `complete`：応答JSON、ID、プレビュー取得、編集データへの追加完了。ギャラリー画像の実表示・保存後の再表示はブラウザーテストで別途検証する。
 
 ブラウザーの診断は最大80レコードのメモリー内リングバッファ。自動送信、localStorageへの保存、ファイル出力は行わない。ページ再読み込みで消える。ローカルサーバーは `[local-photo]` の行をターミナルへ出力し、同じ `trace` でブラウザー側と照合できる。値は段階・結果・数量・通信方式の有無・固定分類の例外種別/コードだけで、写真、ファイル名、URL、Host/Origin、Authorization、Cookie、応答本文、スタックトレースは記録しない。ブラウザー標準のDevTools全体を共有する必要はない。
@@ -133,3 +135,52 @@ Androidでの再確認：承認後に修正版をCodespacesへ取得し、Privat
 今回の最終テスト結果：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **104件成功・失敗0・スキップ0**（既存102件＋ローカルHTTP診断/バイナリ保存2件）。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **25件成功・失敗0・スキップ0**（既存21件＋診断4件）。両スイートは8000番を使うため順番に実行した。非JSONのHTTP 500で実機と同じ文言を再現し、変換成功とHTTP失敗を区別できること、403/413/HTML/通信断/不正な成功応答、ファイル読み取り/デコード/Canvasの失敗、ログの秘匿、非ローカル設定での診断無効化を確認した。JPEG/PNG/WebPの追加・保存・再表示、写真操作、注文・在庫の既存回帰も成功。Android実機のエラー原因とその解消は未確認のままであり、上記の診断結果を取得してから根本対策を判断する。
 
 変更は6ファイル：`js/admin.js`、`js/admin-management.js`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/admin-ui.browser.mjs`、本書。Worker本体・D1スキーマ・CSS・本番設定は変更していない。既存の未追跡ファイルも維持。コミット・プッシュ・デプロイは未実施。
+
+
+## Android編集済み写真とCodespaces 403への対応
+
+基準HEAD：`4542016ec17b1d2d2436121f08a86407d5442ef4`。既存の未追跡ファイルは変更・削除していない。UI/CSS、Worker本体、注文・在庫・決済、Square/Cloudflare設定には変更を加えない。
+
+### A：編集済みJPEGのNotReadableError
+
+実機の `header-read:failed / NotReadableError` は、JPEGの形式検査・デコードより前のファイル取得失敗を示す。7,567,886バイトは元画像30MB制限内であり、この診断だけではJPEG破損や編集アプリの書き出し形式を原因と判断できない。旧実装は読み取り前に`input.value`を消し、元Fileを`slice(0,32)`していた。Androidのプロバイダー参照がこの操作で失効したのか、部分読み取りをサポートしなかったのか、元からOS側で参照不能だったのかは実機ログだけでは未確定。
+
+修正内容：
+
+- input/changeを処理中フラグで一度だけ処理し、選択欄を読み取り・変換・アップロードの終了まで保持する。成功・失敗いずれでもfinallyでクリアし、同じ画像を再選択できる。
+- 0バイト・30MB超は読み取り前に拒否。元Fileに`slice()`せず、全体を`arrayBuffer()`で取得する。
+- 通常読み取りに失敗した場合だけFileReaderの`readAsArrayBuffer()`で一度代替する。各方式は20秒で打ち切る。FileReaderはタイムアウト時にabortする。中断・タイムアウトした通常読み取りは未完了処理の重複を避けるため代替を開始しない。アップロードの自動再送は行わない。
+- 取得バイト数が元のFile.sizeと一致することを確認し、参照変化や不完全な読み取りを受け入れない。取得済みArrayBufferだけから署名確認・デコード用Blobを作り、プロバイダーを再参照しない。
+- JPEG/PNG/WebPの実データ署名、画像デコード、長辺2000pxへの縮小、JPEG変換、出力8MB以下、サーバー側検査を維持する。代替読み取りでも形式・サイズ検査を省略しない。HEIC/HEIFは変換案内を表示する。
+- 両方式で失敗した場合は、同じ編集済み画像を端末の「ダウンロード」等へ書き出し、写真選択画面の「参照／ファイル」から選び直す案内を表示する。OSがファイルの読み取りを許可しない状態をWebアプリ側で回避することはできない。
+
+回帰テストでは、JPEGコメント領域を付けた正当なJPEGを7,567,886バイトにして編集書き出し相当の入力を生成した。入力クリアで読み取り不能になるプロバイダーのモデル、元Fileのslice不可、通常読み取り失敗とFileReader成功、FileReader停止とabort、同じファイルの再試行を検査する。実機の対象写真や編集アプリそのものを再現したという意味ではない。
+
+### B：LOCAL_HOST_ORIGIN_DENIED
+
+実機ではローカルサーバーのHost/Originチェックによる拒否まで確定。旧ログに生値や判定の内訳がないため、実際の不一致がHost側かOrigin側かは未確定。旧実装には、ポートなしループバックHost、localhost/IPv6のローカルOrigin、既定ポート443やホスト名の大文字小文字の同値表現に対応できない条件があった。再現可能なこれらの拒否を修正し、再発時に理由を識別できるようにした。
+
+| 条件 | 許可範囲 |
+| --- | --- |
+| ローカルHost | `127.0.0.1:8000`、`localhost:8000`、`[::1]:8000`。Originありなら許可済みOriginのみ。 |
+| Codespace Host | 現在のCODESPACE_NAMEから作る8000番ホスト1件のみ。既定443、大文字小文字の同値表現を正規化する。Originありなら同じCodespaceのOriginのみ。 |
+| ポートなしループバックHost | Codespaces設定が有効で、現在のCodespaceのOriginが完全一致する場合のみ。Originなし・null・ローカルOrigin・別Codespaceは拒否。 |
+| Origin | ローカル3表現または現在のCodespace 1件。スキーム・ポートを維持し、既定ポートとホスト名の大小文字だけ正規化してWorkerへ渡す。パス、クエリー、認証情報を含む値は拒否。 |
+| その他 | 別ポート、別Codespace、外部Host/Origin、null Originは拒否。X-Forwarded-Host/ProtoやForwardedから許可先を決めない。 |
+
+Private転送を前提とし、Bearer認証は従来どおりWorkerで必須。Originを削除したり任意Originへ書き換えて迂回することはしない。`HOST_MISSING`、`HOST_NOT_ALLOWED`、`ORIGIN_NULL`、`ORIGIN_MALFORMED`、`ORIGIN_NOT_ALLOWED`、`HOST_ORIGIN_PAIR_NOT_ALLOWED`、`INVALID_TARGET`という固定分類をJSONエラーと診断に記録する。`hostClass` / `originClass`も固定分類のみとし、生のHost/Origin・URL・認証情報は記録しない。
+
+### Androidでの再確認（この未コミット修正を承認後にCodespacesへ反映してから）
+
+1. 管理サーバーをCtrl+Cで停止し、`npm --prefix dev run management -- --seed --seed-orders`で再起動する。ローカルDBや画像保存先は削除しない。
+2. 8000番の転送はPrivateのまま、管理画面をページ再読み込みして開く。
+3. 最優先で問題の編集済みJPEGそのものを選ぶ。プレビュー→下書き保存→閉じて開き直す→ページ再読み込み後に再表示を確認する。
+4. PNG/WebP、写真追加・削除・並び替え・メイン指定・スワイプも確認する。
+5. 失敗時は「写真追加の診断（ローカル専用）」の「診断をコピー」からJSONを取得する。`file-read`のmethod/成否、またはuploadの`accessReason` / `hostClass` / `originClass`を確認できる。JSONと必要なら同じtraceの`[local-photo]`行だけを共有し、写真・ファイル名・URL・認証情報は送らない。
+6. 両方の読み取り方式がNotReadableErrorになる場合は、同じ編集済みJPEGを端末のダウンロードへ再書き出しし、「参照／ファイル」で選ぶ。成功・失敗の両方の診断を比較する。画像内容を変えたり未編集の写真へ置き換える必要はない。
+
+リソース作成、外部API接続、デプロイ、コミット・プッシュは行っていない。ブラウザーのローカル代替試験はAndroid実機での成功保証ではなく、上記の再検証が必要。
+
+今回の最終結果：`CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev test` は **106件成功・失敗0・スキップ0**（約39秒）。続けて `CLOUDFLARE_CF_FETCH_ENABLED=false npm --prefix dev run test:ui` は **29件成功・失敗0・スキップ0**（約36秒）。既存104件/25件に加え、接続元の分類・正規化と認証/拒否、7.57MBの編集書き出し相当JPEG、FileReader代替とタイムアウト、同じ画像の再試行、ローカルの転送モデル経由のプレビュー→保存→再表示→再読み込みを検証した。転送モデルはブラウザーが使う仮のCodespace Originを全てループバックHTTPサーバーへ差し替えたもので、GitHubの転送先や外部APIには接続しない。
+
+変更ファイル7件：`js/admin-management.js`、`js/admin.js`、`dev/management-local.mjs`、`dev/management-server.mjs`、`dev/management-local.test.mjs`、`dev/admin-ui.browser.mjs`、本書。今回のコードは未コミット・未プッシュ。実Androidの編集アプリ/写真プロバイダーと実Codespacesの転送ヘッダーは未検証で、成功は実機で確認する必要がある。

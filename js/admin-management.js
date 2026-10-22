@@ -148,6 +148,9 @@
       if (error.photoResponse) row.responseKind = error.photoResponse;
       if (error.photoCode) row.serverCode = error.photoCode;
       if (error.photoServerStage) row.serverStage = error.photoServerStage;
+      if (error.photoAccessReason) row.accessReason = error.photoAccessReason;
+      if (error.photoHostClass) row.hostClass = error.photoHostClass;
+      if (error.photoOriginClass) row.originClass = error.photoOriginClass;
     }
     photoRecords.push(row); if (photoRecords.length > 80) photoRecords.shift();
     console.debug('[local-photo]',JSON.stringify(row));
@@ -165,12 +168,45 @@
     }
     $('photoDiagnosticReport').value = photoReport(); details.hidden = false;
   }
+  // Materialize a provider-backed File while the picker still owns its selection.
+  // No slice() on the original File: some Android providers cannot read partial files.
+  async function readPhotoFile(file) {
+    for (const method of ['array-buffer','file-reader']) {
+      photoDiagnostic('file-read','begin',null,{method,fileReaderUsed:method === 'file-reader'});
+      try {
+        const buffer = await new Promise((resolve,reject) => {
+          let reader, settled = false;
+          const finish = (error,value) => { if (settled) return; settled = true; clearTimeout(timer); if (reader) reader.onload = reader.onerror = reader.onabort = null; error ? reject(error) : resolve(value); };
+          const timer = setTimeout(() => { finish(new DOMException('Photo read timeout','TimeoutError')); if (reader?.readyState === 1) reader.abort(); },20000);
+          if (method === 'array-buffer') {
+            try { Promise.resolve(file.arrayBuffer()).then(value => finish(null,value),error => finish(error)); } catch (error) { finish(error); }
+          } else {
+            try {
+              reader = new FileReader(); reader.onload = () => finish(null,reader.result);
+              reader.onerror = () => finish(reader.error || new DOMException('Photo read failed','NotReadableError'));
+              reader.onabort = () => finish(new DOMException('Photo read aborted','AbortError'));
+              reader.readAsArrayBuffer(file);
+            } catch (error) { finish(error); }
+          }
+        });
+        if (!(buffer instanceof ArrayBuffer) || buffer.byteLength !== file.size) throw new DOMException('Photo size changed','NotReadableError');
+        photoDiagnostic('file-read','ok',null,{method,fileReaderUsed:method === 'file-reader',readBytes:buffer.byteLength});
+        return buffer;
+      } catch (error) {
+        photoDiagnostic('file-read','failed',error,{method,fileReaderUsed:method === 'file-reader'});
+        // A timed-out native read cannot be cancelled: do not launch another full read.
+        if (error.name === 'TimeoutError' || error.name === 'AbortError' || method === 'file-reader') {
+          throw Object.assign(Error('写真ファイルを読み込めません。編集済み写真を端末の「ダウンロード」などへ書き出し、ファイル選択画面から選び直してください。'),{photoLogged:true});
+        }
+      }
+    }
+  }
   async function preparePhoto(file) {
     if (!file.size) throw Error('写真データが空です。端末に写真を保存してから選び直してください。');
     if (file.size > 30*1024*1024) throw Error('元の写真は30MB以下にしてください。');
-    let header; photoDiagnostic('header-read','begin');
-    try { header = new Uint8Array(await file.slice(0,32).arrayBuffer()); }
-    catch (error) { photoDiagnostic('header-read','failed',error); throw Object.assign(Error('写真ファイルを読み込めません。端末に保存してから選び直してください。'),{photoLogged:true}); }
+    const buffer = await readPhotoFile(file);
+    photoDiagnostic('header-read','begin');
+    const header = new Uint8Array(buffer,0,Math.min(buffer.byteLength,32));
     photoDiagnostic('header-read','ok');
     photoDiagnostic('format-check','begin');
     const ascii = (start,end) => String.fromCharCode(...header.slice(start,end));
@@ -185,7 +221,7 @@
     // Android document/photo providers can return an empty or generic MIME type.
     // Decode a typed local Blob with the browser image element instead of ImageBitmap.
     photoDiagnostic('decode','begin');
-    const url = URL.createObjectURL(new Blob([file],{type:mime})), image = new Image();
+    const url = URL.createObjectURL(new Blob([buffer],{type:mime})), image = new Image();
     try {
       await new Promise((resolve,reject) => {
         const cleanup = () => { clearTimeout(timer); image.onload = image.onerror = null; };
@@ -212,13 +248,14 @@
       return blob;
     } finally { image.removeAttribute('src'); URL.revokeObjectURL(url); }
   }
+  let photoSelectionActive = false;
   function photosSelected(event) {
     const input = event.currentTarget, files = Array.from(input.files || []);
-    // Snapshot before any await/inert update; clear now so the same file can be retried.
-    // The following change event sees no files if input already handled this selection.
-    input.value = '';
-    if (!files.length) return;
+    // Preserve the provider reference until every file has been read/processed.
+    // Ignore the paired input/change event while this selection is in flight.
+    if (photoSelectionActive || !files.length) return;
     if (busy) { message('photoUploadMessage','処理が終わってから、写真を選び直してください。','error'); return; }
+    photoSelectionActive = true;
     work(async () => {
       capture(); let added = 0;
       for (const [i,file] of files.entries()) {
@@ -244,7 +281,7 @@
       }
       message('photoUploadMessage',added ? `写真を${added}枚追加しました。下書きを保存すると商品に反映されます。` : '選択した写真は追加済みです。');
       $('photoGalleryTrack').scrollIntoView({block:'center',behavior:'instant'});
-    },'photoUploadMessage');
+    },'photoUploadMessage').finally(() => { input.value = ''; photoSelectionActive = false; });
   }
   $('imageFiles').addEventListener('input',photosSelected);
   $('imageFiles').addEventListener('change',photosSelected);
