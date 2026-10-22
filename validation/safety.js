@@ -1,3 +1,4 @@
+import {externalPolicy} from '../worker/src/external-policy.js';
 import { CATALOG } from '../worker/src/catalog.js';
 import { SANDBOX_CATALOG } from './catalog.js';
 const PRODUCTION = {
@@ -38,7 +39,7 @@ export function validationRouting(m) {
 }
 export function environmentVars(m) {
     assertManifest(m);
-    return { RUNTIME_TIER: 'sandbox-validation', SQUARE_ENVIRONMENT: 'sandbox', SQUARE_LOCATION_ID: m.squareLocationId,
+    return { SQUARE_ACCESS_MODE:'READ_ONLY',VALIDATION_CHECKOUT_ENABLED:'0',VALIDATION_MAIL_ENABLED:'0',VALIDATION_CRON_ENABLED:'0',RUNTIME_TIER: 'sandbox-validation', SQUARE_ENVIRONMENT: 'sandbox', SQUARE_LOCATION_ID: m.squareLocationId,
         SQUARE_API_VERSION: '2026-07-15', SQUARE_VARIATION_IDS: JSON.stringify(m.variations),
         ALLOWED_ORIGINS: m.workerOrigin, SITE_URL: m.workerOrigin,
         RESEND_FROM_EMAIL: m.resendFrom, ORDER_NOTIFICATION_EMAIL: m.notificationEmail, REPLY_TO_EMAIL: m.notificationEmail,
@@ -48,7 +49,8 @@ export function assertRuntime(env) {
     requireSafe(env.RUNTIME_TIER === 'sandbox-validation' && env.SQUARE_ENVIRONMENT === 'sandbox', 'Sandbox runtime required');
     const m = assertManifest(JSON.parse(env.VALIDATION_MANIFEST || '{}'));
     const vars = environmentVars(m);
-    for (const [key,value] of Object.entries(vars)) requireSafe(env[key] === value, `binding mismatch: ${key}`);
+    for (const [key,value] of Object.entries(vars)) if(!['SQUARE_ACCESS_MODE','VALIDATION_CHECKOUT_ENABLED','VALIDATION_MAIL_ENABLED','VALIDATION_CRON_ENABLED'].includes(key))requireSafe(env[key] === value, `binding mismatch: ${key}`);
+    externalPolicy(env);
     requireSafe(!env.LOCAL_SQUARE && !env.LOCAL_RESEND && !env.LOCAL_TEST_MODE, 'local fault doubles are forbidden in remote validation');
     requireSafe(env.ORDERS_DB && env.PURCHASE_COORDINATOR, 'dedicated D1 and DO bindings required');
     requireSafe(!env.SQUARE_ACCESS_TOKEN && !env.RESEND_API_KEY && !env.ADMIN_TOKEN && !env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY, 'generic/production secret bindings forbidden');

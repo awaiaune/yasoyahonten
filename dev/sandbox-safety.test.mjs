@@ -78,7 +78,7 @@ for (const validationOrigin of [manifest().workerOrigin, VALIDATION_ORIGIN])
 test('valid sandbox wrapper uses isolated D1, mapped variants and test recipients: '+validationOrigin, async t => {
     const m={...manifest(),workerOrigin:validationOrigin,resendFrom:'validation@send.awaiaune.com'}; const bundle=await build({entryPoints:[new URL('../validation/sandbox-worker.js',import.meta.url).pathname],bundle:true,write:false,format:'esm',platform:'browser'});
     const calls=[],mailPayloads=[];let payment;const jwt=await accessToken(m);
-    const env=runtime(m);delete env.ORDERS_DB;delete env.PURCHASE_COORDINATOR;
+    const env={...runtime(m),SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_CHECKOUT_ENABLED:'1',VALIDATION_MAIL_ENABLED:'1'};delete env.ORDERS_DB;delete env.PURCHASE_COORDINATOR;
     const mf=new Miniflare({modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,
         d1Databases:{ORDERS_DB:'sandbox-safety-fresh-test-db'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},
         serviceBindings:{ASSETS:()=>new Response('<html>test</html>',{headers:{'Content-Type':'text/html'}})},
@@ -243,7 +243,7 @@ test('every coordinator business service checks the current marker before effect
     for(mode of ['missing','wrong','error'])for(const name of names){events.length=0;await assert.rejects(guarded[name]());assert.deepEqual(events,['marker-select']);}
 });
 test('running and restarted validation DOs gate fetch and Alarm before ledger or storage work',async()=>{
-    const env=runtime(),events=[];let valid=true,init;
+    const env={...runtime(),SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_CHECKOUT_ENABLED:'1'},events=[];let valid=true,init;
     env.ORDERS_DB={prepare(sql){assert.match(sql,/^SELECT instance_id/);events.push('marker-select');return {first:async()=>({instance_id:valid?manifest().instanceId:'wrong'})};}};
     const ctx={storage:new Proxy({}, {get(){throw new Error('No durable storage operation allowed in gate test');}}),blockConcurrencyWhile:fn=>(init=fn())};
     const coordinator=new SandboxPurchaseCoordinator(ctx,env);await init;

@@ -23,7 +23,7 @@ test('site isolation, original Worker, local D1 and Durable Object',async t=>{
     const health=await(await fetch(base+'/api/health')).json();assert.equal(health.environment,'sandbox');assert.equal(health.emailConfigured,false);
     assert.equal((await fetch(base+'/api/admin/orders')).status,401);
     const orders=await fetch(base+'/api/admin/orders',{headers:{Authorization:'Bearer local-development-only'}});assert.equal(orders.status,200);assert.deepEqual(await orders.json(),{orders:[]});
-    const pay=await fetch(base+'/api/payments',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:'{}'});assert.equal(pay.status,400);assert.match(await pay.text(),/決済トークン/);
+    const pay=await fetch(base+'/api/payments',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:'{}'});assert.equal(pay.status,503);assert.match(await pay.text(),/新規購入/);
     const inv=await fetch(base+'/api/inventory',{method:'POST',headers:{'Content-Type':'application/json',Origin:base},body:JSON.stringify({ids:['lemonbalm-10g']})});assert.equal(inv.status,500);
 });
 test('outbound denial includes production, sandbox and loopback',async t=>{

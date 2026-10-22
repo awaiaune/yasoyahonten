@@ -10,7 +10,7 @@ export function runtimeOptions(script,persist=false){
     // No wrangler config, .dev.vars, .env or inherited process credentials.
     return {name:'yasoya-local-only',modules:true,script,compatibilityDate:'2026-08-04',host:'127.0.0.1',port:0,
         outboundService:()=>new Response('Local development: outbound network denied',{status:503}),
-        bindings:{SQUARE_ENVIRONMENT:'sandbox',SQUARE_LOCATION_ID:'local-not-a-square-location',ALLOWED_ORIGINS:'http://127.0.0.1:8000',SITE_URL:'http://127.0.0.1:8000',ADMIN_TOKEN:'local-development-only'},
+        bindings:{LOCAL_TEST_MODE:'1',SQUARE_ACCESS_MODE:'READ_ONLY',VALIDATION_CHECKOUT_ENABLED:'0',VALIDATION_MAIL_ENABLED:'0',VALIDATION_CRON_ENABLED:'0',SQUARE_ENVIRONMENT:'sandbox',SQUARE_LOCATION_ID:'local-not-a-square-location',ALLOWED_ORIGINS:'http://127.0.0.1:8000',SITE_URL:'http://127.0.0.1:8000',ADMIN_TOKEN:'local-development-only'},
         d1Databases:{ORDERS_DB:'yasoya-isolated-local-orders'},
         durableObjects:{PURCHASE_COORDINATOR:{className:'PurchaseCoordinator',useSQLite:true}},
         d1Persist:persist&&path.join(persist,'d1'),durableObjectsPersist:persist&&path.join(persist,'do')};

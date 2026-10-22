@@ -43,7 +43,7 @@ class SquareDouble {
         this.counts=body.changes.map(({physical_count:p})=>({catalog_object_id:p.catalog_object_id,location_id:p.location_id,state:p.state,quantity:p.quantity}));
         if(this.loseInventory)throw new Error('Response lost after stock initialization');return Response.json({});
     };
-    client(){return new SandboxCatalogClient(settings,token,{transport:this.transport});}
+    client(){return new SandboxCatalogClient(settings,token,{transport:this.transport,accessMode:'READ_WRITE'});}
 }
 const quantities=Object.fromEntries(Object.keys(SANDBOX_CATALOG).map(id=>[id,1]));
 

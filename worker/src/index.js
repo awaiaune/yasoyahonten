@@ -1,3 +1,4 @@
+import { ExternalPolicyError, externalPolicy, assertSquareRequest, assertCheckout, assertMail } from './external-policy.js';
 import { enabled as managementEnabled, guard as managementGuard, ManagementError, squareId as managedSquareId } from './management/domain.js';
 import { Management } from './management/service.js';
 import { loadCatalog, Store as ManagementStore } from './management/store.js';
@@ -19,6 +20,7 @@ const MAX_ITEM_TYPES = 20;
 export default {
     async scheduled(event,env,ctx) {
         if(!managementEnabled(env))return;
+        if(!externalPolicy(env).cron)return;
         await managementGuard(env);
         const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
         const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/management-monitor',{method:'POST',body:'{}'});
@@ -35,6 +37,8 @@ export default {
         const url = new URL(request.url);
 
         try {
+            externalPolicy(env);
+            if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
             if (managementEnabled(env)) {
                 await managementGuard(env);
                 if (url.pathname.startsWith('/api/admin/images')) {
@@ -185,13 +189,13 @@ export default {
         } catch (error) {
             console.error(error);
 
-            const status = error instanceof HttpError || error instanceof ManagementError ? error.status : 500;
-            const message = error instanceof HttpError || error instanceof ManagementError
+            const status = error instanceof HttpError || error instanceof ManagementError || error instanceof ExternalPolicyError ? error.status : 500;
+            const message = error instanceof HttpError || error instanceof ManagementError || error instanceof ExternalPolicyError
                 ? error.message
                 : "サーバーで問題が発生しました。";
 
             return corsJson(
-                { error: { message } },
+                { error: { message,...(error instanceof ExternalPolicyError?{code:error.code}:{}) } },
                 status,
                 origin,
                 allowedOrigins
@@ -367,7 +371,8 @@ function getSquareVariationId(item, env) {
 
 async function squareFetch(env, url, options = {}) {
     assertSquareDestination(env, url);
-    options = { ...options, signal: options.signal || AbortSignal.timeout(5000) };
+    assertSquareRequest(env, url, options.method || "GET");
+    options = { ...options, redirect:'manual', signal: options.signal || AbortSignal.timeout(5000) };
     if (env.LOCAL_SQUARE) {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Square binding is not allowed here.");
         return env.LOCAL_SQUARE.fetch(url, options);
@@ -664,6 +669,7 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
 }
 
 async function sendResendEmail(env, payload, idempotencyKey) {
+    assertMail(env);
     assertTestEmail(env, payload);
     const transport = env.LOCAL_RESEND ? (url, options) => {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
@@ -1159,6 +1165,12 @@ export class PurchaseCoordinator {
         const path = new URL(request.url).pathname;
         return this.serialize(async () => {
             try {
+                const policy=externalPolicy(this.env);
+                if(path==='/pay')assertCheckout(this.env);
+                if(policy.readOnly&&['/recover','/status'].includes(path)) {
+                    const record=await this.ledger.read(validateAttemptId(body.attemptId));
+                    return Response.json({attemptId:body.attemptId,phase:record?.phase||'unknown',held:true,reason:'READ_ONLY'});
+                }
                 let result;
                 if(managementEnabled(this.env)&&path==='/management-monitor'){await this.management().recover();return Response.json({ok:true});}
                 if(managementEnabled(this.env)&&path==='/management') return Response.json(await this.management().handle(body.path,body.method,body.body,body.actor));
@@ -1173,15 +1185,15 @@ export class PurchaseCoordinator {
                 else if (path === "/status" || path === "/recover") {
                     body.attemptId = validateAttemptId(body.attemptId);
                     result = await this.ledger.recover(body.attemptId, path === "/recover");
-                } else result = await this.ledger.submit(body);
+                } else {assertCheckout(this.env);result = await this.ledger.submit(body);}
                 return Response.json(result, { status: result.attemptId && !result.ok ? 202 : 200 });
             } catch (error) {
-                const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError ? error.status : 503;
-                return Response.json({ error: { message: status === 503 ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
+                const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || error instanceof ExternalPolicyError ? error.status : 503;
+                return Response.json({ error: { code:error instanceof ExternalPolicyError?error.code:undefined,message: status === 503 && !(error instanceof ExternalPolicyError) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
         },{catalog:path!=='/management-monitor'});
     }
-    alarm() { return this.serialize(async () => { try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
+    alarm() { return this.serialize(async () => { if(externalPolicy(this.env).readOnly)return;try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

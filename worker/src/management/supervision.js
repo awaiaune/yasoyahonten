@@ -1,3 +1,4 @@
+import {externalPolicy} from '../external-policy.js';
 // Shared by startup, DO Alarm and independent scheduled watchdog. No public endpoint.
 // External effects still run in the existing purchase DO's serialized queue.
 const WATCHDOG_MS=60000, STALLED_MS=15*60000, RETRY_WINDOW_MS=3600000;
@@ -29,6 +30,7 @@ export class Supervision {
   await this.s.run("INSERT INTO mg_management_monitor(id,last_scan_at,updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET last_scan_at=excluded.last_scan_at,updated_at=excluded.updated_at",[iso,iso]);
  }
  async notify(){
+  if(!externalPolicy(this.m.env).mail)return;
   // One immutable payload and one provider key per job; never reset sent/expired rows.
   const n=await this.s.one("SELECT n.* FROM mg_job_notifications n JOIN mg_jobs j ON j.id=n.job_id WHERE n.state IN ('pending','blocked') AND n.next_due<=? AND j.state!='done' ORDER BY n.next_due,n.job_id LIMIT 1",[this.time()]);if(!n)return;
   if(!this.services.notify){await this.s.run("UPDATE mg_job_notifications SET state='blocked',next_due=?,last_error='通知設定が未完了です。' WHERE job_id=?",[this.time()+300000,n.job_id]);return;}
@@ -45,6 +47,7 @@ export class Supervision {
   return {lastScanAt:state?.last_scan_at||null,alarmState:state?.alarm_state||'unknown',notificationAttention:(await this.s.one("SELECT COUNT(*) AS n FROM mg_job_notifications WHERE state IN ('blocked','expired')")).n};
  }
  async tick({run=true}={}){
+  if(externalPolicy(this.m.env).readOnly)return;
   try{await this.scan();if(run){const next=await this.s.one("SELECT id FROM mg_jobs WHERE state IN ('queued','running','retry') AND next_due<=? ORDER BY next_due,created_at LIMIT 1",[this.time()]);if(next)await this.m.run(next.id);await this.scan();await this.notify();}}
   finally{await this.schedule();}
  }

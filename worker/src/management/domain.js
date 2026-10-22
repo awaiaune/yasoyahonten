@@ -1,9 +1,11 @@
+import {externalPolicy} from '../external-policy.js';
 import { CATALOG } from '../catalog.js';
 import { assertDatabase } from '../../../validation/safety.js';
 export class ManagementError extends Error { constructor(status,message){super(message);this.status=status;} }
 export function need(ok,message,status=400){if(!ok)throw new ManagementError(status,message);}
 export function enabled(env){return env.MANAGEMENT_ENABLED==='1';}
 export async function guard(env){
+ externalPolicy(env);
  need(enabled(env),'商品管理は無効です。',404);
  need(env.SQUARE_ENVIRONMENT==='sandbox','商品管理はSandbox専用です。',503);
  if(env.RUNTIME_TIER==='sandbox-validation') await assertDatabase(env);

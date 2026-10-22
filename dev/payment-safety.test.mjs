@@ -60,7 +60,7 @@ async function fixture(t, notifications = false) {
     const state = await mkdtemp(path.join(tmpdir(), 'yasoya-payment-test-'));
     const bundle = await build({ entryPoints: [path.join(root, 'worker/src/index.js')], bundle: true, write: false, format: 'esm', platform: 'browser' });
     const options = runtimeOptions(bundle.outputFiles[0].text, state);
-    Object.assign(options.bindings, { LOCAL_TEST_MODE: '1', SQUARE_LOCATION_ID: 'test-location', SQUARE_ACCESS_TOKEN: 'fake-local-test-only' });
+    Object.assign(options.bindings, { LOCAL_TEST_MODE: '1',SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_CHECKOUT_ENABLED:'1',VALIDATION_MAIL_ENABLED:'1',VALIDATION_CRON_ENABLED:'1', SQUARE_LOCATION_ID: 'test-location', SQUARE_ACCESS_TOKEN: 'fake-local-test-only' });
     const mail = { attempts: 0, messages: new Map(), lostResponse: false };
     options.serviceBindings = { LOCAL_SQUARE: request => fake.fetch(request) };
     if (notifications) {

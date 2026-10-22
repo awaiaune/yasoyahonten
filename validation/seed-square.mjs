@@ -1,3 +1,4 @@
+import {assertSquareRequest,assertSquareWrite} from '../worker/src/external-policy.js';
 // Offline by default. No token is read by the `plan` command.
 import { CATALOG, SHIPPING } from '../worker/src/catalog.js';
 import { SANDBOX_CATALOG, RETIRED_SANDBOX_ID } from './catalog.js';
@@ -39,16 +40,18 @@ export function settingsCheck(s) {
     return s;
 }
 export class SandboxCatalogClient {
-    constructor(settings, token, {transport=fetch,genericTokenPresent=false}={}) {
+    constructor(settings, token, {transport=fetch,genericTokenPresent=false,accessMode='READ_ONLY'}={}) {
         this.settings=Object.freeze({...settingsCheck(settings)});
         need(!genericTokenPresent,'Generic/production token binding must not be present');
         need(typeof token==='string' && token.length>0 && token===token.trim() && !/REPLACE|CHANGEME|^sq0atp-/i.test(token),'Dedicated Sandbox token required');
+        this.policy=Object.freeze({RUNTIME_TIER:'sandbox-validation',SQUARE_ENVIRONMENT:'sandbox',SQUARE_ACCESS_MODE:accessMode,VALIDATION_CHECKOUT_ENABLED:'0',VALIDATION_MAIL_ENABLED:'0',VALIDATION_CRON_ENABLED:'0'});
         this.transport=transport; this.token=token; this.verified=false;
     }
     async request(route, method='GET', body) {
         const url=new URL(route,BASE);
         need(url.origin===BASE && !url.username && !url.password && /^\/v2\/(locations|catalog\/list|catalog\/batch-upsert|inventory\/counts\/batch-retrieve|inventory\/changes\/batch-create|inventory\/changes\/batch-retrieve)$/.test(url.pathname),'Non-Sandbox or unknown destination refused');
         need(this.verified || method==='GET' && url.pathname==='/v2/locations','Validate Sandbox location before catalog/inventory requests');
+        assertSquareRequest(this.policy,url.href,method);
         let response;
         try { response=await this.transport(url.href,{method,redirect:'manual',signal:AbortSignal.timeout(10000),headers:{Authorization:`Bearer ${this.token}`,'Square-Version':VERSION,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)}); }
         catch { throw new SeedError('Sandbox request failed; review pending journal before any retry'); }
@@ -183,7 +186,8 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href) {
             need(['catalog','inventory'].includes(command)&&process.argv.length===4&&process.argv[3]==='--approve-sandbox-write','Explicit Sandbox write approval flag required');
             const here=fileURLToPath(new URL('.',import.meta.url));
             const settings=JSON.parse(await readFile(path.join(here,'square-seed.local.json'),'utf8'));
-            const client=new SandboxCatalogClient(settings,process.env.SQUARE_SANDBOX_ACCESS_TOKEN,{genericTokenPresent:'SQUARE_ACCESS_TOKEN' in process.env});
+            const client=new SandboxCatalogClient(settings,process.env.SQUARE_SANDBOX_ACCESS_TOKEN,{genericTokenPresent:'SQUARE_ACCESS_TOKEN' in process.env,accessMode:process.env.SQUARE_ACCESS_MODE||'READ_ONLY'});
+            assertSquareWrite(client.policy);
             const store=diskStore(path.join(here,'.generated'));
             await store.lock(async()=>{
                 if(command==='catalog') await seedCatalog(client,plan,store);
