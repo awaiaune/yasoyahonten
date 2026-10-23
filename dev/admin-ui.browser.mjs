@@ -406,6 +406,15 @@ test('inventory distinguishes local substitutes from Sandbox observations and di
  finally{await page.unroute('**/api/admin/inventory');}
 });
 
+test('configured Sandbox links use the server mapping without asking Android users to type Variation IDs',async()=>{
+ const dialogs=[],listen=d=>dialogs.push(d.type());let body;
+ await page.route('**/api/admin/products',async route=>{const response=await route.fetch();const json=await response.json();json.products=json.products.map(p=>({...p,useConfiguredLinks:true,source:'square-sandbox',accessMode:'READ_ONLY'}));await route.fulfill({response,json});});
+ await page.route('**/api/admin/products/*/link',async route=>{body=route.request().postDataJSON();await route.fulfill({status:200,contentType:'application/json',body:'{"ok":true}'});});
+ page.on('dialog',listen);
+ try{await nav('商品');await page.locator('[data-edit="yomogi"]').click();await page.locator('#linkProduct').locator('xpath=ancestor::details').locator('summary').click();await page.locator('#linkProduct').click();await idle();assert(body);assert(!('mappings' in body));assert(Number.isInteger(body.expectedVersion));assert(body.operationId);assert(dialogs.includes('confirm'));assert(!dialogs.includes('prompt'));assert.match(await page.locator('#editorMessage').innerText(),/既存Sandbox IDを関連付け/);await page.getByRole('button',{name:'商品編集を閉じる'}).click();}
+ finally{page.off('dialog',listen);await page.unroute('**/api/admin/products');await page.unroute('**/api/admin/products/*/link');}
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

@@ -118,7 +118,7 @@
   }
   function drawSyncStatus(){
     let status=$('editorSyncStatus');if(!status){status=document.createElement('span');status.id='editorSyncStatus';status.className='muted';$('editorProductStatus').after(status);}
-    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':'取得元未確認')+' ／ '+(current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
+    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':'取得元未確認')+' ／ '+(current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',linked:'既存ID照合済み',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
   }
   function draw() {
     const f = $('productForm'); for (const key of ['name','description','sortOrder','alt']) f.elements.namedItem(key).value = current.draft[key] ?? '';
@@ -169,7 +169,7 @@
   $('publishProduct').onclick = () => { if (confirm('保存済みの下書きを同期して公開しますか？未保存の変更は公開できません。')) work(() => action('publish'),'editorMessage'); };
   $('stopProduct').onclick = () => { if (confirm('この商品の販売を停止しますか？')) work(() => action('state',{status:'stopped'}),'editorMessage'); };
   $('archiveProduct').onclick = () => { if (confirm('商品をアーカイブしますか？過去の注文は残ります。')) work(() => action('state',{status:'archived'}),'editorMessage'); };
-  $('linkProduct').onclick = () => work(async () => { if (dirty) throw Error('先に下書きを保存してください。'); const mappings = []; for (const v of current.draft.variants) { const variationId = prompt(v.name + ' の既存Sandbox Variation ID'); if (!variationId) return; mappings.push({variantId:v.id,variationId:variationId.trim()}); } await action('link',{mappings}); },'editorMessage');
+  $('linkProduct').onclick = () => work(async () => { if (dirty) throw Error('先に下書きを保存してください。'); if(current.useConfiguredLinks){if(confirm('検証設定の既存Sandbox IDを照合して関連付けます。Squareの商品や在庫は変更しません。'))await action('link',{});return;} const mappings = []; for (const v of current.draft.variants) { const variationId = prompt(v.name + ' の既存Sandbox Variation ID'); if (!variationId) return; mappings.push({variantId:v.id,variationId:variationId.trim()}); } await action('link',{mappings}); },'editorMessage');
   function closeEditor() { if (!busy && (!dirty || confirm('未保存の変更があります。保存せずに閉じますか？'))) { $('productEditor').close(); setDirty(false); } }
   $('closeEditor').onclick = closeEditor;
   $('productEditor').addEventListener('cancel',e => { e.preventDefault(); closeEditor(); });

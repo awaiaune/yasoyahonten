@@ -160,7 +160,15 @@ export class Management {
  }
  async schedule(){return this.supervision.schedule();}
  async recover(){return this.supervision.tick();}
- async products(){const products=await this.s.products();for(const p of products){const j=await this.s.one("SELECT state FROM mg_jobs WHERE resource_id=? AND kind IN ('publish','state') ORDER BY rowid DESC LIMIT 1",[p.id]);p.syncState=j?.state||'unlinked';p.source=externalPolicy(this.env).source;p.accessMode=externalPolicy(this.env).readOnly?'READ_ONLY':'READ_WRITE';}return products;}
+ async productView(p){
+  const j=await this.s.one("SELECT state FROM mg_jobs WHERE resource_id=? AND kind IN ('publish','state') ORDER BY rowid DESC LIMIT 1",[p.id]);
+  const maps=await this.s.all('SELECT m.variant_id FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[p.id]);
+  const policy=externalPolicy(this.env);
+  return {...p,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
+   source:policy.source,accessMode:policy.readOnly?'READ_ONLY':'READ_WRITE',
+   useConfiguredLinks:this.env.RUNTIME_TIER==='sandbox-validation'&&p.draft.variants.every(v=>Boolean(this.square.expectedLink(v.id)))};
+ }
+ async products(){return Promise.all((await this.s.products()).map(p=>this.productView(p)));}
  async handle(path,method,body,actor){
   if(path==='/api/admin/products/import'&&method==='POST')return importLegacy(this,actor);
   if(path==='/api/admin/products'&&method==='GET')return {products:await this.products()};
@@ -168,7 +176,7 @@ export class Management {
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
   if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),monitoring:await this.supervision.status()};
   let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link))?$/);
-  if(m){const id=identifier(m[1]);if(method==='GET'&&!m[2]){const product=await this.s.product(id);need(product,'商品がありません。',404);return {product:{...product,source:externalPolicy(this.env).source,accessMode:externalPolicy(this.env).readOnly?'READ_ONLY':'READ_WRITE'}};}
+  if(m){const id=identifier(m[1]);if(method==='GET'&&!m[2]){const product=await this.s.product(id);need(product,'商品がありません。',404);return {product:await this.productView(product)};}
    if(method==='PUT'&&!m[2])return this.save(id,body,actor);
    if(method==='POST'&&m[2])return this[m[2]](id,body,actor);
   }

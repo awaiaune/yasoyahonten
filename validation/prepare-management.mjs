@@ -27,7 +27,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){try{
  const load=async p=>JSON.parse(await readFile(new URL(p,import.meta.url),'utf8'));
  const input=assertReviewInputs({manifest:await load('manifest.local.json'),mapping:await load('.generated/square-variations.local.json'),settings:await load('square-seed.local.json')},await productPlan());
  const plan=await productPlan();const links=Object.fromEntries(plan.groups.flatMap(g=>g.variations.map(v=>[v.id,{itemId:input.mapping.items[g.key],variationId:input.mapping.variations[v.id],sku:v.sku}])));
- const c=managementConfig(input.manifest,links);checkManagementConfig(c,input.manifest);
- await writeFile(new URL('wrangler-management.local.json',import.meta.url),JSON.stringify(c,null,2)+'\n',{mode:0o600});
- console.log('Separate management config prepared offline; no resources or migrations applied. Stock writes remain disabled.');
+ const command=process.argv[2]||'prepare';if(!['prepare','check'].includes(command)||process.argv.length>3)throw Error('Use prepare or check');
+ const expected=managementConfig(input.manifest,links);
+ const c=command==='check'?await load('wrangler-management.local.json'):expected;checkManagementConfig(c,input.manifest);
+ if(JSON.stringify(c)!==JSON.stringify(expected))throw Error('Generated settings differ from reviewed inputs');
+ if(command==='prepare')await writeFile(new URL('wrangler-management.local.json',import.meta.url),JSON.stringify(c,null,2)+'\n',{mode:0o600});
+ console.log(command==='check'?'Management config and existing mappings verified offline; READ_ONLY, checkout/mail/Cron disabled.':'Management config prepared offline; no remote changes. READ_ONLY, checkout/mail/Cron disabled.');
 }catch{console.error('Management preparation refused. No remote action was attempted.');process.exitCode=1;}}

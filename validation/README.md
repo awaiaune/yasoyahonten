@@ -1,4 +1,6 @@
-# Square Sandbox / Cloudflare検証環境（未デプロイ）
+# Square Sandbox / Cloudflare検証環境
+
+管理画面の初回導入は[READ_ONLY導入手順](../docs/validation-read-only-launch.md)を優先する。既存Worker/D1/Accessと照合済みSandbox商品を再利用し、古い手順の公開・Cron・在庫設定は実行しない。
 
 このディレクトリは承認前の構成案・オフライン検証用。本番設定worker/wrangler.jsoncは変更しない。
 既存のdevローカル隔離を維持する。このツールにはdeploy機能を設けていない。

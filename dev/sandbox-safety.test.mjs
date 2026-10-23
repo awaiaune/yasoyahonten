@@ -300,3 +300,45 @@ test('generated legacy API scripts refuse missing or wrong Sandbox config before
         assert.equal(await readFile(new URL('../js/'+name,import.meta.url),'utf8'),original);
     }
 });
+
+test('READ_ONLY starts without Resend; mail enablement still requires a separate validation key',()=>{
+ const env=runtime();delete env.RESEND_VALIDATION_API_KEY;assert.doesNotThrow(()=>assertRuntime(env));
+ assert.throws(()=>assertRuntime({...env,SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_MAIL_ENABLED:'1'}));
+ assert.doesNotThrow(()=>assertRuntime({...env,SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_MAIL_ENABLED:'1',RESEND_VALIDATION_API_KEY:'offline-validation-key'}));
+ assert.throws(()=>assertRuntime({...env,RESEND_API_KEY:'forbidden-generic-key'}));
+});
+
+test('remote-shaped READ_ONLY onboarding imports photos, links existing IDs and displays live substitute quantities without Square writes or Resend',async t=>{
+ const {ManagementSquare}=await import('./management-square.mjs');const {managementConfig}=await import('../validation/prepare-management.mjs');
+ const {legacyProducts}=await import('../validation/legacy-products.mjs');const {root}=await import('./server.mjs');
+ const products=await legacyProducts(),m={...manifest(),workerOrigin:VALIDATION_ORIGIN},fake=new ManagementSquare();
+ const links={},quantities=[2,7,0];
+ for(const [index,p] of products.entries()){
+  const v=p.variants[0],itemId='OFFLINEITEM000'+index,variationId=m.variations[v.id],sku='yasoya-sandbox-v1:'+v.id;
+  const variation={id:variationId,type:'ITEM_VARIATION',version:1,present_at_all_locations:false,present_at_location_ids:[m.squareLocationId],item_variation_data:{item_id:itemId,name:v.name,sku,price_money:{amount:980,currency:'JPY'},track_inventory:true}};
+  fake.objects.set(variationId,variation);fake.objects.set(itemId,{id:itemId,type:'ITEM',version:1,present_at_all_locations:false,present_at_location_ids:[m.squareLocationId],item_data:{name:p.name,variations:[variation]}});fake.counts.set(variationId,quantities[index]);links[v.id]={itemId,variationId,sku};
+ }
+ const config=managementConfig(m,links),jwt=await accessToken(m);
+ const bundle=await build({entryPoints:[root+'/validation/sandbox-worker.js'],bundle:true,write:false,format:'esm',platform:'browser'});
+ const mf=new Miniflare({cf:false,modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:{...config.vars,SQUARE_SANDBOX_ACCESS_TOKEN:'offline-placeholder-not-a-real-token',VALIDATION_ADMIN_TOKEN:'offline-admin-'.repeat(4)},
+  d1Databases:{ORDERS_DB:'onboarding-offline-only'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},r2Buckets:{PRODUCT_IMAGES:'onboarding-offline-images'},
+  serviceBindings:{ASSETS:async request=>{const path=new URL(request.url).pathname;assert(/^\/(products\/[a-z]+\.html|images\/[\w.-]+|admin\/index.html)$/.test(path));const data=await readFile(root+path);return new Response(path.endsWith('.html')?renderHtml(data.toString()):data);}},
+  outboundService:async request=>{const u=new URL(request.url);if(u.origin==='https://'+m.accessTeamDomain)return Response.json({keys:[accessJwk]});assert.equal(u.origin,'https://connect.squareupsandbox.com');assert(request.method==='GET'&&u.pathname.startsWith('/v2/catalog/object/')||request.method==='POST'&&u.pathname==='/v2/inventory/counts/batch-retrieve','Only read-only Square calls may occur');return fake.fetch(request);}});
+ t.after(()=>mf.dispose());const db=await mf.getD1Database('ORDERS_DB');
+ await db.prepare('CREATE TABLE validation_environment(id INTEGER PRIMARY KEY,instance_id TEXT NOT NULL)').run();await db.prepare('INSERT INTO validation_environment VALUES(1,?)').bind(m.instanceId).run();
+ for(const name of ['0001_management.sql','0002_management_supervision.sql'])for(const sql of (await readFile(root+'/worker/migrations/'+name,'utf8')).replace(/^--.*$/mg,'').split(';').filter(s=>s.trim()))await db.prepare(sql).run();
+ const api=async(path,method='GET',body)=>{const r=await mf.dispatchFetch(m.workerOrigin+path,{method,headers:{Origin:m.workerOrigin,Authorization:'Bearer '+'offline-admin-'.repeat(4),'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const result=await r.json();assert(r.ok,JSON.stringify(result));return result;};
+ assert.equal((await api('/api/admin/products')).products.length,0);
+ assert.deepEqual((await api('/api/admin/orders')).orders,[]);
+ assert(await db.prepare("SELECT name FROM sqlite_master WHERE name='idx_orders_status_created'").first());
+ await api('/api/admin/products/import','POST',{});await api('/api/admin/products/import','POST',{});
+ for(const p of products){let view=(await api('/api/admin/products/'+p.id)).product;assert.equal(view.status,'draft');assert.equal(view.draft.images.length,1);assert.equal(view.useConfiguredLinks,true);
+  await api('/api/admin/products/'+p.id+'/link','POST',{operationId:crypto.randomUUID(),expectedVersion:view.version});view=(await api('/api/admin/products/'+p.id)).product;assert.equal(view.syncState,'linked');assert.equal(view.source,'square-sandbox');assert.equal(view.accessMode,'READ_ONLY');
+ }
+ const rows=(await api('/api/admin/inventory')).inventory;for(const [index,p] of products.entries()){const row=rows.find(r=>r.id===p.variants[0].id);assert.equal(row.quantity,quantities[index]);assert(row.observedAt);assert.equal(row.source,'square-sandbox');}
+ const p=products[0],view=(await api('/api/admin/products/'+p.id)).product;
+ await api('/api/admin/products/'+p.id,'PUT',{...view.draft,slug:view.slug,expectedVersion:view.version,operationId:crypto.randomUUID(),name:view.draft.name+'（保存確認）'});
+ assert.equal((await api('/api/admin/products/'+p.id)).product.draft.images[0],view.draft.images[0]);
+ const forbidden=await mf.dispatchFetch(m.workerOrigin+'/api/admin/products/'+p.id+'/publish',{method:'POST',headers:{Origin:m.workerOrigin,Authorization:'Bearer '+'offline-admin-'.repeat(4),'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json'},body:JSON.stringify({operationId:crypto.randomUUID(),expectedVersion:view.version+1})});assert.equal(forbidden.status,503);assert.equal((await forbidden.json()).error.code,'SQUARE_READ_ONLY');
+ assert.equal((await db.prepare('SELECT instance_id FROM validation_environment WHERE id=1').first()).instance_id,m.instanceId);assert.equal(fake.receipts.size,0);assert.equal(fake.payments.size,0);assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
+});

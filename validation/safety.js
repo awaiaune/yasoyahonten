@@ -54,7 +54,9 @@ export function assertRuntime(env) {
     requireSafe(!env.LOCAL_SQUARE && !env.LOCAL_RESEND && !env.LOCAL_TEST_MODE, 'local fault doubles are forbidden in remote validation');
     requireSafe(env.ORDERS_DB && env.PURCHASE_COORDINATOR, 'dedicated D1 and DO bindings required');
     requireSafe(!env.SQUARE_ACCESS_TOKEN && !env.RESEND_API_KEY && !env.ADMIN_TOKEN && !env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY, 'generic/production secret bindings forbidden');
-    for (const key of ['SQUARE_SANDBOX_ACCESS_TOKEN','RESEND_VALIDATION_API_KEY','VALIDATION_ADMIN_TOKEN']) {
+    const requiredSecrets=['SQUARE_SANDBOX_ACCESS_TOKEN','VALIDATION_ADMIN_TOKEN'];
+    if(externalPolicy(env).mail || env.RESEND_VALIDATION_API_KEY!==undefined)requiredSecrets.push('RESEND_VALIDATION_API_KEY');
+    for (const key of requiredSecrets) {
         requireSafe(filled(env[key]) && !['fake-local-test-only','local-test-not-a-secret','local-development-only'].includes(env[key]), `separate secret required: ${key}`);
     }
     requireSafe(env.VALIDATION_ADMIN_TOKEN.length >= 32, 'separate random validation admin token required');

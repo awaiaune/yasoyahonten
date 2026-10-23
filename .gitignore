@@ -1,0 +1,11 @@
+# Private local inputs and generated validation outputs (never publish these).
+validation/*.local.json
+validation/.generated/
+dev/.state/
+**/node_modules/
+**/.wrangler/
+**/.dev.vars
+**/.dev.vars.*
+**/.env
+**/.env.local
+**/.env.*.local
