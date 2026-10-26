@@ -415,6 +415,28 @@ test('configured Sandbox links use the server mapping without asking Android use
  finally{page.off('dialog',listen);await page.unroute('**/api/admin/products');await page.unroute('**/api/admin/products/*/link');}
 });
 
+test('mobile Sandbox management-only mode saves and publishes photos, receives/counts stock, and keeps checkout disabled',async t=>{
+ const r=await createManagementRuntime({seed:true,sandboxManagement:true});
+ await new Promise(resolve=>server.close(resolve));
+ const server2=createManagementServer(r);server2.listen(8000,'127.0.0.1');await once(server2,'listening');
+ const ctx=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});const failures=[];
+ t.after(async()=>{await ctx.close();await new Promise(resolve=>server2.close(resolve));await r.mf.dispose();server.listen(8000,'127.0.0.1');await once(server,'listening');});
+ await ctx.route('**/*',route=>new URL(route.request().url()).origin==='http://127.0.0.1:8000'?route.continue():route.abort());
+ const p=await ctx.newPage();p.on('dialog',d=>d.accept());p.on('pageerror',e=>failures.push(e.message));
+ const ready=()=>p.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
+ await p.goto('http://127.0.0.1:8000/admin/');await p.getByLabel('管理トークン',{exact:true}).fill('local-development-only');await p.getByRole('button',{name:'管理画面を開く'}).click();await p.locator('#app').waitFor({state:'visible'});await ready();
+ await p.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await ready();await p.getByRole('button',{name:'＋ 商品登録',exact:true}).click();
+ await p.getByLabel('商品名',{exact:true}).fill('管理専用テストハーブ');await p.getByLabel('URL識別子',{exact:true}).fill('management-write-ui');await p.locator('[name=vname]').fill('管理専用テスト 10g');
+ await p.locator('#imageFiles').setInputFiles(await Promise.all(['lemonbalm.jpg','yomogi.jpg'].map(async name=>({name,mimeType:'image/jpeg',buffer:await readFile(new URL('../images/'+name,import.meta.url))}))));await ready();assert.equal(await p.locator('.image-entry').count(),2);
+ await p.getByRole('button',{name:'下書き保存',exact:true}).click();await ready();assert.equal(await p.locator('#dirtyStatus').innerText(),'保存済み');
+ await p.getByRole('button',{name:'保存内容を公開'}).click();await ready();assert.match(await p.locator('#editorMessage').innerText(),/反映しました/);assert.match(await p.locator('#editorSyncStatus').innerText(),/Sandbox管理書込/);
+ await p.getByRole('button',{name:'商品編集を閉じる'}).click();await p.reload();await ready();await p.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await ready();await p.getByRole('button',{name:'管理専用テストハーブを編集',exact:true}).click();assert.equal(await p.locator('.image-entry').count(),2);await p.getByRole('button',{name:'商品編集を閉じる'}).click();
+ await p.getByRole('navigation').getByRole('button',{name:'在庫',exact:true}).click();await ready();
+ const card=p.locator('.inventory-card').filter({hasText:'管理専用テスト 10g'});assert.match(await card.innerText(),/購入停止/);await card.getByRole('button',{name:/の入庫$/}).click();await p.locator('#inventoryQuantity').fill('3');await p.locator('#inventoryReason').fill('画面テスト入庫');await p.locator('#confirmInventory').click();await ready();assert.match(await card.locator('.inventory-stock').innerText(),/3/);
+ await card.getByRole('button',{name:/の棚卸し$/}).click();await p.locator('#inventoryQuantity').fill('2');await p.locator('#inventoryReason').fill('画面テスト棚卸し');await p.locator('#confirmInventory').click();await ready();assert.match(await card.locator('.inventory-stock').innerText(),/2/);
+ const stopped=await p.evaluate(async()=>{const resp=await fetch('/api/payments',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});return {status:resp.status,body:await resp.json()};});assert.equal(stopped.status,503);assert.equal(stopped.body.error.code,'CHECKOUT_DISABLED');assert.equal(r.square.payments.size,0);assert(!r.square.calls.some(path=>path.startsWith('/v2/payments')));assert.deepEqual(failures,[]);
+});
+
 test('UI makes no external requests or payments and produces no uncaught JavaScript errors',async()=>{
  assert.deepEqual(errors,[]);assert.deepEqual(external,[]);assert.equal(runtime.square.payments.size,0);assert(!runtime.square.calls.some(p=>p.startsWith('/v2/payments')));
 });

@@ -59,6 +59,17 @@ test('allowing reviewed management observability still rejects unknown fields an
   {vars:{...c.vars,VALIDATION_MAIL_ENABLED:'1'}}
  ])assert.throws(()=>checkManagementConfig({...c,...patch},m));
 });
+test('management write config and runtime require exact existing links and explicit approval; defaults remain read-only',()=>{
+ const m={...manifest(),workerOrigin:VALIDATION_ORIGIN};
+ const links=Object.fromEntries(Object.entries(m.variations).map(([id,variationId],i)=>[id,{itemId:'EXISTINGITEM000'+i,variationId,sku:'yasoya-sandbox-v1:'+id}]));
+ assert.equal(managementConfig(m,links).vars.SQUARE_ACCESS_MODE,'READ_ONLY');
+ assert.throws(()=>managementConfig(m,links,'READ_WRITE'));assert.throws(()=>managementConfig(m,undefined,'SANDBOX_MANAGEMENT'));
+ const c=managementConfig(m,links,'SANDBOX_MANAGEMENT');assert.doesNotThrow(()=>checkManagementConfig(c,m));
+ const env={...runtime(m),...c.vars};assert.doesNotThrow(()=>assertRuntime(env));
+ for(const patch of [{VALIDATION_MANAGEMENT_WRITE_APPROVAL:undefined},{SQUARE_EXISTING_LINKS:'{}'},{SQUARE_EXISTING_LINKS:JSON.stringify({...links,'lemonbalm-10g':{...links['lemonbalm-10g'],sku:'changed'}})},{VALIDATION_MAIL_ENABLED:'1'},{VALIDATION_CHECKOUT_ENABLED:'1'},{VALIDATION_CRON_ENABLED:'1'}])assert.throws(()=>assertRuntime({...env,...patch}));
+ for(const patch of [{VALIDATION_MANAGEMENT_WRITE_APPROVAL:undefined},{VALIDATION_MAIL_ENABLED:'1'},{MANAGEMENT_STOCK_WRITES:'disabled'},{SQUARE_ACCESS_MODE:'READ_WRITE'}])assert.throws(()=>checkManagementConfig({...c,vars:{...c.vars,...patch}},m));
+ assert.throws(()=>checkManagementConfig({...c,unknown:true},m));
+});
 test('incomplete template and production identifiers are refused offline', async () => {
     const template=JSON.parse(await readFile(new URL('../validation/manifest.example.json',import.meta.url),'utf8'));
     assert.throws(()=>assertManifest(template));
@@ -341,7 +352,7 @@ test('READ_ONLY starts without Resend; mail enablement still requires a separate
  assert.throws(()=>assertRuntime({...env,RESEND_API_KEY:'forbidden-generic-key'}));
 });
 
-test('remote-shaped READ_ONLY onboarding imports photos, links existing IDs and displays live substitute quantities without Square writes or Resend',async t=>{
+for(const mode of ['READ_ONLY','SANDBOX_MANAGEMENT'])test('remote-shaped '+mode+' onboarding, image/catalog/stock synchronization and authentication stay isolated',async t=>{
  const {ManagementSquare}=await import('./management-square.mjs');const {managementConfig}=await import('../validation/prepare-management.mjs');
  const {legacyProducts}=await import('../validation/legacy-products.mjs');const {root}=await import('./server.mjs');
  const products=await legacyProducts(),m={...manifest(),workerOrigin:VALIDATION_ORIGIN},fake=new ManagementSquare();
@@ -351,12 +362,13 @@ test('remote-shaped READ_ONLY onboarding imports photos, links existing IDs and 
   const variation={id:variationId,type:'ITEM_VARIATION',version:1,present_at_all_locations:false,present_at_location_ids:[m.squareLocationId],item_variation_data:{item_id:itemId,name:v.name,sku,price_money:{amount:980,currency:'JPY'},track_inventory:true}};
   fake.objects.set(variationId,variation);fake.objects.set(itemId,{id:itemId,type:'ITEM',version:1,present_at_all_locations:false,present_at_location_ids:[m.squareLocationId],item_data:{name:p.name,variations:[variation]}});fake.counts.set(variationId,quantities[index]);links[v.id]={itemId,variationId,sku};
  }
- const config=managementConfig(m,links),jwt=await accessToken(m);
+ fake.locationId=m.squareLocationId;
+ const config=managementConfig(m,links,mode),jwt=await accessToken(m);
  const bundle=await build({entryPoints:[root+'/validation/sandbox-worker.js'],bundle:true,write:false,format:'esm',platform:'browser'});
  const mf=new Miniflare({cf:false,modules:true,script:bundle.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:{...config.vars,SQUARE_SANDBOX_ACCESS_TOKEN:'offline-placeholder-not-a-real-token',VALIDATION_ADMIN_TOKEN:'offline-admin-'.repeat(4)},
   d1Databases:{ORDERS_DB:'onboarding-offline-only'},durableObjects:{PURCHASE_COORDINATOR:{className:'SandboxPurchaseCoordinator',useSQLite:true}},r2Buckets:{PRODUCT_IMAGES:'onboarding-offline-images'},
   serviceBindings:{ASSETS:async request=>{const path=new URL(request.url).pathname;assert(/^\/(products\/[a-z]+\.html|images\/[\w.-]+|admin\/index.html)$/.test(path));const data=await readFile(root+path);return new Response(path.endsWith('.html')?renderHtml(data.toString()):data);}},
-  outboundService:async request=>{const u=new URL(request.url);if(u.origin==='https://'+m.accessTeamDomain)return Response.json({keys:[accessJwk]});assert.equal(u.origin,'https://connect.squareupsandbox.com');assert(request.method==='GET'&&u.pathname.startsWith('/v2/catalog/object/')||request.method==='POST'&&u.pathname==='/v2/inventory/counts/batch-retrieve','Only read-only Square calls may occur');return fake.fetch(request);}});
+  outboundService:async request=>{const u=new URL(request.url);if(u.origin==='https://'+m.accessTeamDomain)return Response.json({keys:[accessJwk]});assert.equal(u.origin,'https://connect.squareupsandbox.com');assert(request.method==='GET'&&['/v2/locations','/v2/catalog/list'].includes(u.pathname)||request.method==='GET'&&u.pathname.startsWith('/v2/catalog/object/')||request.method==='POST'&&(u.pathname==='/v2/inventory/counts/batch-retrieve'||mode==='SANDBOX_MANAGEMENT'&&['/v2/catalog/images','/v2/catalog/batch-upsert','/v2/inventory/changes/batch-create'].includes(u.pathname)),'Only approved Sandbox management calls may occur');return fake.fetch(request);}});
  t.after(()=>mf.dispose());const db=await mf.getD1Database('ORDERS_DB');
  await db.prepare('CREATE TABLE validation_environment(id INTEGER PRIMARY KEY,instance_id TEXT NOT NULL)').run();await db.prepare('INSERT INTO validation_environment VALUES(1,?)').bind(m.instanceId).run();
  for(const name of ['0001_management.sql','0002_management_supervision.sql'])for(const sql of (await readFile(root+'/worker/migrations/'+name,'utf8')).replace(/^--.*$/mg,'').split(';').filter(s=>s.trim()))await db.prepare(sql).run();
@@ -366,12 +378,38 @@ test('remote-shaped READ_ONLY onboarding imports photos, links existing IDs and 
  assert(await db.prepare("SELECT name FROM sqlite_master WHERE name='idx_orders_status_created'").first());
  await api('/api/admin/products/import','POST',{});await api('/api/admin/products/import','POST',{});
  for(const p of products){let view=(await api('/api/admin/products/'+p.id)).product;assert.equal(view.status,'draft');assert.equal(view.draft.images.length,1);assert.equal(view.useConfiguredLinks,true);
-  await api('/api/admin/products/'+p.id+'/link','POST',{operationId:crypto.randomUUID(),expectedVersion:view.version});view=(await api('/api/admin/products/'+p.id)).product;assert.equal(view.syncState,'linked');assert.equal(view.source,'square-sandbox');assert.equal(view.accessMode,'READ_ONLY');
+  await api('/api/admin/products/'+p.id+'/link','POST',{operationId:crypto.randomUUID(),expectedVersion:view.version});view=(await api('/api/admin/products/'+p.id)).product;assert.equal(view.syncState,'linked');assert.equal(view.source,'square-sandbox');assert.equal(view.accessMode,mode);
  }
  const rows=(await api('/api/admin/inventory')).inventory;for(const [index,p] of products.entries()){const row=rows.find(r=>r.id===p.variants[0].id);assert.equal(row.quantity,quantities[index]);assert(row.observedAt);assert.equal(row.source,'square-sandbox');}
  const p=products[0],view=(await api('/api/admin/products/'+p.id)).product;
  await api('/api/admin/products/'+p.id,'PUT',{...view.draft,slug:view.slug,expectedVersion:view.version,operationId:crypto.randomUUID(),name:view.draft.name+'（保存確認）'});
  assert.equal((await api('/api/admin/products/'+p.id)).product.draft.images[0],view.draft.images[0]);
+ if(mode==='SANDBOX_MANAGEMENT'){
+  const publishInput={operationId:crypto.randomUUID(),expectedVersion:view.version+1};
+  const synced=await api('/api/admin/products/'+p.id+'/publish','POST',publishInput);assert.equal(synced.state,'done');
+  assert.equal((await api('/api/admin/products/'+p.id+'/publish','POST',publishInput)).id,synced.id);
+  let saved=(await api('/api/admin/products/'+p.id)).product;assert.equal(saved.status,'published');assert.equal(saved.accessMode,mode);
+  assert.equal((await api('/api/catalog')).products[0].name,saved.draft.name);
+  assert.equal((await api('/api/admin/orders')).orders.length,0);
+  const itemId=links[p.variants[0].id].itemId;assert.equal(fake.objects.get(itemId).item_data.image_ids.length,1);
+  const second={...saved.draft.variants[0],id:'offline-extra-5g',name:'追加テスト 5g',price:1480,amount:'5g',maxQuantity:2};
+  await api('/api/admin/products/'+p.id,'PUT',{...saved.draft,variants:[...saved.draft.variants,second],slug:saved.slug,operationId:crypto.randomUUID(),expectedVersion:saved.version});
+  saved=(await api('/api/admin/products/'+p.id)).product;assert.equal((await api('/api/admin/products/'+p.id+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:saved.version})).state,'done');
+  assert.equal(fake.objects.get(itemId).item_data.variations.length,2);assert.equal(fake.objects.get(itemId).item_data.variations[0].id,links[p.variants[0].id].variationId);
+  let stock=(await api('/api/admin/inventory')).inventory.find(r=>r.id===p.variants[0].id);
+  const receipt={operationId:crypto.randomUUID(),kind:'receipt',quantity:3,expectedQuantity:stock.quantity,observedAt:stock.observedAt,reason:'ローカル検証'};
+  assert.equal((await api('/api/admin/inventory/'+stock.id,'POST',receipt)).state,'done');await api('/api/admin/inventory/'+stock.id,'POST',receipt);
+  stock=(await api('/api/admin/inventory')).inventory.find(r=>r.id===stock.id);assert.equal(stock.quantity,5);assert.equal(stock.accessMode,mode);
+  assert.equal((await api('/api/admin/inventory/'+stock.id,'POST',{operationId:crypto.randomUUID(),kind:'count',quantity:4,expectedQuantity:stock.quantity,observedAt:stock.observedAt,reason:'検証棚卸し'})).state,'done');
+  assert.equal((await api('/api/admin/inventory')).inventory.find(r=>r.id===stock.id).quantity,4);
+  saved=(await api('/api/admin/products/'+p.id)).product;await api('/api/admin/products/'+p.id+'/state','POST',{operationId:crypto.randomUUID(),expectedVersion:saved.version,status:'stopped'});
+  assert.equal((await api('/api/admin/products/'+p.id)).product.status,'stopped');
+  const anonymous=await mf.dispatchFetch(m.workerOrigin+'/api/admin/products');assert.equal(anonymous.status,401);
+  const checkout=await mf.dispatchFetch(m.workerOrigin+'/api/payments',{method:'POST',headers:{Origin:m.workerOrigin,'Cf-Access-Jwt-Assertion':jwt},body:'{}'});assert.equal(checkout.status,503);
+  assert((await api('/api/admin/audit')).events.some(e=>e.action==='job_completed'));assert.equal(fake.payments.size,0);
+  assert.equal((await db.prepare('SELECT instance_id FROM validation_environment WHERE id=1').first()).instance_id,m.instanceId);
+  return;
+ }
  const forbidden=await mf.dispatchFetch(m.workerOrigin+'/api/admin/products/'+p.id+'/publish',{method:'POST',headers:{Origin:m.workerOrigin,Authorization:'Bearer '+'offline-admin-'.repeat(4),'Cf-Access-Jwt-Assertion':jwt,'Content-Type':'application/json'},body:JSON.stringify({operationId:crypto.randomUUID(),expectedVersion:view.version+1})});assert.equal(forbidden.status,503);assert.equal((await forbidden.json()).error.code,'SQUARE_READ_ONLY');
  assert.equal((await db.prepare('SELECT instance_id FROM validation_environment WHERE id=1').first()).instance_id,m.instanceId);assert.equal(fake.receipts.size,0);assert.equal(fake.payments.size,0);assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
 });

@@ -86,3 +86,78 @@ test('linking an existing product rejects Item/Variation/SKU mismatches without 
  for(const patch of [{itemId:'WRONGITEM123'},{variationId:'WRONGVAR123'},{sku:f.variant}]){env.SQUARE_EXISTING_LINKS=JSON.stringify({[f.variant]:{...ref,...patch}});await assert.rejects(()=>m.link(f.id,{operationId:crypto.randomUUID(),expectedVersion:1,mappings:[{variantId:f.variant,variationId:v.id}]},'test'));assert.equal((await m.s.all('SELECT * FROM mg_mappings')).length,0);}
  env.SQUARE_EXISTING_LINKS=JSON.stringify({[f.variant]:ref});await m.link(f.id,{operationId:crypto.randomUUID(),expectedVersion:1,mappings:[{variantId:f.variant,variationId:v.id}]},'test');const saved=await m.s.one('SELECT * FROM mg_mappings');assert.equal(saved.item_id,item.id);assert.equal(saved.variation_id,v.id);
 });
+
+const managementOnly={SQUARE_ACCESS_MODE:'SANDBOX_MANAGEMENT',VALIDATION_MANAGEMENT_WRITE_APPROVAL:'sandbox-management-single-writer-v1',MANAGEMENT_ENABLED:'1',MANAGEMENT_STOCK_WRITES:'single-writer',MANAGEMENT_CHECKOUT_PAUSED:'1',VALIDATION_CHECKOUT_ENABLED:'0',VALIDATION_MAIL_ENABLED:'0',VALIDATION_CRON_ENABLED:'0',SITE_URL:'https://validation.awaiaune.com',ALLOWED_ORIGINS:'https://validation.awaiaune.com'};
+test('Sandbox management mode requires explicit server approval, private validation origin and all unrelated effects disabled',()=>{
+ const env={...remote,...managementOnly};assert.equal(externalPolicy(env).managementOnly,true);
+ for(const patch of [{VALIDATION_MANAGEMENT_WRITE_APPROVAL:undefined},{VALIDATION_MANAGEMENT_WRITE_APPROVAL:'true'},{MANAGEMENT_ENABLED:'0'},{MANAGEMENT_STOCK_WRITES:'disabled'},{MANAGEMENT_CHECKOUT_PAUSED:'0'},{VALIDATION_CHECKOUT_ENABLED:'1'},{VALIDATION_MAIL_ENABLED:'1'},{VALIDATION_CRON_ENABLED:'1'},{SITE_URL:'https://other.invalid'},{ALLOWED_ORIGINS:'*'},{SQUARE_ENVIRONMENT:'production'}])assert.throws(()=>externalPolicy({...env,...patch}),{code:'EXTERNAL_POLICY_INVALID'});
+ assert.throws(()=>externalPolicy({...env,SQUARE_ACCESS_MODE:'READ_ONLY'}));
+ for(const path of ['/v2/catalog/batch-upsert','/v2/catalog/images','/v2/inventory/changes/batch-create'])assert.doesNotThrow(()=>assertSquareRequest(env,origin+path,'POST'));
+ for(const path of ['/v2/payments','/v2/refunds','/v2/orders','/v2/catalog/delete'])assert.throws(()=>assertSquareRequest(env,origin+path,'POST'),{code:'MANAGEMENT_WRITE_DENIED'});
+ assert.throws(()=>assertSquareRequest(env,'https://connect.squareup.com/v2/catalog/batch-upsert','POST'),{code:'SQUARE_DESTINATION_DENIED'});
+ assert.throws(()=>assertCheckout(env),{code:'CHECKOUT_DISABLED'});assert.throws(()=>assertMail(env),{code:'MAIL_DISABLED'});
+});
+test('management-only Catalog and stock lost responses recover with the same body/key and no duplicate Item or receipt',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);f.r.square.loseAfter='/v2/catalog/batch-upsert';
+ const input={operationId:crypto.randomUUID(),expectedVersion:1},j=await f.m.publish(f.id,input,'test');assert.equal(j.state,'retry');
+ const before=await f.m.s.one('SELECT body_json FROM mg_jobs WHERE id=?',[j.id]);await f.manager().retry(j.id);assert.equal((await f.m.job(j.id)).state,'done');assert.equal((await f.m.s.one('SELECT body_json FROM mg_jobs WHERE id=?',[j.id])).body_json,before.body_json);
+ await f.m.publish(f.id,input,'test');assert.equal([...f.r.square.objects.values()].filter(o=>o.type==='ITEM').length,1);
+ let row=(await f.m.inventory())[0];f.r.square.loseAfter='/v2/inventory/changes/batch-create';const receipt={operationId:crypto.randomUUID(),kind:'receipt',quantity:3,reason:'試験入庫',expectedQuantity:row.quantity,observedAt:row.observedAt};
+ const stock=await f.m.adjust(row.id,receipt,'test');assert.equal(stock.state,'retry');assert.equal(f.r.square.counts.get((await f.m.s.one('SELECT variation_id FROM mg_mappings')).variation_id),3);
+ await f.manager().retry(stock.id);await f.m.adjust(row.id,receipt,'test');row=(await f.m.inventory())[0];assert.equal(row.quantity,3);assert.equal(row.accessMode,'SANDBOX_MANAGEMENT');
+ assert.equal(f.r.square.receipts.size,2);assert.equal(f.r.square.payments.size,0);assert.equal(f.mails(),0);
+});
+test('management-only validates active Japanese yen Location before Catalog, inventory or image mutation',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);
+ for(const patch of [{country:'US'},{currency:'USD'},{status:'INACTIVE'},{id:'OTHERLOCATION123'}]){
+  f.r.square.locationPatch=patch;
+  await assert.rejects(()=>f.m.square.request('/v2/catalog/batch-upsert','POST',{}));
+  await assert.rejects(()=>f.m.square.request('/v2/inventory/changes/batch-create','POST',{}));
+  await assert.rejects(()=>f.m.square.image('b'.repeat(64),new Uint8Array([1]),'image/jpeg'));
+ }
+ assert(!f.r.square.calls.some(p=>['/v2/catalog/images','/v2/catalog/batch-upsert','/v2/inventory/changes/batch-create'].includes(p)));
+ f.r.square.locationPatch={};
+ await assert.rejects(()=>f.m.square.request('/v2/inventory/changes/batch-create','POST',{changes:[{type:'ADJUSTMENT',adjustment:{location_id:f.env.SQUARE_LOCATION_ID}}]}));
+ await assert.rejects(()=>f.m.square.request('/v2/catalog/batch-upsert','POST',{batches:[{objects:[{type:'ITEM',id:'#wrong',present_at_all_locations:true}]}]}));
+ assert.equal(f.r.square.receipts.size,0);
+});
+test('management-only Alarm recovers admin jobs but never resumes existing purchase journal, status, charge, decrement or mail',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);f.r.square.loseAfter='/v2/catalog/batch-upsert';const job=await f.m.publish(f.id,{operationId:crypto.randomUUID(),expectedVersion:1},'test');assert.equal(job.state,'retry');
+ await f.m.s.run('UPDATE mg_jobs SET next_due=0 WHERE id=?',[job.id]);
+ const id=crypto.randomUUID(),record={id,phase:'payment_unknown',paymentKey:'fixed',inventoryOperation:{key:'fixed-stock'}};await f.storage.put('attempt:'+id,record);
+ const coordinator=new PurchaseCoordinator({storage:f.storage},f.env);let ledgerCalls=0;coordinator.ledger.alarm=async()=>{ledgerCalls++;};await coordinator.alarm();assert.equal((await f.m.job(job.id)).state,'done');assert.equal(ledgerCalls,0);
+ for(const path of ['status','recover']){const r=await coordinator.fetch(new Request('https://purchase.internal/'+path,{method:'POST',body:JSON.stringify({attemptId:id})}));assert.equal((await r.json()).reason,'SANDBOX_MANAGEMENT');}
+ await assert.rejects(()=>coordinator.ledger.services.charge(record,'ignored'),{code:'CHECKOUT_DISABLED'});
+ await assert.rejects(()=>coordinator.ledger.services.decrement(record),{code:'CHECKOUT_DISABLED'});
+ await assert.rejects(()=>coordinator.ledger.services.notify(record),{code:'MAIL_DISABLED'});
+ await assert.rejects(()=>coordinator.ledger.services.email(record),{code:'MAIL_DISABLED'});
+ await worker.scheduled({},f.env,{});assert.deepEqual(await f.storage.get('attempt:'+id),record);assert.equal(f.r.square.payments.size,0);assert.equal(f.mails(),0);
+});
+test('management-only refuses duplicate external SKU and unmanaged variations instead of recreating or deleting objects',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);f.r.square.objects.set('EXTERNALVAR123',{id:'EXTERNALVAR123',type:'ITEM_VARIATION',item_variation_data:{sku:f.variant}});
+ const j=await f.m.publish(f.id,{operationId:crypto.randomUUID(),expectedVersion:1},'test');assert.equal(j.state,'review');assert.equal(f.r.square.receipts.size,0);
+ // A different product continues despite the held SKU.
+ const other='unaffected',data={...f.body,slug:other,operationId:crypto.randomUUID(),variants:[{...f.body.variants[0],id:other+'-10g'}]};await f.m.save(other,data,'test');assert.equal((await f.m.publish(other,{operationId:crypto.randomUUID(),expectedVersion:1},'test')).state,'done');
+ const maps=await f.m.s.all('SELECT * FROM mg_mappings'),item=f.r.square.objects.get(maps[0].item_id);item.item_data.variations.push({id:'UNMANAGEDVAR123',type:'ITEM_VARIATION'});
+ const before=f.r.square.receipts.size;await assert.rejects(()=>f.m.square.preserveMappings(maps));assert.equal(f.r.square.receipts.size,before);
+});
+test('management-only stock preflight detects changes after queueing, preserves external stock and puts only affected variant on review',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);await f.m.publish(f.id,{operationId:crypto.randomUUID(),expectedVersion:1},'test');
+ const row=(await f.m.inventory())[0],mapping=await f.m.s.one('SELECT * FROM mg_mappings');
+ const original=f.m.schedule.bind(f.m);let calls=0;f.m.schedule=async()=>{calls++;if(calls===1){f.r.square.counts.set(mapping.variation_id,9);return false;}return original();};
+ const job=await f.m.adjust(row.id,{operationId:crypto.randomUUID(),kind:'receipt',quantity:2,reason:'競合検証',expectedQuantity:row.quantity,observedAt:row.observedAt},'test');assert.equal(job.state,'queued');
+ await f.manager().retry(job.id);assert.equal((await f.m.job(job.id)).state,'review');assert.equal(f.r.square.counts.get(mapping.variation_id),9);assert(!f.r.square.calls.includes('/v2/inventory/changes/batch-create'));
+});
+test('management-only successful Square result survives D1 publication failure without exposing draft or resending Catalog',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);
+ const batch=f.m.s.batch.bind(f.m.s);let fail=true;
+ f.m.s.batch=async rows=>{if(fail&&rows.some(([sql])=>sql.startsWith('UPDATE mg_products SET published_revision'))){fail=false;throw Error('offline D1 publication failure');}return batch(rows);};
+ const j=await f.m.publish(f.id,{operationId:crypto.randomUUID(),expectedVersion:1},'test');assert.equal(j.state,'retry');assert.equal((await f.m.s.publicProducts()).length,0);
+ const saved=await f.m.s.one('SELECT body_json,result_json FROM mg_jobs WHERE id=?',[j.id]);assert(saved.result_json);const calls=f.r.square.calls.filter(p=>p==='/v2/catalog/batch-upsert').length;
+ await f.manager().retry(j.id);assert.equal((await f.m.job(j.id)).state,'done');assert.equal((await f.m.s.publicProducts()).length,1);assert.equal(f.r.square.calls.filter(p=>p==='/v2/catalog/batch-upsert').length,calls);assert.equal((await f.m.s.one('SELECT body_json FROM mg_jobs WHERE id=?',[j.id])).body_json,saved.body_json);
+});
+test('management-only failed Alarm reservation retains queued job and later restart uses the original operation',async t=>{
+ const f=await fixture(t);Object.assign(f.env,managementOnly);let broken=true;f.storage.setAlarm=async()=>{if(broken)throw Error('offline Alarm failure');};
+ const input={operationId:crypto.randomUUID(),expectedVersion:1},j=await f.m.publish(f.id,input,'test');assert.equal(j.state,'queued');assert.equal(f.r.square.receipts.size,0);
+ const saved=await f.m.s.one('SELECT id,payload_json,fingerprint FROM mg_jobs WHERE id=?',[j.id]);broken=false;await f.manager().recover();assert.equal((await f.m.job(j.id)).state,'done');assert.deepEqual(await f.m.s.one('SELECT id,payload_json,fingerprint FROM mg_jobs WHERE id=?',[j.id]),saved);assert.equal(f.r.square.receipts.size,1);
+});

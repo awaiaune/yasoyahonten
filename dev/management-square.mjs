@@ -1,7 +1,7 @@
 // Offline Square substitute. It never forwards requests and accepts no real tokens.
 import { readFile, writeFile, rename } from 'node:fs/promises';
 export class ManagementSquare {
- constructor(file=null){this.file=file;this.objects=new Map();this.counts=new Map();this.receipts=new Map();this.payments=new Map();this.version=0;this.calls=[];this.failBefore=null;this.loseAfter=null;this.lookupFails=false;this.queue=Promise.resolve();}
+ constructor(file=null){this.file=file;this.locationId='LOCALMGMTLOCATION';this.locationPatch={};this.objects=new Map();this.counts=new Map();this.receipts=new Map();this.payments=new Map();this.version=0;this.calls=[];this.failBefore=null;this.loseAfter=null;this.lookupFails=false;this.queue=Promise.resolve();}
  async load(){if(this.file)try{const d=JSON.parse(await readFile(this.file,'utf8'));for(const k of ['objects','counts','receipts','payments'])this[k]=new Map(d[k]);this.version=d.version;}catch(e){if(e.code!=='ENOENT')throw e;}return this;}
  async persist(){if(this.file){const d={version:this.version};for(const k of ['objects','counts','receipts','payments'])d[k]=[...this[k]];await writeFile(this.file+'.tmp',JSON.stringify(d),{mode:0o600});await rename(this.file+'.tmp',this.file);}}
  fetch(request){const job=this.queue.then(()=>this.handle(request));this.queue=job.catch(()=>{});return job;}
@@ -10,6 +10,8 @@ export class ManagementSquare {
   if(this.failBefore===path)return Response.json({errors:[{code:'INTERNAL_SERVER_ERROR'}]},{status:503});
   let body;if(request.method!=='GET'){body=path==='/v2/catalog/images'?JSON.parse((await request.formData()).get('request')):await request.json();}let result;
   if(body?.idempotency_key&&this.receipts.has(body.idempotency_key)){const previous=this.receipts.get(body.idempotency_key);if(previous.body!==JSON.stringify(body))return Response.json({errors:[{code:'IDEMPOTENCY_KEY_REUSED'}]},{status:409});return Response.json(previous.result);}
+  if(path==='/v2/locations')return Response.json({locations:[{id:this.locationId,status:'ACTIVE',country:'JP',currency:'JPY',...this.locationPatch}]});
+  if(path==='/v2/catalog/list')return Response.json({objects:[...this.objects.values()].filter(o=>!u.searchParams.get('types')||u.searchParams.get('types').split(',').includes(o.type))});
   if(path==='/v2/catalog/images'){const image={...body.image,id:'TESTIMAGE'+String(++this.version).padStart(12,'0')};this.objects.set(image.id,image);result={image};}
   else if(path==='/v2/catalog/batch-upsert'){
    const item=structuredClone(body.batches[0].objects[0]),old=this.objects.get(item.id);

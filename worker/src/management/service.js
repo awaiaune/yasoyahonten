@@ -86,7 +86,7 @@ export class Management {
  async inventory(){
   const maps=await this.s.all('SELECT * FROM mg_mappings'),counts=await this.square.count(maps.map(m=>m.variation_id));const products=await this.s.products(),locks=await this.s.all('SELECT * FROM mg_locks'),holds=await this.storage.get('sku-holds')||{};const at=now();const rows=[],snapshots=[];
   for(const p of products)for(const v of p.draft.variants){const m=maps.find(m=>m.variant_id===v.id),quantity=m?counts.get(m.variation_id):null;
-   rows.push({source:externalPolicy(this.env).source,accessMode:externalPolicy(this.env).readOnly?'READ_ONLY':'READ_WRITE',id:v.id,name:v.name,productId:p.id,productStatus:p.status,quantity,observedAt:m?at:null,syncState:locks.find(l=>l.variant_id===v.id)?'held':m?'synced':'unmapped',held:Boolean(locks.some(l=>l.variant_id===v.id)||m&&holds[`${this.env.SQUARE_LOCATION_ID}:${m.variation_id}`]?.length)});
+   rows.push({source:externalPolicy(this.env).source,accessMode:externalPolicy(this.env).managementOnly?'SANDBOX_MANAGEMENT':externalPolicy(this.env).readOnly?'READ_ONLY':'READ_WRITE',id:v.id,name:v.name,productId:p.id,productStatus:p.status,quantity,observedAt:m?at:null,syncState:locks.find(l=>l.variant_id===v.id)?'held':m?'synced':'unmapped',held:Boolean(locks.some(l=>l.variant_id===v.id)||m&&holds[`${this.env.SQUARE_LOCATION_ID}:${m.variation_id}`]?.length)});
    if(m)snapshots.push([v.id,quantity,at]);
   }for(let start=0;start<snapshots.length;start+=25){const batch=snapshots.slice(start,start+25);await this.s.run('INSERT INTO mg_stock_snapshot VALUES '+batch.map(()=>'(?,?,?)').join(',')+' ON CONFLICT(variant_id) DO UPDATE SET quantity=excluded.quantity,observed_at=excluded.observed_at',batch.flat());}return rows;
  }
@@ -125,10 +125,12 @@ export class Management {
    let body=j.body_json?JSON.parse(j.body_json):null,result=j.result_json?JSON.parse(j.result_json):null;
    if(!body){
     if(j.kind==='stock'){
+     if(externalPolicy(this.env).managementOnly)need((await this.square.count([p.mapping.variation_id])).get(p.mapping.variation_id)===p.before,'送信前に在庫が変わりました。棚卸しで上書きせず照合してください。',409);
      const adjustment={catalog_object_id:p.mapping.variation_id,location_id:this.env.SQUARE_LOCATION_ID,state:'IN_STOCK',quantity:String(p.target),occurred_at:now(),reference_id:id};
      body={idempotency_key:id,changes:[{type:'PHYSICAL_COUNT',physical_count:adjustment}]};
     }else{
      const preserved=await this.square.preserveMappings(p.maps);
+     await this.square.assertNewSkusAvailable(p.data,p.maps);
      const imageIds=[];
      for(const imageId of p.data.images){let mapping=await this.s.one('SELECT * FROM mg_image_mappings WHERE image_id=?',[imageId]);if(!mapping){const image=await this.s.one('SELECT * FROM mg_images WHERE id=?',[imageId]);need(image&&this.env.PRODUCT_IMAGES,'画像ストレージが確認できません。',503);const object=await this.env.PRODUCT_IMAGES.get(image.object_key);need(object,'画像がありません。',409);const squareImageId=await this.square.image(imageId,await object.arrayBuffer(),image.mime);await this.s.run('INSERT INTO mg_image_mappings VALUES(?,?,?,?)',[imageId,'sandbox',squareImageId,now()]);mapping={square_image_id:squareImageId};}imageIds.push(mapping.square_image_id);}
      body=this.square.catalogBody({id:j.resource_id,data:p.data},preserved,id,imageIds);
@@ -165,7 +167,7 @@ export class Management {
   const maps=await this.s.all('SELECT m.variant_id FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[p.id]);
   const policy=externalPolicy(this.env);
   return {...p,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
-   source:policy.source,accessMode:policy.readOnly?'READ_ONLY':'READ_WRITE',
+   source:policy.source,accessMode:policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
    useConfiguredLinks:this.env.RUNTIME_TIER==='sandbox-validation'&&p.draft.variants.every(v=>Boolean(this.square.expectedLink(v.id)))};
  }
  async products(){return Promise.all((await this.s.products()).map(p=>this.productView(p)));}

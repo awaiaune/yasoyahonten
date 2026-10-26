@@ -1,13 +1,21 @@
-import {assertSquareRequest, assertSquareWrite} from '../external-policy.js';
+import {assertSquareRequest, assertSquareWrite, externalPolicy} from '../external-policy.js';
 import { need, ManagementError, guard, squareId } from './domain.js';
 const squareDescription=d=>d.description+(d.variants.some(v=>v.amount)?'\n\n'+d.variants.filter(v=>v.amount).map(v=>v.name+'：'+v.amount).join('\n'):'');
 export class Square {
  constructor(env){this.env=env;}
  async request(path,method='GET',body){
   await guard(this.env);
-  need(/^\/v2\/(catalog\/(batch-upsert|object\/[A-Z0-9]+)|inventory\/(counts\/batch-retrieve|changes\/batch-create))$/.test(path),'許可されていないSquare操作です。',503);
+  need(/^\/v2\/(locations|catalog\/(list(?:\?[^#]*)?|batch-upsert|object\/[A-Z0-9]+)|inventory\/(counts\/batch-retrieve|changes\/batch-create))$/.test(path),'許可されていないSquare操作です。',503);
   const url='https://connect.squareupsandbox.com'+path;
   assertSquareRequest(this.env,url,method);
+  if(externalPolicy(this.env).managementOnly&&method!=='GET'&&path!=='/v2/inventory/counts/batch-retrieve'){
+   await this.assertWritableLocation();
+   if(path==='/v2/inventory/changes/batch-create')need(body?.changes?.length===1&&body.changes[0].type==='PHYSICAL_COUNT'&&body.changes[0].physical_count?.location_id===this.env.SQUARE_LOCATION_ID&&body.changes[0].physical_count.state==='IN_STOCK','管理在庫は対象Locationの棚卸し確定だけを許可します。',409);
+   if(path==='/v2/catalog/batch-upsert'){
+    const items=body?.batches?.flatMap(b=>b.objects)||[];
+    need(items.length===1&&items[0].type==='ITEM'&&items.every(item=>[item,...(item.item_data?.variations||[])].every(o=>o.present_at_all_locations===false&&[...(o.present_at_location_ids||[]),...(o.absent_at_location_ids||[])].every(id=>id===this.env.SQUARE_LOCATION_ID))),'Catalogの公開先は対象Sandbox Locationだけに限定します。',409);
+   }
+  }
   if(path==='/v2/catalog/batch-upsert')this.assertExistingBody(body);
   const token=this.env.RUNTIME_TIER==='sandbox-validation'?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;
   need(token,'Sandboxキーが未設定です。',503);
@@ -16,6 +24,22 @@ export class Square {
   const data=await r.json().catch(()=>({}));
   if(!r.ok){const conflict=r.status===409||data.errors?.some(e=>['VERSION_MISMATCH','CATALOG_VERSION_MISMATCH'].includes(e.code));throw new ManagementError(conflict?409:(r.status>=400&&r.status<500&&r.status!==429?422:503),conflict?'Square側が変更されています。自動上書きを停止しました。':'Square同期に失敗しました。');}
   return data;
+ }
+ async assertWritableLocation(){
+  const data=await this.request('/v2/locations');
+  const matches=(data.locations||[]).filter(l=>l.id===this.env.SQUARE_LOCATION_ID);
+  need(matches.length===1&&matches[0].status==='ACTIVE'&&matches[0].country==='JP'&&matches[0].currency==='JPY','Sandbox Locationの状態・国・通貨が一致しません。書き込みを停止しました。',409);
+ }
+ async assertNewSkusAvailable(product,maps){
+  if(!externalPolicy(this.env).managementOnly)return;
+  const missing=product.variants.filter(v=>!maps.some(m=>m.variant_id===v.id));if(!missing.length)return;
+  const skus=new Set(missing.map(v=>v.id)),seen=new Set();let cursor;
+  for(let page=0;page<100;page++){
+   const data=await this.request('/v2/catalog/list?types=ITEM_VARIATION'+(cursor?'&cursor='+encodeURIComponent(cursor):''));
+   need(!(data.objects||[]).some(o=>!o.is_deleted&&skus.has(o.item_variation_data?.sku)),'同じSKUの商品がSquareに存在します。新規登録せず対応表を確認してください。',409);
+   if(!data.cursor)return;need(typeof data.cursor==='string'&&!seen.has(data.cursor),'Square商品一覧のページ取得が不完全です。',409);cursor=data.cursor;seen.add(cursor);
+  }
+  need(false,'Square商品一覧の確認上限を超えました。',409);
  }
  assertExistingBody(body){
   if(this.env.RUNTIME_TIER!=='sandbox-validation')return;
@@ -36,6 +60,11 @@ export class Square {
   const ids=JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}');need(ids[id]===ref.variationId,'既存Variation IDが一致しません。',409);return ref;
  }
  async preserveMappings(maps){
+  if(externalPolicy(this.env).managementOnly&&maps.length){
+   need(new Set(maps.map(m=>m.item_id)).size===1,'商品対応表が複数Itemに分かれています。',409);
+   const item=await this.object(maps[0].item_id),known=new Set(maps.map(m=>m.variation_id));
+   need(item?.type==='ITEM'&&!item.is_deleted&&item.item_data?.variations?.every(v=>known.has(v.id)),'Square側に未管理のバリエーションがあります。上書きせず照合してください。',409);
+  }
   return Promise.all(maps.map(async m=>{const ref=this.expectedLink(m.variant_id),o=await this.object(m.variation_id),d=o?.item_variation_data;
    need(o?.id===m.variation_id&&d?.item_id===m.item_id&&typeof d.sku==='string'&&d.sku.length>0,'Square ID・SKUを確認できません。',409);
    if(this.env.RUNTIME_TIER==='sandbox-validation'&&JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}')[m.variant_id])need(ref&&ref.itemId===m.item_id&&ref.variationId===m.variation_id&&ref.sku===d.sku,'既存Square対応表が一致しません。',409);
@@ -81,6 +110,8 @@ export class Square {
  }
  async image(imageId,bytes,mime){
   await guard(this.env);assertSquareWrite(this.env);const key='mg-image-'+imageId;
+  assertSquareRequest(this.env,'https://connect.squareupsandbox.com/v2/catalog/images','POST');
+  if(externalPolicy(this.env).managementOnly)await this.assertWritableLocation();
   const form=new FormData();form.set('request',JSON.stringify({idempotency_key:key,image:{type:'IMAGE',id:'#'+imageId,image_data:{name:imageId,caption:'商品画像'}}}));form.set('file',new Blob([bytes],{type:mime}),'product.'+(mime==='image/png'?'png':mime==='image/webp'?'webp':'jpg'));
   const token=this.env.RUNTIME_TIER==='sandbox-validation'?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;need(token,'Sandboxキーが必要です。',503);
   const r=await (this.env.LOCAL_SQUARE?this.env.LOCAL_SQUARE.fetch(new Request('https://connect.squareupsandbox.com/v2/catalog/images',{method:'POST',headers:{Authorization:'Bearer '+token,'Square-Version':'2026-07-15'},body:form})):fetch('https://connect.squareupsandbox.com/v2/catalog/images',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{Authorization:'Bearer '+token,'Square-Version':'2026-07-15'},body:form}));

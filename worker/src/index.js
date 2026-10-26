@@ -507,6 +507,7 @@ async function decrementSquareInventory({
     paymentId,
     inventoryOperation
 }) {
+    if(externalPolicy(env).managementOnly)assertCheckout(env);
     if (!env.SQUARE_LOCATION_ID) {
         throw new Error("SQUARE_LOCATION_ID is missing.");
     }
@@ -556,6 +557,7 @@ async function decrementSquareInventory({
 }
 
 async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey }) {
+    if(externalPolicy(env).managementOnly)assertCheckout(env);
     const baseUrl = squareBaseUrl(env);
 
     if (!squareToken(env)) {
@@ -1116,6 +1118,7 @@ export class PurchaseCoordinator {
             },
             stockKeys: quote => quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`),
             notify: async record => {
+                if(externalPolicy(env).managementOnly)assertMail(env);
                 if (!resendKey(env) || !env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL) return false;
                 await sendResendEmail(env, {
                     from: env.RESEND_FROM_EMAIL, to: [env.ORDER_NOTIFICATION_EMAIL],
@@ -1128,9 +1131,10 @@ export class PurchaseCoordinator {
             stock: async quote => { if(managementEnabled(env)){ const manager=new Management(env,this.ctx.storage);await manager.s.assertUnlocked(quote.items.map(i=>i.id));await manager.assertSalesCatalog(quote); } return assertSquareInventoryAvailable(env, quote); },
             charge: (record, sourceId) => createSquarePayment({ env, ...record, sourceId }),
             lookup: record => lookupSquarePayment(env, record),
-            decrement: record => decrementSquareInventory({ env, ...record, paymentId: record.payment.id }),
+            decrement: async record => { if(externalPolicy(env).managementOnly)assertCheckout(env);return decrementSquareInventory({ env, ...record, paymentId: record.payment.id }); },
             project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
             email: async record => {
+                if(externalPolicy(env).managementOnly)assertMail(env);
                 if (resendKey(env) && env.RESEND_FROM_EMAIL) {
                     this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
                     return true;
@@ -1167,9 +1171,9 @@ export class PurchaseCoordinator {
             try {
                 const policy=externalPolicy(this.env);
                 if(path==='/pay')assertCheckout(this.env);
-                if(policy.readOnly&&['/recover','/status'].includes(path)) {
+                if((policy.readOnly||policy.managementOnly)&&['/recover','/status'].includes(path)) {
                     const record=await this.ledger.read(validateAttemptId(body.attemptId));
-                    return Response.json({attemptId:body.attemptId,phase:record?.phase||'unknown',held:true,reason:'READ_ONLY'});
+                    return Response.json({attemptId:body.attemptId,phase:record?.phase||'unknown',held:true,reason:policy.managementOnly?'SANDBOX_MANAGEMENT':'READ_ONLY'});
                 }
                 let result;
                 if(managementEnabled(this.env)&&path==='/management-monitor'){await this.management().recover();return Response.json({ok:true});}
@@ -1193,7 +1197,7 @@ export class PurchaseCoordinator {
             }
         },{catalog:path!=='/management-monitor'});
     }
-    alarm() { return this.serialize(async () => { if(externalPolicy(this.env).readOnly)return;try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
+    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

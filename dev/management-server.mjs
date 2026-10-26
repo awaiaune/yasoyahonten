@@ -8,7 +8,7 @@ import {Miniflare} from 'miniflare';
 import {root,runtimeOptions,CSP} from './server.mjs';
 import {ManagementSquare} from './management-square.mjs';
 import {legacyProducts} from '../validation/legacy-products.mjs';
-export async function createManagementRuntime({state=false,environment={},seed=false,seedOrders=false}={}) {
+export async function createManagementRuntime({state=false,environment={},seed=false,seedOrders=false,sandboxManagement=false}={}) {
 const access=managementAccess(environment);
 if(state)await mkdir(state,{recursive:true});
 const square=await new ManagementSquare(state ? state+'/square.json' : undefined).load();
@@ -17,6 +17,7 @@ const options=runtimeOptions(bundle.outputFiles[0].text,state);
 // Do not fetch Cloudflare's Request.cf metadata during offline development.
 options.cf=false;
 Object.assign(options.bindings,{MANAGEMENT_ENABLED:'1',MANAGEMENT_CHECKOUT_PAUSED:'0',SQUARE_ACCESS_MODE:'READ_WRITE',VALIDATION_CHECKOUT_ENABLED:'1',VALIDATION_MAIL_ENABLED:'1',VALIDATION_CRON_ENABLED:'1',MANAGEMENT_STOCK_WRITES:'single-writer',LOCAL_TEST_MODE:'1',SQUARE_LOCATION_ID:'LOCALMGMTLOCATION',SQUARE_ACCESS_TOKEN:'fake-local-test-only',RESEND_API_KEY:'local-test-not-a-secret',RESEND_FROM_EMAIL:'sender@example.invalid',ORDER_NOTIFICATION_EMAIL:'test@example.invalid'});
+if(sandboxManagement)Object.assign(options.bindings,{SQUARE_ACCESS_MODE:'SANDBOX_MANAGEMENT',VALIDATION_MANAGEMENT_WRITE_APPROVAL:'sandbox-management-single-writer-v1',MANAGEMENT_CHECKOUT_PAUSED:'1',VALIDATION_CHECKOUT_ENABLED:'0',VALIDATION_MAIL_ENABLED:'0',VALIDATION_CRON_ENABLED:'0'});
 options.bindings.ALLOWED_ORIGINS=access.origins.join(',');options.bindings.SITE_URL=access.siteOrigin;
 options.r2Buckets={PRODUCT_IMAGES:'local-management-images'};options.r2Persist=state ? state+'/r2' : false;
 const types={html:'text/html',js:'application/javascript',css:'text/css',jpg:'image/jpeg',png:'image/png',svg:'image/svg+xml',webp:'image/webp'};

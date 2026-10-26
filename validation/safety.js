@@ -50,7 +50,13 @@ export function assertRuntime(env) {
     const m = assertManifest(JSON.parse(env.VALIDATION_MANIFEST || '{}'));
     const vars = environmentVars(m);
     for (const [key,value] of Object.entries(vars)) if(!['SQUARE_ACCESS_MODE','VALIDATION_CHECKOUT_ENABLED','VALIDATION_MAIL_ENABLED','VALIDATION_CRON_ENABLED'].includes(key))requireSafe(env[key] === value, `binding mismatch: ${key}`);
-    externalPolicy(env);
+    const policy=externalPolicy(env);
+    if(policy.managementOnly){
+        const links=JSON.parse(env.SQUARE_EXISTING_LINKS||'{}');
+        requireSafe(Object.keys(links).sort().join()===Object.keys(m.variations).sort().join(),'existing Sandbox links required for management writes');
+        for(const [id,ref] of Object.entries(links))requireSafe(ref&&Object.keys(ref).sort().join()===['itemId','sku','variationId'].sort().join()&&/^[A-Z0-9]{8,64}$/.test(ref.itemId)&&ref.variationId===m.variations[id]&&ref.sku==='yasoya-sandbox-v1:'+id,'existing management Item/Variation/SKU mismatch');
+        requireSafe(new Set(Object.values(links).map(r=>r.itemId)).size===3,'distinct existing Sandbox Items required');
+    }
     requireSafe(!env.LOCAL_SQUARE && !env.LOCAL_RESEND && !env.LOCAL_TEST_MODE, 'local fault doubles are forbidden in remote validation');
     requireSafe(env.ORDERS_DB && env.PURCHASE_COORDINATOR, 'dedicated D1 and DO bindings required');
     requireSafe(!env.SQUARE_ACCESS_TOKEN && !env.RESEND_API_KEY && !env.ADMIN_TOKEN && !env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_API_KEY, 'generic/production secret bindings forbidden');
