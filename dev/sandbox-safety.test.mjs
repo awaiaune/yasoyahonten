@@ -13,6 +13,7 @@ import { build } from 'esbuild';
 import { Miniflare } from 'miniflare';
 import { assertManifest, assertRuntime, assertConfig, assertDatabase, assertSquareDestination, assertTestEmail, environmentVars, VALIDATION_ORIGIN } from '../validation/safety.js';
 import { makeConfig, storefrontConfig, renderHtml, renderCartScript, renderApiScript, markerSql } from '../validation/prepare.mjs';
+import { managementConfig, checkManagementConfig } from '../validation/prepare-management.mjs';
 function manifest() {
     return {workerName:'yasoya-payments-validation',accountId:'a'.repeat(32),workerOrigin:'https://yasoya-payments-validation.test-account.workers.dev',databaseName:'yasoya-validation-orders',databaseId:'11111111-1111-4111-8111-111111111111',instanceId:'22222222-2222-4222-8222-222222222222',squareApplicationId:'sandbox-sq0idb-local-offline-test',squareLocationId:'TESTLOCATION001',variations:{'lemonbalm-10g':'TESTVARIATION001','yomogi-10g':'TESTVARIATION002','goldenrod-leaf-10g':'TESTVARIATION003'},notificationEmail:'test@example.invalid',resendFrom:'sender@example.invalid',accessTeamDomain:'test-team.cloudflareaccess.com',accessAudience:'b'.repeat(64)};
 }
@@ -26,6 +27,38 @@ async function accessToken(m=manifest(),patch={},headerPatch={}) {
 function runtime(m=manifest()) {
     return {...environmentVars(m),ORDERS_DB:{},PURCHASE_COORDINATOR:{},SQUARE_SANDBOX_ACCESS_TOKEN:'offline-placeholder-not-a-real-token',RESEND_VALIDATION_API_KEY:'offline-placeholder-not-a-real-key',VALIDATION_ADMIN_TOKEN:'offline-test-only-'.repeat(3)};
 }
+test('management configuration preserves logs and disables Issues without weakening deployment safety',()=>{
+ const m={...manifest(),workerOrigin:VALIDATION_ORIGIN},c=managementConfig(m);
+ assert.deepEqual(c.observability,{enabled:true,logs:{enabled:true},issues:{enabled:false}});
+ assert.doesNotThrow(()=>checkManagementConfig(c,m));
+ assert.equal(c.vars.SQUARE_ACCESS_MODE,'READ_ONLY');
+ for(const key of ['VALIDATION_CHECKOUT_ENABLED','VALIDATION_MAIL_ENABLED','VALIDATION_CRON_ENABLED'])assert.equal(c.vars[key],'0');
+ assert.equal(c.vars.MANAGEMENT_STOCK_WRITES,'disabled');
+ assert.deepEqual(c.triggers,{crons:[]});
+ assert.equal(makeConfig(m).observability,undefined);
+});
+test('management observability rejects missing, disabled, mistyped and unexpected settings',()=>{
+ const m={...manifest(),workerOrigin:VALIDATION_ORIGIN},c=managementConfig(m);
+ for(const observability of [undefined,null,{},
+  {...c.observability,enabled:false},
+  {...c.observability,logs:{enabled:false}},
+  {...c.observability,logs:{enabled:'true'}},
+  {...c.observability,issues:{enabled:true}},
+  {...c.observability,logs:{enabled:true,destinations:['unexpected']}},
+  {...c.observability,issues:{enabled:false,extra:true}},
+  {...c.observability,traces:{enabled:true}}
+ ])assert.throws(()=>checkManagementConfig({...c,observability},m),/observability/);
+});
+test('allowing reviewed management observability still rejects unknown fields and resource drift',()=>{
+ const m={...manifest(),workerOrigin:VALIDATION_ORIGIN},c=managementConfig(m);
+ for(const patch of [{unexpected:true},{name:'yasoya-honten-payments'},
+  {r2_buckets:[{binding:'PRODUCT_IMAGES',bucket_name:'unexpected'}]},
+  {d1_databases:[{...c.d1_databases[0],database_id:'33333333-3333-4333-8333-333333333333'}]},
+  {durable_objects:{bindings:[{name:'PURCHASE_COORDINATOR',class_name:'OtherCoordinator'}]}},
+  {triggers:{crons:['* * * * *']}},
+  {vars:{...c.vars,VALIDATION_MAIL_ENABLED:'1'}}
+ ])assert.throws(()=>checkManagementConfig({...c,...patch},m));
+});
 test('incomplete template and production identifiers are refused offline', async () => {
     const template=JSON.parse(await readFile(new URL('../validation/manifest.example.json',import.meta.url),'utf8'));
     assert.throws(()=>assertManifest(template));
