@@ -1,3 +1,8 @@
+import {checkoutRoute,checkoutCapabilities,CheckoutContractError} from './checkout-contract.js';
+import {production,productionPolicy,productionGrant,ProductionError,adaptProductionPurchase,adaptProductionPurchaseResponse} from './production-policy.js';
+import {assertProductionAdmin} from '../../production/access.js';
+const catalogEnabled=env=>managementEnabled(env)&&!production(env);
+const managementEffects=env=>managementEnabled(env)&&(!production(env)||env.PRODUCTION_MANAGEMENT_SCHEMA_READY==='1');
 import { ExternalPolicyError, externalPolicy, assertSquareRequest, assertCheckout, assertMail } from './external-policy.js';
 import { enabled as managementEnabled, guard as managementGuard, ManagementError, squareId as managedSquareId } from './management/domain.js';
 import { Management } from './management/service.js';
@@ -28,19 +33,23 @@ export default {
     },
     async fetch(request, env, ctx) {
         const origin = request.headers.get("Origin") || "";
-        const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
+        const allowedOrigins = parseAllowedOrigins(production(env)&&new URL(request.url).pathname.startsWith('/api/admin/')?env.PRODUCTION_ADMIN_ORIGIN:env.ALLOWED_ORIGINS);
 
         if (request.method === "OPTIONS") {
             return corsResponse(null, 204, origin, allowedOrigins);
         }
 
+        let route;
+        try{route=checkoutRoute(request);request=route.request;}catch(error){return corsJson({error:{code:error.code,message:error.message}},error.status||400,origin,allowedOrigins);}
         const url = new URL(request.url);
 
         try {
-            externalPolicy(env);
+            const policy=externalPolicy(env);
+            if(url.pathname==='/api/checkout-capabilities'&&request.method==='GET')return corsJson(checkoutCapabilities(env,policy),200,origin,allowedOrigins);
+            if(production(env)&&url.pathname.startsWith('/api/admin/')){await assertProductionAdmin(request,env);productionGrant(env,'read');}
             if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
             if (managementEnabled(env)) {
-                await managementGuard(env);
+                if(!production(env)||/^\/api\/(admin\/(products|inventory|jobs|audit|images)(\/|$)|media\/)/.test(url.pathname))await managementGuard(env);
                 if (url.pathname.startsWith('/api/admin/images')) {
                     await assertAdmin(request, env);
                     if(origin && request.method!=='GET') assertAllowedOrigin(origin,allowedOrigins);
@@ -58,10 +67,10 @@ export default {
                     const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/management',{method:'POST',body:JSON.stringify({path:url.pathname,method:request.method,body:payload,actor:'authenticated-admin'})});
                     return corsJson(await r.json(),r.status,origin,allowedOrigins);
                 }
-                await loadCatalog(env);
-                if(request.method==='GET' && !url.pathname.startsWith('/api/')) {const page=await renderPage(request,env);if(page)return page;}
-                if(request.method==='GET'&&url.pathname==='/api/catalog') return corsJson({products:await new ManagementStore(env).publicProducts()},200,origin,allowedOrigins);
-                if(request.method==='POST'&&['/api/inventory','/api/quote'].includes(url.pathname)) {
+                if(catalogEnabled(env))await loadCatalog(env);
+                if(catalogEnabled(env)&&request.method==='GET' && !url.pathname.startsWith('/api/')) {const page=await renderPage(request,env);if(page)return page;}
+                if(catalogEnabled(env)&&request.method==='GET'&&url.pathname==='/api/catalog') return corsJson({products:await new ManagementStore(env).publicProducts()},200,origin,allowedOrigins);
+                if(catalogEnabled(env)&&request.method==='POST'&&['/api/inventory','/api/quote'].includes(url.pathname)) {
                     assertAllowedOrigin(origin,allowedOrigins);const body=await readJson(request);
                     const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
                     const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/'+(url.pathname.endsWith('quote')?'managed-quote':'managed-stock'),{method:'POST',body:JSON.stringify(body)});
@@ -125,7 +134,9 @@ export default {
             if (request.method === "POST" && ["/api/payments", "/api/payments/status"].includes(url.pathname)) {
                 assertAllowedOrigin(origin, allowedOrigins);
                 if(url.pathname==='/api/payments'&&managementEnabled(env)&&env.MANAGEMENT_CHECKOUT_PAUSED==='1')throw new HttpError(503,'新規注文を一時停止しています。既存注文の確認は継続できます。');
-                const body = await readJson(request);
+                let body = await readJson(request);
+                if(route.version&&body.contractVersion!==undefined&&body.contractVersion!==1)throw new CheckoutContractError('CHECKOUT_CONTRACT_UNSUPPORTED','購入画面を更新してください。',426);
+                if(production(env)&&url.pathname==='/api/payments')body=adaptProductionPurchase(request,body,env);
                 if (!env.PURCHASE_COORDINATOR) {
                     throw new Error("PURCHASE_COORDINATOR binding is missing.");
                 }
@@ -142,6 +153,7 @@ export default {
                 if (!coordinated.ok) {
                     throw new HttpError(coordinated.status, result?.error?.message || "決済を完了できませんでした。");
                 }
+                if(production(env)){const adapted=adaptProductionPurchaseResponse(result,coordinated.status,route.originalPath);return corsJson(adapted.body,adapted.status,origin,allowedOrigins);}
                 return corsJson(result, coordinated.status, origin, allowedOrigins);
             }
 
@@ -189,13 +201,13 @@ export default {
         } catch (error) {
             console.error(error);
 
-            const status = error instanceof HttpError || error instanceof ManagementError || error instanceof ExternalPolicyError ? error.status : 500;
-            const message = error instanceof HttpError || error instanceof ManagementError || error instanceof ExternalPolicyError
+            const status = error instanceof HttpError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 500;
+            const message = error instanceof HttpError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)
                 ? error.message
                 : "サーバーで問題が発生しました。";
 
             return corsJson(
-                { error: { message,...(error instanceof ExternalPolicyError?{code:error.code}:{}) } },
+                { error: { message,...((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)?{code:error.code}:{}) } },
                 status,
                 origin,
                 allowedOrigins
@@ -205,7 +217,7 @@ export default {
 };
 
 function catalogFor(env) {
-    if (managementEnabled(env)) { if(!env.MANAGED_CATALOG) throw new ManagementError(503,"公開商品情報が未読込です。"); return env.MANAGED_CATALOG; }
+    if (catalogEnabled(env)) { if(!env.MANAGED_CATALOG) throw new ManagementError(503,"公開商品情報が未読込です。"); return env.MANAGED_CATALOG; }
     return env?.RUNTIME_TIER === "sandbox-validation" ? SANDBOX_CATALOG : CATALOG;
 }
 
@@ -251,7 +263,7 @@ function buildQuote(rawItems, env) {
             unitPrice: product.price,
             quantity,
             lineTotal: product.price * quantity,
-            ...(managementEnabled(env) ? {squareVariationId:product.squareVariationId,revision:product.revision} : {})
+            ...(production(env)?{squareVariationId:product.squareVariationId}:catalogEnabled(env)?{squareVariationId:product.squareVariationId,revision:product.revision}:{})
         };
     });
 
@@ -355,8 +367,9 @@ function squareHeaders(env) {
 
 
 function getSquareVariationId(item, env) {
+    if(production(env)&&item.squareVariationId){managedSquareId(item.squareVariationId,env);return item.squareVariationId;}
     if(Number.isSafeInteger(item.revision)&&item.revision>0&&item.squareVariationId&&env.SQUARE_ENVIRONMENT==='sandbox'){ managedSquareId(item.squareVariationId);return item.squareVariationId; }
-    if(managementEnabled(env)) { const id=item.squareVariationId||env.MANAGED_CATALOG?.[item.id]?.squareVariationId; if(!id) throw new ManagementError(503,"Square対応情報がありません。"); return id; }
+    if(catalogEnabled(env)) { const id=item.squareVariationId||env.MANAGED_CATALOG?.[item.id]?.squareVariationId; if(!id) throw new ManagementError(503,"Square対応情報がありません。"); return id; }
     const product = catalogFor(env)[item.id];
     const override = env?.RUNTIME_TIER === "sandbox-validation" ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
     const variationId = String(override ? override[item.id] || "" : product?.squareVariationId || "").trim();
@@ -954,7 +967,7 @@ function corsHeaders(origin, allowedOrigins) {
         headers.set("Access-Control-Allow-Origin", origin);
         headers.set("Vary", "Origin");
         headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
         headers.set("Access-Control-Max-Age", "86400");
     }
 
@@ -988,6 +1001,7 @@ function escapeHtml(value) {
 
 
 async function ensureOrdersTable(env) {
+    if(production(env))return; // Existing production orders schema is never created or altered by a read request.
     if (!env.ORDERS_DB) throw new Error("ORDERS_DB binding is missing.");
     await env.ORDERS_DB.prepare(`CREATE TABLE IF NOT EXISTS orders (
         order_reference TEXT PRIMARY KEY,
@@ -1128,7 +1142,7 @@ export class PurchaseCoordinator {
                 return true;
             },
             reference: makeOrderReference,
-            stock: async quote => { if(managementEnabled(env)){ const manager=new Management(env,this.ctx.storage);await manager.s.assertUnlocked(quote.items.map(i=>i.id));await manager.assertSalesCatalog(quote); } return assertSquareInventoryAvailable(env, quote); },
+            stock: async quote => { if(managementEffects(env)){ const manager=new Management(env,this.ctx.storage);await manager.s.assertUnlocked(quote.items.map(i=>i.id));if(catalogEnabled(env))await manager.assertSalesCatalog(quote); } return assertSquareInventoryAvailable(env, quote); },
             charge: (record, sourceId) => createSquarePayment({ env, ...record, sourceId }),
             lookup: record => lookupSquarePayment(env, record),
             decrement: async record => { if(externalPolicy(env).managementOnly)assertCheckout(env);return decrementSquareInventory({ env, ...record, paymentId: record.payment.id }); },
@@ -1154,11 +1168,11 @@ export class PurchaseCoordinator {
         }:undefined;
         return new Management(env,this.ctx.storage,{notify});
     }
-    serialize(action,{catalog=true}={}) {
-        const guarded=async()=>{if(managementEnabled(this.env)){
+    serialize(action,{catalog=true,management=false}={}) {
+        const guarded=async()=>{if(managementEnabled(this.env)&&(!production(this.env)||management)){
             await managementGuard(this.env);
             if(!this.managementStarted){try{await this.management().supervision.tick({run:false});this.managementStarted=true;}catch{console.error('Management startup scan requires watchdog review');}}
-            if(catalog)await loadCatalog(this.env);
+            if(catalog&&catalogEnabled(this.env))await loadCatalog(this.env);
         }return action();};
         const job = this.queue.then(guarded, guarded);
         this.queue = job.catch(() => {});
@@ -1192,12 +1206,12 @@ export class PurchaseCoordinator {
                 } else {assertCheckout(this.env);result = await this.ledger.submit(body);}
                 return Response.json(result, { status: result.attemptId && !result.ok ? 202 : 200 });
             } catch (error) {
-                const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || error instanceof ExternalPolicyError ? error.status : 503;
-                return Response.json({ error: { code:error instanceof ExternalPolicyError?error.code:undefined,message: status === 503 && !(error instanceof ExternalPolicyError) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
+                const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 503;
+                return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)?error.code:undefined,message: status === 503 && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-        },{catalog:path!=='/management-monitor'});
+        },{catalog:!['/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
     }
-    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(managementEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEnabled(this.env))await this.management().recover();} },{catalog:false}); }
+    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEffects(this.env))await this.management().recover();} },{catalog:false}); }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

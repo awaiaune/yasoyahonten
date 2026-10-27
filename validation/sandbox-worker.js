@@ -1,3 +1,4 @@
+import {checkoutRoute,CheckoutContractError} from '../worker/src/checkout-contract.js';
 import worker, { PurchaseCoordinator } from '../worker/src/index.js';
 import { assertAccess, AccessDenied } from './access.js';
 import { assertRuntime, assertDatabase } from './safety.js';
@@ -41,7 +42,7 @@ export default {
             await assertDatabase(env);
             const url = new URL(request.url);
             if (url.pathname.startsWith('/api/')) {
-                if (request.method === 'POST' && url.pathname === '/api/payments') {
+                if (request.method === 'POST' && new URL(checkoutRoute(request).request.url).pathname === '/api/payments') {
                     assertCheckout(env);
                     const body = await request.clone().json();
                     if (body.contact?.email !== m.notificationEmail) return new Response('Use the approved test recipient', {status:400});
@@ -57,7 +58,7 @@ export default {
             headers.set('X-Robots-Tag','noindex, nofollow');
             return new Response(response.body, {status:response.status, headers});
         } catch (error) {
-            if(error instanceof ExternalPolicyError)return Response.json({error:{code:error.code,message:error.message}},{status:error.status,headers:{'Cache-Control':'no-store'}});
+            if(error instanceof ExternalPolicyError||error instanceof CheckoutContractError)return Response.json({error:{code:error.code,message:error.message}},{status:error.status,headers:{'Cache-Control':'no-store'}});
             if (error instanceof AccessDenied) return new Response('Validation sign-in required', {status:401,headers:{'Cache-Control':'no-store'}});
             return new Response('Sandbox configuration rejected; check durable order state before retrying', {status:503});
         }

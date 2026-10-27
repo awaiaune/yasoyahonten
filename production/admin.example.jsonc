@@ -1,0 +1,17 @@
+{
+  "name": "yasoya-honten-admin",
+  "account_id": "REPLACE_WITH_VERIFIED_ACCOUNT_ID",
+  "main": "./admin-worker.js",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{"pattern":"admin.awaiaune.com","custom_domain":true}],
+  "assets": {"directory":"./.generated/admin","binding":"ASSETS","run_worker_first":true},
+  "services": [{"binding":"PAYMENTS_SERVICE","service":"yasoya-honten-payments"}],
+  "vars": {
+    "PRODUCTION_ADMIN_ORIGIN": "https://admin.awaiaune.com",
+    "PRODUCTION_ACCESS_TEAM_DOMAIN": "REPLACE_WITH_PRODUCTION_ACCESS_TEAM",
+    "PRODUCTION_ACCESS_AUDIENCE": "REPLACE_WITH_PRODUCTION_ACCESS_AUD",
+    "PRODUCTION_ADMIN_EMAIL": "REPLACE_WITH_ADMIN_EMAIL"
+  }
+}

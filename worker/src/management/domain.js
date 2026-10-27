@@ -1,3 +1,4 @@
+import {production,productionDatabase,productionGrant} from '../production-policy.js';
 import {externalPolicy} from '../external-policy.js';
 import { CATALOG } from '../catalog.js';
 import { assertDatabase } from '../../../validation/safety.js';
@@ -7,6 +8,7 @@ export function enabled(env){return env.MANAGEMENT_ENABLED==='1';}
 export async function guard(env){
  externalPolicy(env);
  need(enabled(env),'商品管理は無効です。',404);
+ if(production(env)){productionGrant(env,'read');await productionDatabase(env);return;}
  need(env.SQUARE_ENVIRONMENT==='sandbox','商品管理はSandbox専用です。',503);
  if(env.RUNTIME_TIER==='sandbox-validation') await assertDatabase(env);
  else need(env.LOCAL_TEST_MODE==='1'&&env.LOCAL_SQUARE,'外部接続を許可しないローカル構成が必要です。',503);
@@ -16,7 +18,7 @@ export function text(value,max,required=true){need(typeof value==='string'&&valu
 export function integer(value,min,max){need(Number.isSafeInteger(value)&&value>=min&&value<=max,'数値の範囲を確認してください。');return value;}
 export function identifier(v){need(typeof v==='string'&&/^[a-z0-9][a-z0-9-]{0,79}$/.test(v),'識別子が正しくありません。');return v;}
 export function operation(v){need(typeof v==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(v),'操作IDが必要です。');return v;}
-export function squareId(v){need(typeof v==='string'&&/^[A-Z0-9]{8,64}$/.test(v)&&!Object.values(CATALOG).some(p=>p.squareVariationId===v),'Sandbox専用のSquare IDが必要です。');return v;}
+export function squareId(v,env){need(typeof v==='string'&&/^[A-Z0-9]{8,64}$/.test(v)&&(production(env||{})||!Object.values(CATALOG).some(p=>p.squareVariationId===v)),'Sandbox専用のSquare IDが必要です。');return v;}
 export async function digest(value){return [...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(value))))].map(v=>v.toString(16).padStart(2,'0')).join('');}
 export function draft(input){
  need(input&&Array.isArray(input.variants)&&input.variants.length>0&&input.variants.length<=20,'1〜20件のバリエーションが必要です。');

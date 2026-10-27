@@ -1,0 +1,31 @@
+// In-memory production-shaped tests. Every outbound request is intercepted; no real credentials.
+import {readFile} from 'node:fs/promises';
+import {build} from 'esbuild';
+import {Miniflare} from 'miniflare';
+import {ManagementSquare} from './management-square.mjs';
+import {CATALOG} from '../worker/src/catalog.js';
+import {root} from './server.mjs';
+export const instance='33333333-3333-4333-8333-333333333333';
+export const baseEnv={RUNTIME_TIER:'production',PRODUCTION_CHECKOUT_ENABLED:'1',SQUARE_ENVIRONMENT:'production',SQUARE_LOCATION_ID:'LQ693S4H2NBZ8',PRODUCTION_WORKER_NAME:'yasoya-honten-payments',PRODUCTION_DATABASE_ID:'442fa9fd-25d3-4c01-bcc3-04be7b420cf5',PRODUCTION_INSTANCE_ID:instance,PRODUCTION_ADMIN_ORIGIN:'https://admin.awaiaune.com',PRODUCTION_ACCESS_TEAM_DOMAIN:'offline-team.cloudflareaccess.com',PRODUCTION_ACCESS_AUDIENCE:'a'.repeat(64),PRODUCTION_ADMIN_EMAIL:'owner@example.invalid',MANAGEMENT_ENABLED:'1',ALLOWED_ORIGINS:'https://yasoyahonten.awaiaune.com',SITE_URL:'https://yasoyahonten.awaiaune.com'};
+const keys=await crypto.subtle.generateKey({name:'RSASSA-PKCS1-v1_5',modulusLength:2048,publicExponent:new Uint8Array([1,0,1]),hash:'SHA-256'},true,['sign','verify']);
+export const jwk={...await crypto.subtle.exportKey('jwk',keys.publicKey),kid:'production-offline-test',alg:'RS256',use:'sig'};
+export async function jwt(patch={}){const now=Math.floor(Date.now()/1000),enc=x=>Buffer.from(JSON.stringify(x)).toString('base64url');const body=enc({alg:'RS256',kid:jwk.kid})+'.'+enc({iss:'https://'+baseEnv.PRODUCTION_ACCESS_TEAM_DOMAIN,aud:[baseEnv.PRODUCTION_ACCESS_AUDIENCE],email:baseEnv.PRODUCTION_ADMIN_EMAIL,iat:now-1,exp:now+3600,...patch});return body+'.'+Buffer.from(await crypto.subtle.sign('RSASSA-PKCS1-v1_5',keys.privateKey,new TextEncoder().encode(body))).toString('base64url');}
+const backend=await build({entryPoints:[root+'/worker/src/index.js'],bundle:true,write:false,format:'esm',platform:'browser'});
+const frontend=await build({entryPoints:[root+'/production/admin-worker.js'],bundle:true,write:false,format:'esm',platform:'browser'});
+export const contact={givenName:'試験',familyName:'購入者',email:'buyer@example.invalid',phone:'09012345678',addressLines:['架空テスト1'],city:'テスト市',state:'東京都',postalCode:'1000001',countryCode:'JP'};
+export async function fixture(t,patch={},migrate=true){
+ const fake=new ManagementSquare();fake.locationId=baseEnv.SQUARE_LOCATION_ID;
+ for(const [i,[id,p]] of Object.entries(CATALOG).entries()){const item='OFFLINEPRODITEM'+i,v={id:p.squareVariationId,type:'ITEM_VARIATION',version:1,present_at_all_locations:false,present_at_location_ids:[fake.locationId],item_variation_data:{item_id:item,sku:i===0?'315102D':'OFFLINE-SKU-'+i,name:p.name,price_money:{amount:p.price,currency:'JPY'},track_inventory:true}};fake.objects.set(v.id,v);fake.objects.set(item,{type:'ITEM',id:item,version:1,present_at_all_locations:false,present_at_location_ids:[fake.locationId],item_data:{name:p.name,description:'既存説明',variations:[v]}});fake.counts.set(v.id,i===0?1:3);}
+ const env={...baseEnv,ADMIN_TOKEN:'offline-admin-not-a-real-secret',SQUARE_ACCESS_TOKEN:'offline-production-placeholder',PRODUCTION_MANAGEMENT_SQUARE_TOKEN:'offline-management-placeholder',RESEND_API_KEY:'offline-mail-placeholder',RESEND_FROM_EMAIL:'sender@example.invalid',ORDER_NOTIFICATION_EMAIL:'owner@example.invalid',...patch};
+ const calls=[],mails=[];
+ const outboundService=async req=>{const u=new URL(req.url);if(u.origin==='https://'+env.PRODUCTION_ACCESS_TEAM_DOMAIN)return Response.json({keys:[jwk]});if(u.origin==='https://api.resend.com'){mails.push(req.headers.get('Idempotency-Key'));return Response.json({id:'offline-mail'});}if(u.origin!=='https://connect.squareup.com')throw Error('Unexpected outbound host');calls.push({path:u.pathname,method:req.method});return fake.fetch(new Request('https://connect.squareupsandbox.com'+u.pathname+u.search,req));};
+ const mf=new Miniflare({cf:false,modules:true,script:backend.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,d1Databases:{ORDERS_DB:'production-offline-db'},r2Buckets:{PRODUCT_IMAGES:'production-offline-images'},durableObjects:{PURCHASE_COORDINATOR:{className:'PurchaseCoordinator',useSQLite:true}},outboundService});t.after(()=>mf.dispose());const db=await mf.getD1Database('ORDERS_DB');
+ const source=await readFile(root+'/worker/src/index.js','utf8'),orders=source.match(/prepare\(`(CREATE TABLE IF NOT EXISTS orders[\s\S]*?)`\)/)[1];await db.prepare(orders).run();await db.prepare("INSERT INTO orders(order_reference,payment_id,created_at,status,subtotal,shipping,total,items_json,contact_json) VALUES('existing-order','offline-payment','2026-01-01','shipped',980,350,1330,'[]','{}')").run();
+ if(migrate){for(const name of ['0001_management.sql','0002_management_supervision.sql']){const sql=await readFile(root+'/worker/migrations-production/'+name,'utf8');for(const s of sql.replace(/^--.*$/mg,'').split(';').filter(x=>x.trim()))await db.prepare(s).run();}
+ await db.prepare('INSERT INTO production_environment VALUES(1,?,?,?)').bind(instance,env.PRODUCTION_DATABASE_ID,env.SQUARE_LOCATION_ID).run();}
+ const token=await jwt();
+ const request=(path,method='GET',body,headers={})=>mf.dispatchFetch('https://payments.internal'+path,{method,headers:{Origin:path.startsWith('/api/admin/')?env.PRODUCTION_ADMIN_ORIGIN:env.SITE_URL,Authorization:'Bearer '+env.ADMIN_TOKEN,'Cf-Access-Jwt-Assertion':token,'Content-Type':'application/json',...headers},...(body===undefined?{}:{body:typeof body==='string'?body:JSON.stringify(body)})});
+ const api=async(...args)=>{const r=await request(...args),data=await r.json();if(!r.ok)throw Object.assign(Error(data.error?.message||'offline API failure'),{status:r.status,code:data.error?.code});return data;};
+ const ui=new Miniflare({cf:false,modules:true,script:frontend.outputFiles[0].text,compatibilityDate:'2026-08-04',bindings:env,serviceBindings:{PAYMENTS_SERVICE:r=>mf.dispatchFetch(r),ASSETS:async r=>{let p=new URL(r.url).pathname;if(p.endsWith('/'))p+='index.html';return new Response(await readFile(root+p),{headers:{'Content-Type':p.endsWith('.html')?'text/html':p.endsWith('.css')?'text/css':'application/javascript'}});}},outboundService});t.after(()=>ui.dispose());
+ return {env,mf,ui,db,fake,calls,mails,token,request,api};
+}

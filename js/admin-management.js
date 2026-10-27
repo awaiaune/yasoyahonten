@@ -6,6 +6,7 @@
   const screens = ['homePanel','ordersPanel','productsPanel','inventoryPanel'];
   const statusNames = {draft:'下書き',published:'公開中',stopped:'販売停止',archived:'アーカイブ',queued:'待機',retry:'再試行待ち',running:'同期中',review:'要確認',done:'完了'};
   let products = [], current = null, busy = false, dirty = false, activePanel = 'homePanel', inventoryRows = [], stockEdit = null, homeGeneration = 0;
+  let productionCapabilities=null;
   const previews = new Map();
   const stateBadge = UI.statusBadge, empty = UI.emptyState;
   function setDirty(value) { dirty = value; $('dirtyStatus').textContent = value ? '未保存の変更あり' : '保存済み'; $('dirtyStatus').className = 'badge ' + (value ? 'draft' : 'done'); }
@@ -51,7 +52,8 @@
     for(const [index,j] of result.jobs.entries()){const card=$('jobList').querySelectorAll('.management-card')[index];if(card){const note=document.createElement('small');note.textContent='管理通知：'+({none:'対象外',pending:'再試行待ち',blocked:'設定待ち',sent:'送信受付済み',expired:'要確認',cancelled:'復旧により取消'}[j.notificationState]||'未確認');card.append(note);}}
     $('auditList').innerHTML = audit.events.map(e => `<div class="management-card"><strong>${esc({draft_saved:'下書き保存',job_queued:'同期開始',job_completed:'同期完了',sandbox_linked:'Sandbox関連付け',stopped:'販売停止',archived:'アーカイブ'}[e.action] || e.action)}</strong><small>${esc(e.resource_id)} / ${date(e.created_at)}</small></div>`).join('') || empty('変更履歴はありません。');
   }
-  async function loadProducts() { const r = await data('/api/admin/products'); products = r.products; filterProducts(); await jobs(); }
+  function applyProductionCapabilities(r){if(r.source==='square-production'){productionCapabilities=r.capabilities;$('importProducts').hidden=true;$('newProduct').disabled=!productionCapabilities.draft;$('homeNewProduct').disabled=!productionCapabilities.draft;}}
+  async function loadProducts() { const r = await data('/api/admin/products'); products = r.products;applyProductionCapabilities(r); filterProducts(); await jobs(); }
   function recentMarkup(o) { return `<button class="recent-order" data-order="${esc(o.order_reference)}"><span class="row"><strong>${esc(o.contact.familyName)} ${esc(o.contact.givenName)} 様</strong>${A.badge(o.status)}</span><span class="row"><small>${date(o.created_at)}</small><strong>${money(o.total)}</strong></span><small>${esc(o.order_reference)}</small></button>`; }
   async function home() {
     const generation = ++homeGeneration;
@@ -62,7 +64,7 @@
     const values = results.map(r => r.status === 'fulfilled' ? r.value : null);
     const [pending,shipped,registered,stock] = values;
     if (pending) $('homePending').textContent = pending.orders.length + (pending.orders.length === 200 ? '+' : '');
-    if (registered) { products = registered.products; $('homeProducts').textContent = products.length; }
+    if (registered) { applyProductionCapabilities(registered); products = registered.products; $('homeProducts').textContent = products.length; }
     const orders = [...(pending?.orders || []),...(shipped?.orders || [])].sort((a,b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0,5);
     $('recentOrders').innerHTML = orders.length ? orders.map(recentMarkup).join('') : empty(!pending || !shipped ? '注文を取得できません。「更新」で再試行してください。' : 'まだ注文はありません。');
     if (stock) {
@@ -118,18 +120,19 @@
   }
   function drawSyncStatus(){
     let status=$('editorSyncStatus');if(!status){status=document.createElement('span');status.id='editorSyncStatus';status.className='muted';$('editorProductStatus').after(status);}
-    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':'取得元未確認')+' ／ '+(current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':current.accessMode==='SANDBOX_MANAGEMENT'?'Sandbox管理書込 ／ 購入停止 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',linked:'既存ID照合済み',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
+    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':current.source==='square-production'?'Square Production（本番）':'取得元未確認')+' ／ '+(current.accessMode==='PRODUCTION_READ_ONLY'?'本番・Square書込停止 ／ ':current.accessMode==='PRODUCTION_MANAGEMENT'?'本番管理 ／ ':current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':current.accessMode==='SANDBOX_MANAGEMENT'?'Sandbox管理書込 ／ 購入停止 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',linked:'既存ID照合済み',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
   }
   function draw() {
     const f = $('productForm'); for (const key of ['name','description','sortOrder','alt']) f.elements.namedItem(key).value = current.draft[key] ?? '';
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
     drawSyncStatus();
+    if(current.source==='square-production'&&current.capabilities){const c=current.capabilities;$('saveProduct').disabled=!c.draft;$('imageFiles').disabled=!c.images;for(const id of ['publishProduct','stopProduct','archiveProduct'])$(id).disabled=!c.catalog;$('linkProduct').disabled=!c.draft;$('linkProduct').textContent='既存本番ID・SKUを照合';}else{$('imageFiles').disabled=false;$('linkProduct').textContent='既存Sandbox IDを関連付け';}
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
     drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true; if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
   }
   function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
-  function newProduct() { open({id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
+  function newProduct() { open({...(productionCapabilities?{source:'square-production',capabilities:productionCapabilities}:{}),id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }
   $('newProduct').onclick = newProduct; $('homeNewProduct').onclick = newProduct;
   $('importProducts').onclick = () => { if (confirm('既存3商品の説明・写真を下書きとして取り込みます。公開やSquareへの書込みは行いません。')) work(async () => { await write('/api/admin/products/import',{}); await loadProducts(); notify('下書きとして取り込みました。'); }); };
   $('productList').onclick = e => { const b = e.target.closest('[data-edit]'); if (b) open(products.find(p => p.id === b.dataset.edit)); };
@@ -163,13 +166,13 @@
     if (dirty || !current.version) throw Error('先に下書きを保存してください。');
     const result = await write('/api/admin/products/' + current.id + '/' + action,{expectedVersion:current.version,...extra});
     await loadProducts(); current = structuredClone(products.find(p => p.id === current.id)); draw();
-    const text = result.state === 'done' ? '同期が完了し、販売状態を反映しました。' : result.ok && action === 'link' ? '既存Sandbox IDを関連付けました。' : '処理を受け付けました。同期一覧で結果を確認してください。';
+    const text = result.state === 'done' ? '同期が完了し、販売状態を反映しました。' : result.ok && action === 'link' ? (current.source==='square-production'?'既存本番ID・SKUを照合して関連付けました。':'既存Sandbox IDを関連付けました。') : '処理を受け付けました。同期一覧で結果を確認してください。';
     message('editorMessage',text); notify(text);
   }
   $('publishProduct').onclick = () => { if (confirm('保存済みの下書きを同期して公開しますか？未保存の変更は公開できません。')) work(() => action('publish'),'editorMessage'); };
   $('stopProduct').onclick = () => { if (confirm('この商品の販売を停止しますか？')) work(() => action('state',{status:'stopped'}),'editorMessage'); };
   $('archiveProduct').onclick = () => { if (confirm('商品をアーカイブしますか？過去の注文は残ります。')) work(() => action('state',{status:'archived'}),'editorMessage'); };
-  $('linkProduct').onclick = () => work(async () => { if (dirty) throw Error('先に下書きを保存してください。'); if(current.useConfiguredLinks){if(confirm('検証設定の既存Sandbox IDを照合して関連付けます。Squareの商品や在庫は変更しません。'))await action('link',{});return;} const mappings = []; for (const v of current.draft.variants) { const variationId = prompt(v.name + ' の既存Sandbox Variation ID'); if (!variationId) return; mappings.push({variantId:v.id,variationId:variationId.trim()}); } await action('link',{mappings}); },'editorMessage');
+  $('linkProduct').onclick = () => work(async () => { if (dirty) throw Error('先に下書きを保存してください。'); if(current.useConfiguredLinks){if(confirm('検証設定の既存Sandbox IDを照合して関連付けます。Squareの商品や在庫は変更しません。'))await action('link',{});return;} const mappings = []; for (const v of current.draft.variants) { const variationId = prompt(v.name + (current.source==='square-production'?' の実照合対象の本番Variation ID':' の既存Sandbox Variation ID')); if (!variationId) return; mappings.push({variantId:v.id,variationId:variationId.trim()}); } await action('link',{mappings}); },'editorMessage');
   function closeEditor() { if (!busy && (!dirty || confirm('未保存の変更があります。保存せずに閉じますか？'))) { $('productEditor').close(); setDirty(false); } }
   $('closeEditor').onclick = closeEditor;
   $('productEditor').addEventListener('cancel',e => { e.preventDefault(); closeEditor(); });
@@ -331,8 +334,8 @@
 
   async function inventory() {
     const [stock,registered] = await Promise.all([data('/api/admin/inventory'),data('/api/admin/products')]); products = registered.products; inventoryRows = stock.inventory;
-    $('inventoryList').innerHTML = inventoryRows.map(r => { const p = products.find(p => p.id === r.productId), unknown = r.quantity === null, disabled = r.held || unknown || r.accessMode==='READ_ONLY';
-      return `<article class="inventory-card">${photo(p,'inventory-photo')}<div><p class="inventory-name">${esc(r.name)}</p><p class="inventory-stock">${unknown ? '—' : r.quantity}<small>${unknown ? ' 未確認' : ' 個'}</small> ${r.held ? '<span class="badge held">販売保留中</span>' : unknown ? '<span class="badge draft">未対応</span>' : r.quantity <= 3 ? '<span class="badge draft">在庫わずか</span>' : '<span class="badge done">確認済み</span>'}</p><p class="stock-meta">取得元：${esc(r.source==='local-mock'?'ローカル代替データ':r.source==='square-sandbox'?'Square Sandbox':'未確認')}${r.accessMode==='READ_ONLY'?'（読み取り専用）':r.accessMode==='SANDBOX_MANAGEMENT'?'（Sandbox管理書込・購入停止）':''}<br>最終取得 ${date(r.observedAt)}<br>同期状態：${esc({held:'整合性の確認が必要',synced:r.source==='local-mock'?'代替データ取得済み':'Sandbox在庫取得済み',unmapped:'関連付けが必要'}[r.syncState] || r.syncState)}</p></div><div class="inventory-actions">${['receipt','count','adjustment'].map((kind,i) => `<button class="${i ? 'secondary' : 'primary'} ${i === 2 ? 'adjustment' : ''}" data-kind="${kind}" data-id="${esc(r.id)}" ${disabled ? 'disabled' : ''} aria-label="${esc(r.name)}の${['入庫','棚卸し','増減調整'][i]}">${['入庫','棚卸し','増減調整'][i]}</button>`).join('')}</div></article>`;
+    $('inventoryList').innerHTML = inventoryRows.map(r => { const p = products.find(p => p.id === r.productId), unknown = r.quantity === null, disabled = r.held || unknown || r.accessMode==='READ_ONLY'||r.canWriteInventory===false;
+      return `<article class="inventory-card">${photo(p,'inventory-photo')}<div><p class="inventory-name">${esc(r.name)}</p><p class="inventory-stock">${unknown ? '—' : r.quantity}<small>${unknown ? ' 未確認' : ' 個'}</small> ${r.held ? '<span class="badge held">販売保留中</span>' : unknown ? '<span class="badge draft">未対応</span>' : r.quantity <= 3 ? '<span class="badge draft">在庫わずか</span>' : '<span class="badge done">確認済み</span>'}</p><p class="stock-meta">取得元：${esc(r.source==='local-mock'?'ローカル代替データ':r.source==='square-sandbox'?'Square Sandbox':r.source==='square-production'?'Square Production（本番）':'未確認')}${r.accessMode==='READ_ONLY'?'（読み取り専用）':r.accessMode==='SANDBOX_MANAGEMENT'?'（Sandbox管理書込・購入停止）':''}<br>最終取得 ${date(r.observedAt)}<br>同期状態：${esc({held:'整合性の確認が必要',synced:r.source==='local-mock'?'代替データ取得済み':r.source==='square-production'?'本番在庫取得済み':'Sandbox在庫取得済み',unmapped:'関連付けが必要'}[r.syncState] || r.syncState)}</p></div><div class="inventory-actions">${['receipt','count','adjustment'].map((kind,i) => `<button class="${i ? 'secondary' : 'primary'} ${i === 2 ? 'adjustment' : ''}" data-kind="${kind}" data-id="${esc(r.id)}" ${disabled ? 'disabled' : ''} aria-label="${esc(r.name)}の${['入庫','棚卸し','増減調整'][i]}">${['入庫','棚卸し','増減調整'][i]}</button>`).join('')}</div></article>`;
     }).join('') || empty('在庫を管理する商品がありません。まず商品を登録してください。'); hydrate($('inventoryList'));
   }
   function stockPreview() {

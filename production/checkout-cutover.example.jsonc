@@ -1,0 +1,51 @@
+{
+  "name": "yasoya-honten-payments",
+  "account_id": "REPLACE_WITH_VERIFIED_ACCOUNT_ID",
+  "main": "../worker/src/index.js",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": true,
+  "vars": {
+    "RUNTIME_TIER": "production",
+    "PRODUCTION_WORKER_NAME": "yasoya-honten-payments",
+    "SQUARE_ENVIRONMENT": "production",
+    "SQUARE_LOCATION_ID": "LQ693S4H2NBZ8",
+    "SQUARE_API_VERSION": "2026-07-15",
+    "SITE_URL": "https://yasoyahonten.awaiaune.com",
+    "ALLOWED_ORIGINS": "https://yasoyahonten.awaiaune.com",
+    "MANAGEMENT_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_SCHEMA_READY": "0",
+    "PRODUCTION_MANAGEMENT_READ_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_DRAFT_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_IMAGES_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_CATALOG_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_INVENTORY_ENABLED": "0",
+    "PRODUCTION_PURCHASE_PROTOCOL": "durable-v1",
+    "PRODUCTION_CHECKOUT_ENABLED": "0",
+    "RESEND_FROM_EMAIL": "八草屋本店 <order@send.awaiaune.com>",
+    "ORDER_NOTIFICATION_EMAIL": "yasoyahonten@gmail.com",
+    "REPLY_TO_EMAIL": "contact@awaiaune.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "ORDERS_DB",
+      "database_name": "yasoya-orders",
+      "database_id": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PURCHASE_COORDINATOR",
+        "class_name": "PurchaseCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-purchase-coordinator",
+      "new_sqlite_classes": [
+        "PurchaseCoordinator"
+      ]
+    }
+  ]
+}

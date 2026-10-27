@@ -1,3 +1,4 @@
+import {production,productionGrant} from '../production-policy.js';
 import { guard, need, now } from './domain.js';
 import { Store } from './store.js';
 const MAX=8*1024*1024;
@@ -19,12 +20,12 @@ export function inspectImage(bytes,mime){
  return {mime,ext,width,height};
 }
 export async function uploadImage(request,env){
- await guard(env);need(env.PRODUCT_IMAGES,'画像ストレージが未設定です。',503);
+ await guard(env);productionGrant(env,'images');need(env.PRODUCT_IMAGES,'画像ストレージが未設定です。',503);
  const mime=(request.headers.get('Content-Type')||'').split(';')[0];need(['image/jpeg','image/png','image/webp'].includes(mime),'未対応の画像形式です。',415);
  const reader=request.body?.getReader();need(reader,'画像がありません。');const chunks=[];let size=0;
  for(;;){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>MAX){await reader.cancel();need(false,'画像は8MB以下にしてください。',413);}chunks.push(value);}
  let bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}const info=inspectImage(bytes,mime);bytes=stripImageMetadata(bytes,mime);
- const id=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');const key='sandbox/'+id+'.'+info.ext;
+ const id=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(v=>v.toString(16).padStart(2,'0')).join('');const key=(production(env)?'production/':'sandbox/')+id+'.'+info.ext;
  await env.PRODUCT_IMAGES.put(key,bytes,{httpMetadata:{contentType:mime}});
  await new Store(env).run('INSERT OR IGNORE INTO mg_images VALUES(?,?,?,?,?,?,?)',[id,key,mime,bytes.length,info.width,info.height,now()]);
  return {id,...info,bytes:bytes.length,previewUrl:'/api/admin/images/'+id};

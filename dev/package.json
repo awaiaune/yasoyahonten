@@ -5,8 +5,8 @@
   "scripts": {
     "start": "node server.mjs",
     "management": "node management-server.mjs",
-    "test": "node --test external-policy.test.mjs isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-supervision.test.mjs management-local.test.mjs admin-ui.test.mjs",
-    "test:ui": "node --test admin-ui.browser.mjs"
+    "test": "node --test checkout-contract.test.mjs production-management.test.mjs external-policy.test.mjs isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-supervision.test.mjs management-local.test.mjs admin-ui.test.mjs",
+    "test:ui": "node --test admin-ui.browser.mjs production-ui.browser.mjs checkout-v1.browser.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

@@ -1,3 +1,4 @@
+import {production} from '../production-policy.js';
 import { need, now } from './domain.js';
 export class Store {
  constructor(env){this.db=env.ORDERS_DB;this.env=env;}
@@ -15,7 +16,7 @@ export class Store {
  }
  async catalog(){
   const products=await this.publicProducts(),maps=await this.all('SELECT * FROM mg_mappings');const byId=new Map(maps.map(m=>[m.variant_id,m]));const result={};
-  for(const p of products)for(const v of p.variants){const m=byId.get(v.id);need(m?.environment==='sandbox'&&m.location_id===this.env.SQUARE_LOCATION_ID,'公開商品のSquare対応表がありません。',503);result[v.id]={...v,active:p.status==='published'&&v.active,squareVariationId:m.variation_id,revision:p.revision};}
+  for(const p of products)for(const v of p.variants){const m=byId.get(v.id);need(m?.environment===(production(this.env)?'production':'sandbox')&&m.location_id===this.env.SQUARE_LOCATION_ID,'公開商品のSquare対応表がありません。',503);result[v.id]={...v,active:p.status==='published'&&v.active,squareVariationId:m.variation_id,revision:p.revision};}
   return result;
  }
  async locked(ids){if(!ids.length)return [];const rows=await this.all('SELECT * FROM mg_locks');return rows.filter(r=>ids.includes(r.variant_id));}
