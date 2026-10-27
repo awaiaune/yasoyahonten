@@ -85,6 +85,7 @@ test('Square image upload lost response reuses the same image key and publishes 
  const image=await (await f.mf.dispatchFetch('http://127.0.0.1:8000/api/admin/images',{method:'POST',headers:{Authorization:'Bearer local-development-only','Content-Type':'image/png'},body:bytes})).json();
  await f.api('/api/admin/products/'+p.id,'PUT',{...p.data,images:[image.id],expectedVersion:1,operationId:crypto.randomUUID()});f.fake.loseAfter='/v2/catalog/images';const j=await f.api('/api/admin/products/'+p.id+'/publish','POST',{expectedVersion:2,operationId:crypto.randomUUID()});assert.equal(j.state,'retry');assert.equal((await f.api('/api/catalog')).products.length,0);
  assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'done');assert.equal([...f.fake.objects.values()].filter(o=>o.type==='IMAGE').length,1);const item=[...f.fake.objects.values()].find(o=>o.type==='ITEM');assert.equal(item.item_data.image_ids.length,1);
+ const mapping=await f.db.prepare('SELECT environment,square_image_id FROM mg_image_mappings').first();assert.equal(mapping.environment,'sandbox');assert.equal(mapping.square_image_id,item.item_data.image_ids[0]);
 });
 test('unpublished edits preserve public text, price, order and URL; stopped/archived products cannot sell',async t=>{
  const f=await fixture(t),p=await f.add();await f.publish(p);await f.stock(p);await f.api('/api/admin/products/'+p.id,'PUT',{...p.data,name:'未公開の変更',sortOrder:99,expectedVersion:2,operationId:crypto.randomUUID()});

@@ -55,6 +55,60 @@ test('modern production-shaped purchase replay charges once and preserves existi
  await f.mf.ready;assert.equal(f.mails.length,2);assert(f.calls.every(c=>!c.path.includes('catalog/batch-upsert')));
 });
 async function seedLink(f){const id='lemonbalm',v=CATALOG['lemonbalm-10g'];const body={operationId:crypto.randomUUID(),expectedVersion:0,slug:id,name:v.name,description:'既存説明',sortOrder:0,images:[],variants:[{id:'lemonbalm-10g',name:v.name,price:980,amount:'10g',maxQuantity:10,active:true}]};await f.api('/api/admin/products/'+id,'PUT',body);return {id,body,variationId:v.squareVariationId};}
+async function linkedPhoto(f){
+ const p=await seedLink(f);
+ await f.api('/api/admin/products/'+p.id+'/link','POST',{operationId:crypto.randomUUID(),expectedVersion:1,mappings:[{variantId:'lemonbalm-10g',variationId:p.variationId}]});
+ const response=await f.mf.dispatchFetch('https://payments.internal/api/admin/images',{method:'POST',headers:{Origin:baseEnv.PRODUCTION_ADMIN_ORIGIN,Authorization:'Bearer '+f.env.ADMIN_TOKEN,'Cf-Access-Jwt-Assertion':f.token,'Content-Type':'image/jpeg'},body:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});
+ assert.equal(response.status,200);const image=await response.json();
+ await f.api('/api/admin/products/'+p.id,'PUT',{...p.body,operationId:crypto.randomUUID(),expectedVersion:2,images:[image.id]});
+ return {...p,imageId:image.id,input:{operationId:crypto.randomUUID(),expectedVersion:3}};
+}
+test('production photo Catalog sync stores production mapping under the real schema constraint',async t=>{
+ const f=await fixture(t,{...catalog,PRODUCTION_MANAGEMENT_IMAGES_ENABLED:'1'}),p=await linkedPhoto(f);
+ // Reproduce the old hardcoded value failing the production CHECK, without relaxing it.
+ await assert.rejects(()=>f.db.prepare('INSERT INTO mg_image_mappings VALUES(?,?,?,?)').bind(p.imageId,'sandbox','OFFLINEIMAGE','2026-01-01').run());
+ const j=await f.api('/api/admin/products/'+p.id+'/publish','POST',p.input);assert.equal(j.state,'done');
+ const mapping=await f.db.prepare('SELECT * FROM mg_image_mappings WHERE image_id=?').bind(p.imageId).first();assert.equal(mapping.environment,'production');
+ assert.deepEqual(f.fake.objects.get('OFFLINEPRODITEM0').item_data.image_ids,[mapping.square_image_id]);
+ assert.equal(f.fake.objects.get(p.variationId).item_variation_data.sku,'315102D');assert.equal(f.fake.payments.size,0);assert.equal(f.mails.length,0);
+});
+test('production image success then D1 failure retries the same image key without duplicate registration or premature publication',async t=>{
+ const f=await fixture(t,{...catalog,PRODUCTION_MANAGEMENT_IMAGES_ENABLED:'1'}),p=await linkedPhoto(f);
+ await f.db.prepare("CREATE TRIGGER fail_image_mapping BEFORE INSERT ON mg_image_mappings BEGIN SELECT RAISE(FAIL,'offline image mapping failure'); END").run();
+ const j=await f.api('/api/admin/products/'+p.id+'/publish','POST',p.input);assert.equal(j.state,'retry');
+ const stored=await f.db.prepare('SELECT id,payload_json,body_json FROM mg_jobs WHERE id=?').bind(j.id).first();assert.equal(stored.body_json,null);
+ const key='mg-production-image-'+p.imageId,receipt=JSON.stringify(f.fake.receipts.get(key));assert(f.fake.receipts.has(key));
+ assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM mg_image_mappings').first()).n,0);
+ assert.equal((await f.api('/api/admin/products/'+p.id)).product.status,'draft');assert(!f.calls.some(c=>c.path==='/v2/catalog/batch-upsert'));
+ assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'retry');
+ assert.deepEqual(await f.db.prepare('SELECT id,payload_json,body_json FROM mg_jobs WHERE id=?').bind(j.id).first(),stored);
+ await f.db.prepare('DROP TRIGGER fail_image_mapping').run();
+ assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'done');
+ assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'done');
+ assert.equal(JSON.stringify(f.fake.receipts.get(key)),receipt);assert.equal([...f.fake.objects.values()].filter(o=>o.type==='IMAGE').length,1);
+ assert.equal(f.calls.filter(c=>c.path==='/v2/catalog/images').length,3);assert.equal(f.calls.filter(c=>c.path==='/v2/catalog/batch-upsert').length,1);
+ const m=await f.db.prepare('SELECT * FROM mg_image_mappings').first();assert.equal(m.environment,'production');assert.deepEqual(f.fake.objects.get('OFFLINEPRODITEM0').item_data.image_ids,[m.square_image_id]);
+ assert.equal((await f.api('/api/admin/products/'+p.id)).product.status,'published');assert.equal(f.fake.payments.size,0);assert.equal(f.mails.length,0);assert.equal(f.fake.counts.get(p.variationId),1);
+});
+test('production lost image response recovers using its original idempotency key',async t=>{
+ const f=await fixture(t,{...catalog,PRODUCTION_MANAGEMENT_IMAGES_ENABLED:'1'}),p=await linkedPhoto(f);f.fake.loseAfter='/v2/catalog/images';
+ const j=await f.api('/api/admin/products/'+p.id+'/publish','POST',p.input);assert.equal(j.state,'retry');assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM mg_image_mappings').first()).n,0);
+ assert.equal([...f.fake.objects.values()].filter(o=>o.type==='IMAGE').length,1);
+ const receipt=JSON.stringify(f.fake.receipts.get('mg-production-image-'+p.imageId));
+ assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'done');
+ assert.equal(JSON.stringify(f.fake.receipts.get('mg-production-image-'+p.imageId)),receipt);assert.equal([...f.fake.objects.values()].filter(o=>o.type==='IMAGE').length,1);
+ assert.equal((await f.db.prepare('SELECT environment FROM mg_image_mappings').first()).environment,'production');
+});
+test('expired production image recovery stops for review without resending or changing the saved job',async t=>{
+ const f=await fixture(t,{...catalog,PRODUCTION_MANAGEMENT_IMAGES_ENABLED:'1'}),p=await linkedPhoto(f);f.fake.loseAfter='/v2/catalog/images';
+ const j=await f.api('/api/admin/products/'+p.id+'/publish','POST',p.input);assert.equal(j.state,'retry');
+ const saved=await f.db.prepare('SELECT id,payload_json,body_json,result_json FROM mg_jobs WHERE id=?').bind(j.id).first();
+ await f.db.prepare('UPDATE mg_jobs SET created_at=? WHERE id=?').bind(new Date(Date.now()-7200000).toISOString(),j.id).run();
+ const before=f.calls.length;assert.equal((await f.api('/api/admin/jobs/'+j.id+'/retry','POST',{})).state,'review');
+ assert.equal((await f.request('/api/admin/jobs/'+j.id+'/retry','POST',{})).status,409);assert.equal(f.calls.length,before);
+ assert.deepEqual(await f.db.prepare('SELECT id,payload_json,body_json,result_json FROM mg_jobs WHERE id=?').bind(j.id).first(),saved);
+ assert.equal([...f.fake.objects.values()].filter(o=>o.type==='IMAGE').length,1);assert.equal((await f.api('/api/admin/products/'+p.id)).product.status,'draft');
+});
 test('production draft and verified linking preserve the actual SKU, never adopt hardcoded IDs as proof, and keep writes disabled',async t=>{
  const f=await fixture(t,draft),p=await seedLink(f);
  assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM mg_mappings').first()).n,0);
