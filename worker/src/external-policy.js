@@ -11,7 +11,7 @@ export function externalPolicy(env){
  const local=env.LOCAL_TEST_MODE==='1'&&env.SQUARE_ENVIRONMENT==='sandbox';
  const invalid=()=>deny('EXTERNAL_POLICY_INVALID','外部接続の安全設定が未指定または不正です。');
  if(!['READ_ONLY','READ_WRITE','SANDBOX_MANAGEMENT'].includes(env.SQUARE_ACCESS_MODE))return invalid();
- if(env.SQUARE_ENVIRONMENT!=='sandbox'||(!local&&env.RUNTIME_TIER!=='sandbox-validation'))return invalid();
+ if(env.SQUARE_ENVIRONMENT!=='sandbox'||(!local&&!['sandbox-validation','staging'].includes(env.RUNTIME_TIER)))return invalid();
  for(const k of ['VALIDATION_CHECKOUT_ENABLED','VALIDATION_MAIL_ENABLED','VALIDATION_CRON_ENABLED'])if(!['0','1'].includes(env[k]))return invalid();
  if(env.MANAGEMENT_ENABLED==='1'&&(!['disabled','single-writer'].includes(env.MANAGEMENT_STOCK_WRITES)||!['0','1'].includes(env.MANAGEMENT_CHECKOUT_PAUSED)))return invalid();
  const readOnly=env.SQUARE_ACCESS_MODE==='READ_ONLY';

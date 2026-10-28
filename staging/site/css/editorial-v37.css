@@ -1,0 +1,11 @@
+/* v37 product back link: bottom-left of photo, above purchase controls */
+body:has(.v30-product) .v30-gallery>.v30-back{top:auto!important;right:auto!important;left:clamp(20px,5vw,76px)!important;bottom:clamp(190px,25svh,238px)!important;z-index:16!important;color:#fff!important;max-width:max-content}
+/* Shop carousel: swipe background, not selection rail; remove counters */
+.v33-count{display:none!important}.v33-images{touch-action:pan-y}.v33-rail{touch-action:pan-x pan-y}
+/* All view: touch image to zoom in place, link below remains navigable */
+.v35-all-card .v35-all-image{cursor:zoom-in;position:relative}.v35-all-card .v35-all-image img{transition:transform .65s cubic-bezier(.2,.7,.2,1)!important;transform-origin:center}
+.v35-all-card .v35-all-image.v37-zoomed{cursor:zoom-out}.v35-all-card .v35-all-image.v37-zoomed img{transform:scale(1.18)!important}
+.v35-all-card:hover .v35-all-image:not(.v37-zoomed) img{transform:none}
+@media(max-width:700px){body:has(.v30-product) .v30-gallery>.v30-back{left:24px!important;bottom:195px!important}}
+@media(max-height:650px){body:has(.v30-product) .v30-gallery>.v30-back{bottom:170px!important}}
+@media(prefers-reduced-motion:reduce){.v35-all-card .v35-all-image img{transition:none!important}}

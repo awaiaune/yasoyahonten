@@ -1,0 +1,26 @@
+/* v17: editorial colour layering and swipe storytelling; commerce untouched */
+:root{--v17-ivory:#F3F0E9;--v17-forest:#28372F;--v17-sage:#BEC3B5}
+.v17-feature{background:var(--v17-ivory);padding:clamp(20px,5vw,76px) clamp(16px,5vw,80px)}
+.v17-feature-forest{background:var(--v17-forest);padding:clamp(22px,5vw,64px);color:var(--v17-ivory)}
+.v17-feature-top{font-size:10px;letter-spacing:.18em;margin-bottom:26px;color:#d1d9cf}
+.v17-feature-paper{background:var(--v17-ivory);color:var(--v17-forest);display:grid;grid-template-columns:1.12fr 1fr;align-items:center;gap:clamp(20px,5vw,70px);padding:clamp(12px,3vw,38px)}
+.v17-feature-image img{display:block;width:100%;height:clamp(270px,35vw,540px);object-fit:cover}
+.v17-feature-words span{font-size:10px;letter-spacing:.18em}.v17-feature-words h2{font-family:'Cormorant Garamond',serif;font-weight:400;font-size:clamp(40px,6vw,86px);line-height:.95;margin:24px 0}.v17-feature-words p{font-size:13px;line-height:2}.v17-feature-words a{display:inline-block;margin-top:30px;color:inherit;text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:6px;font-size:11px;letter-spacing:.12em}
+/* Sage gallery surrounds ivory merchandise, without introducing extra cards */
+body:has(.products-page-list) .products-page-list{background:var(--v17-sage)!important;padding:clamp(20px,5vw,72px)!important}
+body:has(.products-page-list) .products-page-list .product-list{background:var(--v17-ivory);padding:clamp(14px,3vw,46px)}
+body:has(.products-page-list) .v6-shop-intro{background:var(--v17-ivory)}
+/* Product detail: stable ivory surroundings and three crossfading scenes */
+.v17-gallery{background:var(--v17-sage);padding:clamp(8px,2vw,16px);touch-action:pan-y;user-select:none;outline-offset:3px}
+.v17-scenes{position:relative;aspect-ratio:1/1.02;overflow:hidden;background:var(--v17-ivory)}
+.v17-scene{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .38s ease,visibility .38s;display:flex;flex-direction:column;justify-content:flex-end}
+.v17-scene.is-active{opacity:1;visibility:visible;z-index:1}
+.v17-scene>img,.v17-macro img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.v17-macro{position:absolute;inset:0;overflow:hidden}.v17-macro img{transform:scale(1.65);object-position:55% 50%}
+.v17-scene-note{position:relative;background:var(--v17-ivory);color:var(--v17-forest);padding:18px 20px;min-height:86px;margin:0 12px 12px}
+.v17-scene-note span,.v17-tea-content>span{font-size:10px;letter-spacing:.16em}.v17-scene-note p{font-size:13px;line-height:1.75;margin:8px 0 0}
+.v17-tea{background:var(--v17-ivory);color:var(--v17-forest)}.v17-tea-content{padding:clamp(22px,6vw,48px);width:100%}.v17-tea-content h2{font-family:'Shippori Mincho',serif;font-weight:400;font-size:clamp(28px,6vw,48px);line-height:1.6;margin:20px 0 34px}.v17-brew{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;border-top:1px solid #adb5a9;padding-top:20px}.v17-brew div{display:flex;flex-direction:column;gap:9px}.v17-brew small{font-size:9px;letter-spacing:.08em}.v17-brew strong{font-family:'Cormorant Garamond',serif;font-size:clamp(20px,4vw,32px);font-weight:400}
+.v17-gallery-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 8px 2px;color:var(--v17-forest)}.v17-gallery-footer button{cursor:pointer;background:none;border:0;color:inherit;padding:8px}.v17-slide-label{font-size:10px;letter-spacing:.13em;margin-right:auto}.v17-dots{display:flex;gap:5px;align-items:center}.v17-dots button{background:#859487;width:7px;height:3px;padding:0;border:0;border-radius:2px;transition:width .3s}.v17-dots button.active{background:var(--v17-forest);width:22px}
+.v9-product-shell .v17-gallery{width:100%}.v16-care{margin-bottom:clamp(35px,5vw,70px)!important}
+@media(max-width:700px){.v17-feature-paper{grid-template-columns:1fr}.v17-feature-image img{height:270px}.v17-feature-words h2{margin:14px 0}.v17-feature-words a{margin-top:16px}.v17-feature-forest{padding:20px}.v17-feature{padding:18px 12px}.v17-scenes{aspect-ratio:4/4.4}}
+@media(prefers-reduced-motion:reduce){.v17-scene,.v17-dots button{transition:none}}

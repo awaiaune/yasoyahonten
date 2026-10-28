@@ -1,7 +1,7 @@
 import {checkoutRoute,checkoutCapabilities,CheckoutContractError} from './checkout-contract.js';
 import {production,productionPolicy,productionGrant,ProductionError,adaptProductionPurchase,adaptProductionPurchaseResponse} from './production-policy.js';
 import {assertProductionAdmin} from '../../production/access.js';
-const catalogEnabled=env=>managementEnabled(env)&&!production(env);
+const catalogEnabled=env=>managementEnabled(env)&&(!production(env)||env.PRODUCTION_MANAGED_CHECKOUT_ENABLED==='1');
 const managementEffects=env=>managementEnabled(env)&&(!production(env)||env.PRODUCTION_MANAGEMENT_SCHEMA_READY==='1');
 import { ExternalPolicyError, externalPolicy, assertSquareRequest, assertCheckout, assertMail } from './external-policy.js';
 import { enabled as managementEnabled, guard as managementGuard, ManagementError, squareId as managedSquareId } from './management/domain.js';
@@ -218,7 +218,7 @@ export default {
 
 function catalogFor(env) {
     if (catalogEnabled(env)) { if(!env.MANAGED_CATALOG) throw new ManagementError(503,"公開商品情報が未読込です。"); return env.MANAGED_CATALOG; }
-    return env?.RUNTIME_TIER === "sandbox-validation" ? SANDBOX_CATALOG : CATALOG;
+    return ['sandbox-validation','staging'].includes(env?.RUNTIME_TIER) ? SANDBOX_CATALOG : CATALOG;
 }
 
 function buildQuote(rawItems, env) {
@@ -341,10 +341,10 @@ function validateContact(rawContact) {
 }
 
 function squareToken(env) {
-    return env.RUNTIME_TIER === "sandbox-validation" ? env.SQUARE_SANDBOX_ACCESS_TOKEN : env.SQUARE_ACCESS_TOKEN;
+    return ['sandbox-validation','staging'].includes(env.RUNTIME_TIER) ? env.SQUARE_SANDBOX_ACCESS_TOKEN : env.SQUARE_ACCESS_TOKEN;
 }
 function resendKey(env) {
-    return env.RUNTIME_TIER === "sandbox-validation" ? env.RESEND_VALIDATION_API_KEY : env.RESEND_API_KEY;
+    return ['sandbox-validation','staging'].includes(env.RUNTIME_TIER) ? env.RESEND_VALIDATION_API_KEY : env.RESEND_API_KEY;
 }
 function squareBaseUrl(env) {
     return (env.SQUARE_ENVIRONMENT || "sandbox") === "production"
@@ -371,7 +371,7 @@ function getSquareVariationId(item, env) {
     if(Number.isSafeInteger(item.revision)&&item.revision>0&&item.squareVariationId&&env.SQUARE_ENVIRONMENT==='sandbox'){ managedSquareId(item.squareVariationId);return item.squareVariationId; }
     if(catalogEnabled(env)) { const id=item.squareVariationId||env.MANAGED_CATALOG?.[item.id]?.squareVariationId; if(!id) throw new ManagementError(503,"Square対応情報がありません。"); return id; }
     const product = catalogFor(env)[item.id];
-    const override = env?.RUNTIME_TIER === "sandbox-validation" ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
+    const override = ['sandbox-validation','staging'].includes(env?.RUNTIME_TIER) ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
     const variationId = String(override ? override[item.id] || "" : product?.squareVariationId || "").trim();
 
     if (!variationId || variationId.startsWith("SET_SQUARE_VARIATION_ID_")) {
@@ -1059,7 +1059,7 @@ async function markOrderShipped(env, ref, shippingMethod, trackingNumber) {
 }
 
 async function assertAdmin(request, env) {
-    const token = env.RUNTIME_TIER === "sandbox-validation" ? env.VALIDATION_ADMIN_TOKEN : env.ADMIN_TOKEN;
+    const token = ['sandbox-validation','staging'].includes(env.RUNTIME_TIER) ? env.VALIDATION_ADMIN_TOKEN : env.ADMIN_TOKEN;
     if (!token) throw new Error("ADMIN_TOKEN secret is missing.");
     const auth = request.headers.get("Authorization") || "";
     if(auth.length>8192) throw new HttpError(401,"管理者認証が必要です。");
@@ -1173,7 +1173,7 @@ export class PurchaseCoordinator {
             await managementGuard(this.env);
             if(!this.managementStarted){try{await this.management().supervision.tick({run:false});this.managementStarted=true;}catch{console.error('Management startup scan requires watchdog review');}}
             if(catalog&&catalogEnabled(this.env))await loadCatalog(this.env);
-        }return action();};
+        }if(production(this.env)&&catalog&&catalogEnabled(this.env))await loadCatalog(this.env);return action();};
         const job = this.queue.then(guarded, guarded);
         this.queue = job.catch(() => {});
         return job;

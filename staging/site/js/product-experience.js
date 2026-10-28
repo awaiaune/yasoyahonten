@@ -1,0 +1,1 @@
+document.querySelectorAll('.v30-gallery').forEach(g=>window.YasoyaGallery?.init(g,{onChange:i=>{const labels=['PACKAGE','DETAIL','IMAGE'];const el=g.querySelector('.v30-current');if(!el)return;el.classList.remove('is-visible');requestAnimationFrame(()=>{el.textContent=labels[i];requestAnimationFrame(()=>el.classList.add('is-visible'))})}}));

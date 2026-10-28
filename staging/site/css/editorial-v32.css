@@ -1,0 +1,15 @@
+/* v32: header reuses exact homepage markup and shared header behavior.
+   Product-only overlay colors and viewport compensation. */
+body:has(.v30-product) > main{padding-top:0!important;margin-top:0!important;min-height:0!important}
+body:has(.v30-product) > header.editorial-header{position:fixed!important;inset:0 0 auto 0!important;background:transparent!important;box-shadow:none!important;border:0!important;z-index:1000!important}
+body:has(.v30-product) > header.editorial-header .logo,
+body:has(.v30-product) > header.editorial-header nav a,
+body:has(.v30-product) > header.editorial-header nav button{color:#fff!important}
+body:has(.v30-product) > header.editorial-header .cart-count:not(.is-empty){background:#f3f0e8!important;color:#24372c!important}
+body:has(.v30-product) .v30-gallery{height:100svh!important;min-height:0!important;max-height:100svh!important;box-sizing:border-box!important;position:relative!important}
+body:has(.v30-product) .v30-top{top:clamp(85px,13svh,150px)}
+body:has(.v30-product) .v30-top .v30-back{display:inline-block!important;visibility:visible!important;color:white!important}
+body:has(.v30-product) .v30-slide-ui{bottom:clamp(160px,24svh,215px)}
+body:has(.v30-product) .v30-purchase{bottom:0!important;padding-bottom:max(12px,env(safe-area-inset-bottom))!important}
+@media(max-width:700px){body:has(.v30-product) .v30-top{top:85px!important}body:has(.v30-product) .v30-slide-ui{bottom:165px!important}}
+@media(max-height:680px){body:has(.v30-product) .v30-top h1{font-size:clamp(34px,8vw,55px)!important}body:has(.v30-product) .v30-slide-ui{bottom:155px!important}body:has(.v30-product) .v30-purchase{padding-top:8px!important;padding-bottom:max(8px,env(safe-area-inset-bottom))!important}}

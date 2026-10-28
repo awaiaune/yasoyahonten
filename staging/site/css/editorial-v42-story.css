@@ -1,0 +1,20 @@
+/* v42 STORY: centered identity, quiet uninterrupted editorial sections, tactile photography */
+body:has(.v41-story)>header.editorial-header{height:64px!important;min-height:64px!important;display:flex!important;align-items:center!important;justify-content:center!important;padding:0 20px!important;box-sizing:border-box!important}
+body:has(.v41-story)>header.editorial-header .logo{position:static!important;margin:0!important;display:block!important;text-align:center!important;flex:none!important;letter-spacing:.15em}
+body:has(.v41-story)>header.editorial-header nav{display:none!important}
+body:has(.v41-story) .v41-scroll{display:none!important}
+/* Eliminate the dark-green middle block, retain the meaningful cycle copy */
+.v41-story .v41-cycle{background:#f4f1ea!important;color:#273e30!important;padding:clamp(55px,8vw,110px) 7vw!important;border-top:1px solid rgba(39,62,48,.14);border-bottom:1px solid rgba(39,62,48,.14)}
+.v41-story .v41-cycle-grid{margin-top:35px!important;gap:3vw!important}
+.v41-story .v41-cycle article{border-top:1px solid rgba(39,62,48,.28)!important}
+.v41-story .v41-cycle h3{margin:18px 0 12px!important;font-size:clamp(23px,2.8vw,38px)!important}
+.v41-story .v41-cycle p{font-size:13px!important;line-height:2.1!important}
+.v41-story .v41-cycle article>span{font-size:10px}
+/* Same persistent touch / hover zoom principle as the homepage */
+.v41-story .v42-zoom-frame{overflow:hidden}
+.v41-story .v42-zoom-frame .v42-zoom-image{transition:transform .9s cubic-bezier(.2,.7,.2,1)!important;transform-origin:center center;will-change:transform;animation:none!important}
+.v41-story .v42-zoom-frame.v42-zoomed .v42-zoom-image{transform:scale(1.045)!important}
+.v41-story .v41-photo:hover img{transform:none}
+.v41-story .v41-photo.v42-zoomed:hover img{transform:scale(1.045)!important}
+@media(max-width:700px){.v41-story .v41-cycle-grid{grid-template-columns:1fr!important;gap:22px!important}.v41-story .v41-cycle{padding:55px 7vw!important}.v41-story .v41-cycle h3{margin:12px 0 8px!important}}
+@media(prefers-reduced-motion:reduce){.v41-story .v42-zoom-frame .v42-zoom-image{transition:none!important;will-change:auto}}

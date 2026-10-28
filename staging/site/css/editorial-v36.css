@@ -1,0 +1,27 @@
+/* v36: compact header for all pages except homepage; preserve homepage styling */
+body:not(:has(.v18-hero)) > header.editorial-header{height:64px!important;min-height:64px!important;padding-top:0!important;padding-bottom:0!important;display:flex;align-items:center}
+body:not(:has(.v18-hero)) > header.editorial-header .header-inner{min-height:64px!important;height:64px!important}
+/* SHOP: eliminate title/header collision, keep teaser only partially visible */
+body:has(.v33-shop) main{padding-top:0!important;margin-top:0!important}
+body:has(.v33-shop) .v33-shop{height:calc(100svh - 26px)!important;min-height:0!important}
+body:has(.v33-shop) .v33-scene-label{top:clamp(92px,13svh,130px)!important}
+body:has(.v33-shop) .v35-teaser{height:110px!important;padding-top:18px!important}
+/* ALL VIEW overlay: fixed-position visible BACK below global header, above collection content */
+.v35-all-panel{z-index:1200!important}
+.v35-all-top{position:sticky;top:0;z-index:5;background:#f4f1ea;padding:10px 0 6px!important;min-height:48px;box-sizing:border-box}
+.v35-all-back{display:inline-flex!important;align-items:center!important;position:relative!important;z-index:10!important;opacity:1!important;visibility:visible!important;color:#293d2e!important;border-bottom:1px solid #293d2e!important;padding:8px 0!important;min-height:38px!important}
+/* Product: relocate back link to upper right of photograph below overlaid header */
+body:has(.v30-product) .v30-gallery>.v30-back{position:absolute;top:clamp(84px,12svh,130px);right:clamp(20px,5vw,76px);left:auto;z-index:15;color:#fff;text-decoration:none;font:10px/1.5 sans-serif;letter-spacing:.12em;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.65)}
+body:has(.v30-product) .v30-top{top:clamp(135px,19svh,205px)!important}
+body:has(.v30-product) .v30-top h1{margin-top:0!important}
+@media(max-width:700px){
+ body:not(:has(.v18-hero)) > header.editorial-header{height:58px!important;min-height:58px!important}
+ body:not(:has(.v18-hero)) > header.editorial-header .header-inner{height:58px!important;min-height:58px!important}
+ body:has(.v33-shop) .v33-scene-label{top:clamp(92px,13svh,120px)!important}
+ body:has(.v33-shop) .v33-shop{height:calc(100svh - 24px)!important}
+ body:has(.v30-product) .v30-gallery>.v30-back{top:82px;right:24px;font-size:9px}
+ body:has(.v30-product) .v30-top{top:145px!important}
+ .v35-all-inner{padding-top:10px!important}
+ .v35-all-title{padding-top:30px!important}
+}
+@media(max-height:680px){body:has(.v33-shop) .v33-scene-label{top:80px!important}body:has(.v30-product) .v30-top{top:122px!important}}

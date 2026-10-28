@@ -1,0 +1,5 @@
+/* Shared crossfade primitive for homepage and product experiences */
+.editorial-crossfade{position:relative;overflow:hidden}
+.editorial-crossfade>.v30-slide{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .9s ease,visibility 0s linear .9s}
+.editorial-crossfade>.v30-slide.is-active{opacity:1;visibility:visible;transition:opacity .9s ease,visibility 0s}
+@media(prefers-reduced-motion:reduce){.editorial-crossfade>.v30-slide{transition:none!important}}

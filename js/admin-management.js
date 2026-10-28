@@ -127,7 +127,8 @@
     f.elements.namedItem('slug').value = current.slug; f.elements.namedItem('slug').disabled = current.version > 0;
     $('editorTitle').textContent = current.version ? '商品を編集' : '新しい商品'; $('editorProductStatus').textContent = statusNames[current.status] || '下書き';
     drawSyncStatus();
-    if(current.source==='square-production'&&current.capabilities){const c=current.capabilities;$('saveProduct').disabled=!c.draft;$('imageFiles').disabled=!c.images;for(const id of ['publishProduct','stopProduct','archiveProduct'])$(id).disabled=!c.catalog;$('linkProduct').disabled=!c.draft;$('linkProduct').textContent='既存本番ID・SKUを照合';}else{$('imageFiles').disabled=false;$('linkProduct').textContent='既存Sandbox IDを関連付け';}
+    if(current.source==='square-production'&&current.capabilities){const c=current.capabilities;$('saveProduct').disabled=!c.draft;$('imageFiles').disabled=!c.images;for(const id of ['publishProduct','stopProduct','archiveProduct'])$(id).disabled=!(c.catalog||c.sitePublish);$('publishProduct').textContent=c.sitePublish?'サイトへ公開（Square変更なし）':'Squareと同期して公開';$('linkProduct').disabled=!c.draft;$('linkProduct').textContent='既存本番ID・SKUを照合';}else{$('imageFiles').disabled=false;$('linkProduct').textContent='既存Sandbox IDを関連付け';}
+    let sync=$('syncSquareProduct');if(!sync){sync=document.createElement('button');sync.id='syncSquareProduct';sync.type='button';sync.textContent='Squareへ同期（サイト公開は別）';$('publishProduct').after(sync);sync.onclick=()=>{if(confirm('Squareの商品情報を変更します。サイト公開は別操作です。同期しますか？'))work(()=>action('square-publish'),'editorMessage');};}sync.hidden=!(current.source==='square-production'&&current.capabilities?.sitePublish);sync.disabled=!current.capabilities?.catalog;
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount)}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
     drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true; if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
   }
@@ -164,12 +165,13 @@
   },'editorMessage'); };
   async function action(action,extra = {}) {
     if (dirty || !current.version) throw Error('先に下書きを保存してください。');
-    const result = await write('/api/admin/products/' + current.id + '/' + action,{expectedVersion:current.version,...extra});
+    const site=current.capabilities?.sitePublish&&['publish','state'].includes(action);
+    const result = await write('/api/admin/products/' + current.id + '/' + (site?'site':action==='square-publish'?'publish':action),{expectedVersion:current.version,...(site?{status:action==='publish'?'published':extra.status}:extra)});
     await loadProducts(); current = structuredClone(products.find(p => p.id === current.id)); draw();
-    const text = result.state === 'done' ? '同期が完了し、販売状態を反映しました。' : result.ok && action === 'link' ? (current.source==='square-production'?'既存本番ID・SKUを照合して関連付けました。':'既存Sandbox IDを関連付けました。') : '処理を受け付けました。同期一覧で結果を確認してください。';
+    const text = action==='square-publish'&&result.state==='done' ? 'Squareへの同期が完了しました。サイト公開は別操作です。' : result.siteOnly ? 'サイトの公開状態を更新しました。Squareは変更していません。' : result.state === 'done' ? '同期が完了し、販売状態を反映しました。' : result.ok && action === 'link' ? (current.source==='square-production'?'既存本番ID・SKUを照合して関連付けました。':'既存Sandbox IDを関連付けました。') : '処理を受け付けました。同期一覧で結果を確認してください。';
     message('editorMessage',text); notify(text);
   }
-  $('publishProduct').onclick = () => { if (confirm('保存済みの下書きを同期して公開しますか？未保存の変更は公開できません。')) work(() => action('publish'),'editorMessage'); };
+  $('publishProduct').onclick = () => { if (confirm('保存済みの下書きを公開しますか？Square変更の有無はボタンの表示を確認してください。')) work(() => action('publish'),'editorMessage'); };
   $('stopProduct').onclick = () => { if (confirm('この商品の販売を停止しますか？')) work(() => action('state',{status:'stopped'}),'editorMessage'); };
   $('archiveProduct').onclick = () => { if (confirm('商品をアーカイブしますか？過去の注文は残ります。')) work(() => action('state',{status:'archived'}),'editorMessage'); };
   $('linkProduct').onclick = () => work(async () => { if (dirty) throw Error('先に下書きを保存してください。'); if(current.useConfiguredLinks){if(confirm('検証設定の既存Sandbox IDを照合して関連付けます。Squareの商品や在庫は変更しません。'))await action('link',{});return;} const mappings = []; for (const v of current.draft.variants) { const variationId = prompt(v.name + (current.source==='square-production'?' の実照合対象の本番Variation ID':' の既存Sandbox Variation ID')); if (!variationId) return; mappings.push({variantId:v.id,variationId:variationId.trim()}); } await action('link',{mappings}); },'editorMessage');

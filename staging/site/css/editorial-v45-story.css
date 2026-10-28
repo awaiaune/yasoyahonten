@@ -1,0 +1,4 @@
+/* v45: understated stacked editorial links at the end of STORY */
+.v41-story .v41-end-links{display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:20px!important;margin-top:48px!important}
+.v41-story .v41-end-links a{display:inline-block!important;width:auto!important;font-size:14px!important;line-height:2!important;letter-spacing:.045em!important;padding:0 0 3px!important;border-bottom:1px solid currentColor!important}
+@media(max-width:700px){.v41-story .v41-end-links{gap:14px!important;margin-top:36px!important}}

@@ -1,0 +1,15 @@
+
+/* Tea captions are outside the swipe track; fade independently. */
+.v20-tea{position:relative;padding-top:clamp(36px,5vw,70px)!important;padding-bottom:clamp(44px,5vw,70px)!important}
+.v20-tea-track figure{position:relative}
+.v22-tea-caption{position:relative;height:18px;margin:18px clamp(28px,9vw,140px) 0;overflow:hidden}
+.v22-tea-caption span{position:absolute;inset:0;opacity:0;transition:opacity .38s ease;font:10px Arial,sans-serif;letter-spacing:.2em;line-height:18px;pointer-events:none}
+.v22-tea-caption span.v22-caption-active{opacity:1}
+.v20-tea-indicator{margin-top:27px!important}
+.v21-footer{padding:25px clamp(24px,6vw,90px) 12px!important}
+.v21-footer-logo{font-size:15px!important;letter-spacing:.14em!important}
+.v21-footer-main nav{gap:17px!important}.v21-footer-main nav a{font-size:9px!important}
+.v21-footer-legal{margin-top:18px!important;gap:16px!important}.v21-footer-legal a{font-size:8px!important}
+.v21-copyright{margin-top:22px!important;font-size:7px!important}
+@media(max-width:700px){.v21-footer-main nav{margin-top:16px!important}.v21-footer-legal{margin-top:19px!important}.v21-copyright{margin-top:25px!important}}
+@media(prefers-reduced-motion:reduce){.v22-tea-caption span{transition:none}}

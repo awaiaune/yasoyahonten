@@ -1,0 +1,7 @@
+{
+ "name":"yasoya-v53-staging",
+ "private":true,
+ "type":"module",
+ "scripts":{"build":"node prepare.mjs","deploy":"wrangler deploy --config wrangler.local.jsonc"},
+ "devDependencies":{"wrangler":"4.153.0"}
+}

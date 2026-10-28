@@ -1,0 +1,12 @@
+
+/* Cross-fading full-bleed botanical slides while keeping vertical page scroll */
+.v24-botanical-stage{position:relative;display:block;overflow:hidden;touch-action:pan-y;scroll-snap-type:none;scroll-behavior:auto}
+.v24-botanical-stage .v19-slide{position:absolute;inset:0;width:100%;height:100%;opacity:0;visibility:hidden;transition:opacity .85s ease,visibility 0s linear .85s;pointer-events:none}
+.v24-botanical-stage .v19-slide:first-child{position:relative}
+.v24-botanical-stage .v19-slide.v24-active{opacity:1;visibility:visible;transition:opacity .85s ease,visibility 0s;pointer-events:auto}
+.v24-botanical-stage .v19-slide>img{transition:transform 1.15s ease}
+.v24-botanical-stage .v19-slide.v24-active>img{transform:scale(1.015)}
+.hero-right .vertical,.v18-feature-caption{animation:v24-text-enter 1.35s ease both}
+.hero-right .vertical{animation-delay:.3s}.v18-feature-caption{animation-delay:.25s}
+@keyframes v24-text-enter{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
+@media(prefers-reduced-motion:reduce){.v24-botanical-stage .v19-slide,.v24-botanical-stage .v19-slide>img{transition:none}.hero-right .vertical,.v18-feature-caption{animation:none}}

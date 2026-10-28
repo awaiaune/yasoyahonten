@@ -1,0 +1,4 @@
+/* v45: extend shop gallery 34px; ALL VIEW teaser remains partly clipped at first viewport. */
+body:has(.v33-shop) .v33-shop{height:calc(100svh - 22px)!important;min-height:0!important}
+@media(max-width:700px){body:has(.v33-shop) .v33-shop{height:calc(100svh - 33px)!important}}
+@media(max-height:650px){body:has(.v33-shop) .v33-shop{height:calc(100svh - 18px)!important}}

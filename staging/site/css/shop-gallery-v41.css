@@ -1,0 +1,5 @@
+/* v41: Reveal a little more of the next ALL VIEW strip while preserving the shop controls. */
+body:has(.v33-shop) .v33-shop{height:calc(100svh - 74px)!important;min-height:560px!important}
+body:has(.v33-shop) .v33-scene-label{top:clamp(125px,19svh,180px)!important}
+@media(max-width:700px){body:has(.v33-shop) .v33-shop{height:calc(100svh - 78px)!important;min-height:530px!important}body:has(.v33-shop) .v33-scene-label{top:clamp(122px,18svh,160px)!important}}
+@media(max-height:650px){body:has(.v33-shop) .v33-shop{min-height:0!important;height:calc(100svh - 52px)!important}}

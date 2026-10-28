@@ -1,0 +1,305 @@
+/* ==================================================
+   Footer
+================================================== */
+
+.footer {
+
+    padding:
+        72px
+        var(--side-padding)
+        30px;
+
+    text-align: center;
+
+    color: #f5f2e9;
+
+    background: #252820;
+
+}
+
+
+/* ==================================================
+   Footer Logo
+================================================== */
+
+.footer-logo {
+
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+
+    transition:
+        opacity 0.3s ease;
+
+}
+
+
+.footer-logo:hover {
+
+    opacity: 0.7;
+
+}
+
+
+.footer-logo span {
+
+    font-size: 0.9rem;
+    line-height: 1;
+
+    letter-spacing: 0.27em;
+
+}
+
+
+.footer-logo small {
+
+    margin-top: 7px;
+
+    font-family: var(--font-en);
+
+    font-size: 0.57rem;
+    line-height: 1;
+
+    letter-spacing: 0.34em;
+
+    opacity: 0.62;
+
+}
+
+
+/* ==================================================
+   Footer Message
+================================================== */
+
+.footer-message {
+
+    margin:
+        36px
+        0;
+
+    font-size:
+        clamp(0.72rem, 2.8vw, 0.82rem);
+
+    line-height: 2.15;
+    letter-spacing: 0.12em;
+
+    opacity: 0.9;
+
+}
+
+
+/* ==================================================
+   Footer Links
+================================================== */
+
+.footer-links {
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    gap: 16px;
+
+}
+
+
+.footer-links a {
+
+    font-size: 0.67rem;
+    line-height: 1.6;
+
+    letter-spacing: 0.13em;
+
+    opacity: 0.68;
+
+    transition:
+        opacity 0.3s ease;
+
+}
+
+
+.footer-links a:hover {
+
+    opacity: 1;
+
+}
+
+
+/* ==================================================
+   Copyright
+================================================== */
+
+.copyright {
+
+    margin:
+        48px
+        0
+        0;
+
+    font-family: var(--font-en);
+
+    font-size: 0.56rem;
+    line-height: 1;
+
+    letter-spacing: 0.23em;
+
+    opacity: 0.38;
+
+}
+
+
+/* ==================================================
+   PC
+================================================== */
+
+@media (min-width: 768px) {
+
+    .footer {
+
+        padding:
+            90px
+            var(--side-padding)
+            35px;
+
+    }
+
+
+    .footer-message {
+
+        margin:
+            42px
+            0;
+
+    }
+
+
+    .footer-links {
+
+        flex-direction: row;
+        justify-content: center;
+
+        gap: 36px;
+
+    }
+
+
+    .copyright {
+
+        margin-top: 55px;
+
+    }
+
+}
+
+
+
+/* ==================================================
+   Footer Legal Links
+================================================== */
+
+.footer-legal-links {
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    align-items:
+        center;
+
+    gap:
+        13px;
+
+    width:
+        min(100%, 360px);
+
+    margin:
+        45px
+        auto
+        0;
+
+    padding-top:
+        32px;
+
+    border-top:
+        1px solid
+        rgba(248, 245, 238, 0.12);
+
+}
+
+
+.footer-legal-links a {
+
+    font-family:
+        var(--font-jp);
+
+    font-size:
+        0.56rem;
+
+    font-weight:
+        400;
+
+    line-height:
+        1.7;
+
+    letter-spacing:
+        0.075em;
+
+    color:
+        rgba(248, 245, 238, 0.5);
+
+    text-decoration:
+        none;
+
+    transition:
+        color
+        0.35s
+        var(--ease-main);
+
+}
+
+
+.footer-legal-links a:hover {
+
+    color:
+        rgba(248, 245, 238, 0.85);
+
+}
+
+
+@media screen and (min-width: 768px) {
+
+    .footer-legal-links {
+
+        flex-direction:
+            row;
+
+        justify-content:
+            center;
+
+        gap:
+            30px;
+
+        width:
+            min(100%, 520px);
+
+        margin-top:
+            55px;
+
+    }
+
+}
+
+
+@media
+(prefers-reduced-motion: reduce) {
+
+    .footer-legal-links a {
+
+        transition:
+            none;
+
+    }
+
+}

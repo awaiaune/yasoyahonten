@@ -5,7 +5,7 @@ const squareDescription=d=>d.description+(d.variants.some(v=>v.amount)?'\n\n'+d.
 export class Square {
  constructor(env){this.env=env;}
  baseUrl(){return production(this.env)?'https://connect.squareup.com':'https://connect.squareupsandbox.com';}
- token(){return production(this.env)?this.env.PRODUCTION_MANAGEMENT_SQUARE_TOKEN:this.env.RUNTIME_TIER==='sandbox-validation'?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;}
+ token(){return production(this.env)?this.env.PRODUCTION_MANAGEMENT_SQUARE_TOKEN:['sandbox-validation','staging'].includes(this.env.RUNTIME_TIER)?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;}
  async verified(id){const row=await this.env.ORDERS_DB.prepare('SELECT * FROM mg_mappings WHERE variation_id=?').bind(id).first();need(row?.environment==='production'&&row.location_id===this.env.SQUARE_LOCATION_ID&&row.instance_id===this.env.PRODUCTION_INSTANCE_ID&&typeof row.sku==='string'&&row.sku.length>0&&row.verified_at,'実照合済みの本番対応表が必要です。',409);return row;}
  async request(path,method='GET',body){
   await guard(this.env);
@@ -52,7 +52,7 @@ export class Square {
   need(false,'Square商品一覧の確認上限を超えました。',409);
  }
  assertExistingBody(body){
-  if(this.env.RUNTIME_TIER!=='sandbox-validation')return;
+  if(!['sandbox-validation','staging'].includes(this.env.RUNTIME_TIER))return;
   // Also inspect durable bodies created by older code; never rewrite a stored request.
   for(const id of Object.keys(JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}'))){
    const ref=this.expectedLink(id);need(ref,'既存Item・Variation・SKUの対応表が必要です。',409);
@@ -77,7 +77,7 @@ export class Square {
   }
   return Promise.all(maps.map(async m=>{const ref=this.expectedLink(m.variant_id),o=await this.object(m.variation_id),d=o?.item_variation_data;
    need(o?.id===m.variation_id&&d?.item_id===m.item_id&&typeof d.sku==='string'&&d.sku.length>0,'Square ID・SKUを確認できません。',409);
-   if(this.env.RUNTIME_TIER==='sandbox-validation'&&JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}')[m.variant_id])need(ref&&ref.itemId===m.item_id&&ref.variationId===m.variation_id&&ref.sku===d.sku,'既存Square対応表が一致しません。',409);
+   if(['sandbox-validation','staging'].includes(this.env.RUNTIME_TIER)&&JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}')[m.variant_id])need(ref&&ref.itemId===m.item_id&&ref.variationId===m.variation_id&&ref.sku===d.sku,'既存Square対応表が一致しません。',409);
    if(production(this.env)){const verified=await this.verified(m.variation_id);need(verified.item_id===m.item_id&&verified.variant_id===m.variant_id&&verified.sku===d.sku,'実照合後に本番ID・SKUが変わっています。',409);}
    return {...m,sku:d.sku};}));
  }

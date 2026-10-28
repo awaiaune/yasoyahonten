@@ -1,0 +1,5 @@
+/* v27: zoom persists after release or mouse exit; reset only on page scroll. */
+.hero-right,.v18-feature-frame,.v20-film-frame{overflow:hidden}
+.hero-right>img,.v18-feature-frame>img,.v20-film-frame>img{transform:scale(1);transition:transform .9s cubic-bezier(.2,.7,.2,1);transform-origin:center center;will-change:transform}
+.hero-right.v25-pressed>img,.v18-feature-frame.v25-pressed>img,.v20-film-frame.v25-pressed>img{transform:scale(1.045)}
+@media(prefers-reduced-motion:reduce){.hero-right>img,.v18-feature-frame>img,.v20-film-frame>img{transition:none!important;will-change:auto}}

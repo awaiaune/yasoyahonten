@@ -1,0 +1,22 @@
+/* v52 — minimal botanical gallery. Keep v51 imagery, transitions and height. */
+.v33-shop .v33-scene-label{top:auto!important;bottom:clamp(145px,21svh,210px)!important;left:clamp(24px,5vw,80px);right:24px;pointer-events:none}
+.v33-shop .v33-scene-label h1{font-size:clamp(56px,9vw,120px);line-height:.95;margin:10px 0 8px}
+.v33-shop .v33-scene-label p{font-size:clamp(12px,1.1vw,14px);margin:0}
+.v33-shop .v33-kicker{font-size:10px;letter-spacing:.16em}
+.v33-shop .v33-bottom{left:clamp(24px,5vw,80px);right:clamp(24px,5vw,80px);bottom:max(18px,env(safe-area-inset-bottom));padding:0;background:none}
+.v33-shop .v33-rail{display:flex;align-items:center;justify-content:flex-start;gap:clamp(20px,4vw,56px);padding:12px 0 2px;overflow-x:auto;scroll-snap-type:none}
+.v33-shop .v33-tile{flex:0 0 auto;min-height:40px;padding:7px 0 9px;display:block;background:none!important;border:0!important;border-bottom:1px solid transparent!important;opacity:.65;color:#fff;font:400 12px/1.4 'Cormorant Garamond',serif;letter-spacing:.08em;white-space:nowrap;transition:opacity .25s,border-color .25s!important}
+.v33-shop .v33-tile.is-active{opacity:1;border-bottom-color:#fff!important}
+.v33-shop .v33-tile span{display:inline}
+.v33-shop .v34-actions{left:clamp(24px,5vw,80px);right:auto;bottom:clamp(76px,11svh,108px);gap:0}
+.v33-shop .v34-view{font-size:11px;letter-spacing:.12em}
+.v33-shop .v33-scene-shade{background:linear-gradient(to top,rgba(8,19,12,.62),transparent 55%)}
+@media(max-width:700px){
+ .v33-shop .v33-scene-label{bottom:clamp(145px,22svh,190px)!important;left:24px;right:20px}
+ .v33-shop .v33-scene-label h1{font-size:clamp(36px,10vw,43px);overflow-wrap:normal}
+ .v33-shop .v33-bottom{left:24px;right:24px;bottom:max(12px,env(safe-area-inset-bottom))}
+ .v33-shop .v33-rail{justify-content:space-between;gap:12px}
+ .v33-shop .v33-tile{font-size:clamp(10px,2.8vw,12px)}
+ .v33-shop .v34-actions{left:24px;bottom:clamp(72px,11svh,96px)}
+}
+@media(max-height:600px){.v33-shop .v33-scene-label{bottom:132px!important}.v33-shop .v34-actions{bottom:65px}}

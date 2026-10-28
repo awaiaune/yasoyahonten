@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Noto+Sans+JP:wght@300;400;500&family=Shippori+Mincho:wght@400;500&display=swap');
+:root{--ink:#272b27;--paper:#f8f7f3;--muted:#757a70}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans JP',sans-serif;font-weight:300}a{color:inherit;text-decoration:none}img{width:100%;height:100%;object-fit:cover;display:block}header{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(22px,5vw,84px);position:absolute;z-index:10;width:100%;top:0}header .logo{font:500 18px 'Cormorant Garamond',serif;letter-spacing:.14em}nav{display:flex;gap:30px;font-size:10px;letter-spacing:.18em}nav a:hover,.cta:hover{opacity:.55}.eyebrow{font-size:10px;letter-spacing:.22em;text-transform:uppercase}.serif{font-family:'Cormorant Garamond',serif;font-weight:300}.jp{font-family:'Shippori Mincho',serif;font-weight:400}.cta{font-size:11px;letter-spacing:.14em;border-bottom:1px solid currentColor;padding-bottom:8px;display:inline-block;transition:opacity .2s}.dark{background:#222824;color:#f0eee7}.muted{color:var(--muted)}.dark .muted{color:#c2c5bb}footer{padding:64px clamp(24px,6vw,100px);display:flex;justify-content:space-between;gap:25px;font-size:11px}footer strong{font:400 clamp(27px,5vw,70px) 'Cormorant Garamond',serif;letter-spacing:.1em}section{overflow:hidden}.reveal{opacity:0;transform:translateY(22px);transition:opacity .85s ease,transform .85s ease}.reveal.visible{opacity:1;transform:none}@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}html{scroll-behavior:auto}}@media(max-width:680px){header{height:66px;padding:0 22px}header .logo{font-size:15px}nav{gap:14px;font-size:9px}footer{flex-direction:column}footer strong{font-size:37px}}body{background:#f2f0e9}.hero{min-height:100svh;display:grid;grid-template-columns:1.1fr .9fr;align-items:stretch;padding-top:76px}.hero-left{padding:8vw 5vw 6vw 7vw;display:flex;flex-direction:column;justify-content:space-between}.hero-left h1{font-size:clamp(82px,12vw,205px);line-height:.72;letter-spacing:-.035em;margin:55px 0 40px}.hero-left h1 span{display:block}.hero-right{height:calc(100svh - 76px);position:relative}.hero-right img{filter:saturate(.75)}.hero-right .vertical{position:absolute;bottom:30px;right:22px;writing-mode:vertical-rl;color:white;font-size:10px;letter-spacing:.2em}.hero-bottom{display:flex;align-items:end;justify-content:space-between;gap:20px}.hero-bottom .jp{font-size:clamp(17px,2vw,27px);line-height:1.8}.statement{padding:150px 7vw 170px;display:grid;grid-template-columns:1fr 1fr;gap:8vw;align-items:center}.statement img{height:560px}.statement .huge{font-size:clamp(70px,11vw,170px);line-height:.78;margin:25px 0 45px}.statement p{font-size:13px;line-height:2.6}.products{padding:90px 6vw 160px;background:#e5e4db}.products h2{font-size:clamp(75px,11vw,165px);line-height:.9;margin:20px 0 65px}.products-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:25px;align-items:start}.products-grid article:nth-child(2){margin-top:90px}.products-grid article:nth-child(3){margin-top:180px}.products-grid img{aspect-ratio:3/4;height:auto}.products-grid h3{font:400 17px 'Shippori Mincho',serif;margin:15px 0 6px}.products-grid p{font-size:10px;letter-spacing:.12em}.design{padding:100px 6vw 140px}.design .split{display:grid;grid-template-columns:1.1fr .9fr;gap:6vw;align-items:center}.design h2{font-size:clamp(60px,10vw,165px);line-height:.8;letter-spacing:-.03em;margin:25px 0 50px;overflow-wrap:anywhere}.design .jp{font-size:clamp(20px,3vw,38px);margin:40px 0}.design img{height:580px;filter:brightness(.6) saturate(.7)}.design p{font-size:12px;line-height:2.5}.endnote{padding:100px 7vw 140px;display:flex;justify-content:space-between;align-items:end;gap:30px}.endnote .serif{font-size:clamp(50px,7vw,115px);line-height:.9}@media(max-width:680px){.hero{grid-template-columns:1fr;padding-top:66px}.hero-left{min-height:390px;padding:65px 24px 35px}.hero-left h1{font-size:clamp(75px,19vw,125px);margin:35px 0}.hero-right{height:46vh}.statement{padding:95px 24px;grid-template-columns:1fr;gap:40px}.statement img{height:340px}.products{padding:80px 24px}.products h2{font-size:75px}.products-grid{grid-template-columns:1fr 1fr;gap:20px}.products-grid article:nth-child(2){margin-top:65px}.products-grid article:nth-child(3){margin-top:0;max-width:100%}.design{padding:85px 24px}.design .split{grid-template-columns:1fr}.design h2{font-size:74px}.design img{height:390px}.endnote{padding:80px 24px;flex-direction:column;align-items:start}}
+/* V2 — keep editorial hero and overlapping type untouched; refine only collection + dark feature */
+.products{padding:80px clamp(22px,6vw,100px) 105px}
+.products h2{margin:20px 0 50px}
+.product-page{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 22px;align-items:start}
+.product-page article{min-width:0;margin:0!important;max-width:none!important}
+.product-page article img{width:100%;height:auto;aspect-ratio:4/5;object-fit:cover;background:#d7d7cc}
+.product-page h3{font-size:clamp(14px,1.5vw,19px);line-height:1.55;margin:13px 0 5px;overflow-wrap:anywhere}
+.product-page p{font-size:10px;letter-spacing:.12em;margin:0}
+.all-products-tile{background:#d6d7cd;aspect-ratio:4/5;display:flex;flex-direction:column;justify-content:space-between;padding:clamp(16px,3vw,40px);transition:background .2s}
+.all-products-tile:hover{background:#cbd0c4}
+.all-products-tile .serif{font-size:clamp(35px,5vw,80px);line-height:.88}
+.product-controls{display:flex;justify-content:space-between;align-items:center;margin-top:36px;gap:12px;font-size:11px;letter-spacing:.16em}
+.design-shell{background:#f2f0e9;padding:clamp(20px,5vw,80px)}
+.design{padding:clamp(24px,4vw,70px);background:#222824}
+.design-top{display:flex;justify-content:space-between;gap:10px}
+.design-layout{display:grid;grid-template-columns:1fr .8fr;gap:5vw;align-items:center;margin-top:25px}
+.design h2{font-size:clamp(55px,8.4vw,142px);line-height:.78;letter-spacing:-.03em;margin:12px 0 35px;overflow-wrap:normal}
+.design .jp{font-size:clamp(19px,2.3vw,32px);margin:0 0 28px}
+.design p{font-size:clamp(11px,1.1vw,14px);line-height:2.2;margin:0}
+.design .status{margin-top:26px}
+.design-art{position:relative;min-width:0}
+.design-art img{width:100%;height:clamp(270px,35vw,530px);object-fit:cover;filter:brightness(.77) saturate(.8)}
+.art-vertical{position:absolute;right:12px;bottom:14px;writing-mode:vertical-rl;font-size:9px;letter-spacing:.2em;color:#fff}
+@media(max-width:680px){
+.products{padding:70px 24px 85px}.products h2{font-size:clamp(60px,15vw,85px);margin:22px 0 38px}
+.product-page{gap:27px 14px}.product-page h3{font-size:14px;line-height:1.5}.product-page p{font-size:9px}
+.all-products-tile{padding:15px}.all-products-tile .serif{font-size:clamp(29px,8vw,48px)}.all-products-tile .eyebrow{font-size:8px}
+.product-controls{margin-top:28px}.product-controls .cta{font-size:10px}
+.design-shell{padding:22px 16px 32px}
+.design{padding:27px 24px 30px}
+.design-top .eyebrow{font-size:8px;letter-spacing:.12em}
+.design-layout{grid-template-columns:1fr;gap:19px;margin-top:26px}
+.design h2{font-size:clamp(54px,14vw,86px);margin:0 0 24px;line-height:.76}
+.design .jp{font-size:clamp(19px,5vw,25px);margin-bottom:14px}
+.design p{font-size:11px;line-height:1.9}
+.design .status{margin-top:16px;font-size:8px}
+.design-art img{height:clamp(145px,24svh,215px);object-position:center 55%}
+.art-vertical{font-size:8px}
+}
+
+/* v3: Give the botanical design panel ~20% more breathing room.
+   The editorial hero, overlapping typography and product grid remain unchanged. */
+@media(min-width:681px){
+  .design{padding-top:clamp(40px,5.2vw,88px);padding-bottom:clamp(40px,5.2vw,88px)}
+  .design-layout{margin-top:38px}
+  .design-art img{height:clamp(310px,39vw,590px)}
+  .endnote{padding-top:90px}
+}
+@media(max-width:680px){
+  .design{padding-top:43px;padding-bottom:45px}
+  .design-layout{margin-top:35px;gap:27px}
+  .design h2{margin-bottom:30px}
+  .design .jp{margin-bottom:20px}
+  .design .status{margin-top:23px}
+  .design-art img{height:clamp(185px,29svh,265px)}
+  .design-shell{padding-bottom:28px}
+  .endnote{padding-top:69px}
+}

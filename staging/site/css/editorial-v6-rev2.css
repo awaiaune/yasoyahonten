@@ -1,0 +1,50 @@
+/* v6 rev2: header/footer are the exact homepage markup, styles and JS. */
+html,body{overflow-x:clip}
+body{margin:0;background:#f2f0e9}
+/* Undo legacy page styles that used to force a mobile-wide header or strange floats. */
+body>.editorial-header{position:fixed;left:0;right:0;top:0;width:100%;max-width:100vw;display:flex;align-items:center;justify-content:space-between;flex-wrap:nowrap;float:none;overflow:visible;box-sizing:border-box}
+body>.editorial-header .logo{flex:0 1 auto;min-width:0;max-width:50%;overflow:visible;white-space:nowrap}
+body>.editorial-header nav{flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;flex-wrap:nowrap;position:static;width:auto;height:auto;margin:0;padding:0;background:transparent;transform:none;visibility:visible;opacity:1}
+body>.editorial-header nav a,body>.editorial-header nav button{white-space:nowrap}
+body>.editorial-header .cart-trigger{position:relative;border:0;background:transparent;box-shadow:none;cursor:pointer}
+body>.editorial-header .cart-count.is-empty{display:none}
+body>main{padding-top:76px;min-height:0}
+/* Footer matches homepage typography and layout, without duplicate page-specific styling. */
+body>footer{display:flex;justify-content:space-between;align-items:flex-start;gap:25px;background:#f2f0e9;color:#272b27;padding:64px clamp(24px,6vw,100px);font:300 11px/1.8 'Noto Sans JP',sans-serif;min-height:0}
+body>footer strong{font:400 clamp(27px,5vw,70px) 'Cormorant Garamond',serif;letter-spacing:.1em}
+body>footer a{text-decoration:none;color:inherit}
+body>footer p{margin:20px 0 0}
+/* More deliberate whitespace: no empty half-screen before the footer. */
+.v6-shop-intro{padding-top:clamp(75px,10vw,145px);padding-bottom:clamp(45px,6vw,80px)}
+.v6-shop-intro h1{margin:clamp(35px,6vw,65px) 0 clamp(40px,6vw,70px)}
+.products-page-list{padding-top:clamp(50px,6vw,95px)!important;padding-bottom:clamp(55px,7vw,100px)!important}
+.products-page-list .product-number{display:none!important}
+.products-page-list .product-info h2{overflow-wrap:normal;word-break:normal;line-height:1.5}
+.products-season{padding:clamp(55px,7vw,95px) 24px!important;min-height:0!important}
+.products-season-inner{min-height:0!important;padding:0!important;margin:0 auto!important}
+.product-detail-inner{min-height:0!important}
+.product-detail-inner>h1{word-break:normal!important;overflow-wrap:normal!important;hyphens:none!important;line-height:.93!important;letter-spacing:-.035em!important}
+.product-handling,.product-back{min-height:0!important;padding-top:clamp(35px,5vw,65px)!important;padding-bottom:clamp(35px,5vw,65px)!important}
+.product-detail,.product-information,.product-handling,.product-back,.products-season{opacity:1!important;visibility:visible!important;transform:none!important}
+@media(max-width:700px){
+ body>.editorial-header{height:66px;padding:0 22px}
+ body>.editorial-header .logo{font-size:clamp(12px,3.05vw,17px);letter-spacing:.13em}
+ body>.editorial-header nav{gap:clamp(11px,3vw,19px)}
+ body>.editorial-header nav a,body>.editorial-header nav .cart-trigger{font-size:clamp(10px,2.7vw,13px);letter-spacing:.12em}
+ body>main{padding-top:66px}
+ body>footer{flex-direction:column}
+ body>footer strong{font-size:37px}
+ .v6-shop-intro{padding:65px 24px 55px}
+ .v6-shop-intro h1{font-size:clamp(65px,15vw,100px);line-height:.88;margin:48px 0 40px}
+ .v6-intro-bottom{align-items:start}
+ .v6-intro-bottom p{font-size:clamp(15px,4vw,20px);line-height:1.8}
+ .v6-intro-bottom span{max-width:90px}
+ .products-page-list{padding:55px 24px 65px!important}
+ .products-page-list .product-info h2{font-size:clamp(12px,3.25vw,16px);letter-spacing:-.025em;overflow-wrap:anywhere}
+ .products-page-list .product-en{font-size:9px;letter-spacing:.06em;overflow-wrap:anywhere}
+ .products-season{padding:65px 24px!important}
+ .product-detail-inner{padding:25px 24px 50px!important;gap:22px!important}
+ .product-detail-inner>h1{font-size:clamp(40px,11.5vw,70px)!important;line-height:.95!important;letter-spacing:-.045em!important;overflow-wrap:anywhere!important;margin:0 0 8px!important}
+ .product-information h2{font-size:clamp(19px,5vw,26px)!important;line-height:1.55!important;overflow-wrap:anywhere}
+ .product-handling,.product-back{padding:42px 24px!important}
+}

@@ -1,0 +1,11 @@
+/* v38: back link in ivory section immediately after the full-screen product photo */
+body:has(.v30-product) .v38-below-back{display:block;position:relative!important;inset:auto!important;z-index:1;background:#f6f4ed;color:#263b2d!important;font:11px/1.5 sans-serif;letter-spacing:.13em;text-decoration:none;padding:19px clamp(20px,5vw,76px) 8px;box-sizing:border-box}
+body:has(.v30-product) .v38-below-back:hover{text-decoration:underline}
+body:has(.v30-product) .v30-below{padding-top:28px!important}
+/* All View: touch or hover to enlarge; only activating another image resets previous. */
+.v35-all-card .v35-all-image{cursor:pointer;overflow:hidden}
+.v35-all-card .v35-all-image img{transform:scale(1)!important;transition:transform .65s cubic-bezier(.2,.7,.2,1)!important;will-change:transform}
+.v35-all-card .v35-all-image.v38-zoomed img{transform:scale(1.18)!important}
+.v35-all-card .v35-all-image.v37-zoomed img{transform:scale(1)!important}
+.v35-all-card .v35-all-image.v38-zoomed.v37-zoomed img{transform:scale(1.18)!important}
+@media(prefers-reduced-motion:reduce){.v35-all-card .v35-all-image img{transition:none!important}}

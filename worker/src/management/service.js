@@ -2,6 +2,7 @@ import {production,productionGrant,productionPolicy} from '../production-policy.
 import {externalPolicy,assertSquareWrite} from '../external-policy.js';
 import { importLegacy } from './importer.js';
 import { CATALOG } from '../catalog.js';
+import {publishSite} from './site-publication.js';
 import { Store } from './store.js';
 import { Square } from './square.js';
 import { Supervision } from './supervision.js';
@@ -49,7 +50,7 @@ export class Management {
  }
  mappingInsert(m){if(production(this.env)){need(typeof m.sku==='string'&&m.sku.length>0,'実照合したSKUが必要です。',409);return ['INSERT INTO mg_mappings(variant_id,environment,location_id,item_id,variation_id,item_version,variation_version,sku,instance_id,verified_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_version=excluded.item_version,variation_version=excluded.variation_version,verified_at=excluded.verified_at WHERE item_id=excluded.item_id AND variation_id=excluded.variation_id AND sku=excluded.sku',[m.variant_id,'production',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version,m.sku,this.env.PRODUCTION_INSTANCE_ID,now()]];}return ['INSERT INTO mg_mappings VALUES(?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_id=excluded.item_id,variation_id=excluded.variation_id,item_version=excluded.item_version,variation_version=excluded.variation_version',[m.variant_id,'sandbox',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version]];}
  async assertSalesCatalog(quote){
-  for(const v of quote.items){const mapping=await this.s.one('SELECT * FROM mg_mappings WHERE variant_id=?',[v.id]);need(mapping,'Square対応がありません。',409);const object=await this.square.object(mapping.variation_id),data=object?.item_variation_data;
+  for(const v of quote.items){if(production(this.env)&&!(await this.s.publicProducts()).some(p=>p.variants.some(n=>n.id===v.id)))continue;const mapping=await this.s.one('SELECT * FROM mg_mappings WHERE variant_id=?',[v.id]);need(mapping,'Square対応がありません。',409);const object=await this.square.object(mapping.variation_id),data=object?.item_variation_data;
    need(data&&Number(data.price_money?.amount)===v.unitPrice&&data.price_money.currency==='JPY'&&data.name===v.name&&object.version===mapping.variation_version&&data.track_inventory===true&&!object.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID),'Squareの商品が外部から変更されています。再同期するまで購入できません。',409);
   }
  }
@@ -156,7 +157,8 @@ export class Management {
     updates.push(['UPDATE mg_inventory_operations SET after_quantity=?,state=? WHERE id=?',[quantity,'done',id]],['INSERT INTO mg_stock_snapshot VALUES(?,?,?) ON CONFLICT(variant_id) DO UPDATE SET quantity=excluded.quantity,observed_at=excluded.observed_at',[j.resource_id,quantity,now()]]);
    }else{
     updates.push(...result.mappings.map(m=>this.mappingInsert(m)));
-    updates.push(['UPDATE mg_products SET published_revision=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?',[p.revision,p.targetStatus,p.data.sortOrder,now(),j.resource_id]]);
+    if(production(this.env)&&this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1')updates.push(['UPDATE mg_products SET version=version+1,updated_at=? WHERE id=?',[now(),j.resource_id]]);
+    else updates.push(['UPDATE mg_products SET published_revision=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?',[p.revision,p.targetStatus,p.data.sortOrder,now(),j.resource_id]]);
    }
    updates.push(["UPDATE mg_jobs SET state='done',last_error=NULL,updated_at=? WHERE id=?",[now(),id]],['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('system','job_completed',j.resource_id,{job:id,kind:j.kind}));
    await this.s.batch(updates);
@@ -173,7 +175,7 @@ export class Management {
   const maps=await this.s.all('SELECT m.variant_id FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[p.id]);
   const policy=externalPolicy(this.env);
   return {...p,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
-   source:policy.source,...(production(this.env)?{capabilities:productionPolicy(this.env)}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
+   source:policy.source,...(production(this.env)?{capabilities:{...productionPolicy(this.env),sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1'&&productionPolicy(this.env).draft}}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
    useConfiguredLinks:this.env.RUNTIME_TIER==='sandbox-validation'&&p.draft.variants.every(v=>Boolean(this.square.expectedLink(v.id)))};
  }
  async products(){return Promise.all((await this.s.products()).map(p=>this.productView(p)));}
@@ -183,10 +185,10 @@ export class Management {
   if(path==='/api/admin/inventory'&&method==='GET')return {inventory:await this.inventory()};
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
   if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),monitoring:await this.supervision.status()};
-  let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link))?$/);
+  let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link|site))?$/);
   if(m){const id=identifier(m[1]);if(method==='GET'&&!m[2]){const product=await this.s.product(id);need(product,'商品がありません。',404);return {product:await this.productView(product)};}
    if(method==='PUT'&&!m[2])return this.save(id,body,actor);
-   if(method==='POST'&&m[2])return this[m[2]](id,body,actor);
+   if(method==='POST'&&m[2])return m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
   }
   m=path.match(/^\/api\/admin\/inventory\/([a-z0-9-]+)$/);if(m&&method==='POST')return this.adjust(m[1],body,actor);
   m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile)$/);if(m&&method==='POST')return this[m[2]](operation(m[1]));

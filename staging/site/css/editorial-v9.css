@@ -1,0 +1,46 @@
+
+/* v9: product pages only. Index, shop, cart and inventory scripts unchanged. */
+.v9-product-shell{max-width:1120px;margin:0 auto;padding:24px clamp(20px,5vw,60px) 92px;color:#252a25}
+.v9-title-area{text-align:center;margin:0 auto 24px}
+.v9-title-area .v8-label{font-size:10px;letter-spacing:.23em;margin:0 0 22px;color:#747a71}
+.v9-product-title{font-family:'Cormorant Garamond',serif;font-weight:400;letter-spacing:-.045em;font-size:clamp(55px,11vw,128px);line-height:.86;margin:0;text-wrap:balance}
+.v9-gallery{max-width:760px;margin:0 auto}
+.v9-viewport{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;gap:0;overscroll-behavior-inline:contain;background:#e3e4dc}
+.v9-viewport::-webkit-scrollbar{display:none}
+.v9-frame{flex:0 0 100%;aspect-ratio:1.18;scroll-snap-align:center;overflow:hidden}
+.v9-frame img{width:100%;height:100%;object-fit:cover;display:block}
+.v9-frame.is-detail img{transform:scale(1.35);object-position:35% 45%}
+.v9-gallery-nav{display:flex;justify-content:center;gap:22px;margin:13px 0 21px}
+.v9-gallery-tab{border:0;background:transparent;border-bottom:1px solid transparent;padding:6px 3px;font-size:10px;letter-spacing:.14em;color:#777;cursor:pointer}
+.v9-gallery-tab.active{color:#222;border-color:#222}
+.v9-buy-panel{max-width:760px;margin:auto;background:transparent!important;border:0!important;padding:0!important;box-shadow:none!important}
+.v9-buy-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;border-bottom:1px solid #c8cac0;padding-bottom:12px;margin-bottom:0}
+.v9-buy-head h2{font-family:'Shippori Mincho',serif;font-size:clamp(17px,2.6vw,25px);font-weight:500;margin:0}
+.v9-buy-head .v8-price{font-family:'Cormorant Garamond',serif;font-size:clamp(24px,3vw,32px);white-space:nowrap}
+.v9-subline{font-size:10px;letter-spacing:.17em;color:#7c8179;margin:13px 0 18px}
+.v9-buy-panel .product-data{display:none!important}
+.v9-buy-panel .product-variants{margin:12px 0 22px}
+.v9-buy-panel .product-cart-area{display:flex;align-items:end;gap:12px;margin:0}
+.v9-buy-panel .product-quantity-area{flex:0 0 76px}
+.v9-buy-panel .product-cart-button{flex:1;min-height:54px;background:#242b26;color:#f7f5ee;border:0;letter-spacing:.11em;border-radius:1px;transition:background .2s ease,transform .2s ease}
+.v9-buy-panel .product-cart-button:not(:disabled):active{transform:scale(.985)}
+.v9-buy-panel .product-cart-button:disabled{opacity:.45}
+.v9-buy-panel .product-note{font-size:11px;color:#7b8077;margin:15px 0 0}
+.v9-buy-panel .product-stock-status{font-size:12px;margin:12px 0;color:#926a52}
+.v9-journal{background:#e4e6de;padding:clamp(48px,7vw,108px) clamp(22px,7vw,100px) 78px;color:#262d27}
+.v9-journal>.v9-eyebrow,.v9-journal-title,.v9-journal-image,.v9-journal-story,.v9-brew{max-width:1040px;margin-left:auto;margin-right:auto}
+.v9-eyebrow{font-size:10px;letter-spacing:.23em;color:#6c756c}
+.v9-journal-title{font-family:'Cormorant Garamond',serif;font-weight:400;font-size:clamp(60px,10vw,142px);line-height:.86;letter-spacing:-.04em;margin-top:24px;margin-bottom:40px;max-width:820px!important}
+.v9-journal-image{height:clamp(270px,50vw,630px);overflow:hidden}
+.v9-journal-image img{width:100%;height:100%;object-fit:cover;object-position:center 42%;transform:scale(1.12)}
+.v9-journal-story{padding:65px 0 65px;max-width:680px!important}
+.v9-journal-jp{font-family:'Shippori Mincho',serif;font-size:clamp(23px,3.4vw,39px);font-weight:400;line-height:1.6;margin:26px 0}
+.v9-journal-copy{font-size:14px;line-height:2.4;max-width:560px;color:#596359}
+.v9-brew{border-top:1px solid #aab1a7;padding-top:36px}
+.v9-brew-title{font-family:'Shippori Mincho',serif;font-size:clamp(22px,3vw,35px);font-weight:400;margin:25px 0 35px}
+.v9-brew-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}
+.v9-brew-values>div{border-top:1px solid #aab1a7;padding-top:16px;display:flex;flex-direction:column;gap:12px}
+.v9-brew-label{font-size:9px;letter-spacing:.17em;color:#737c73}
+.v9-brew-value{font-family:'Cormorant Garamond',serif;font-weight:400;font-size:clamp(25px,4vw,45px)}
+@media(max-width:600px){.v9-product-shell{padding:24px 20px 64px}.v9-title-area{margin-bottom:23px}.v9-product-title{font-size:clamp(51px,12vw,75px)}.v9-frame{aspect-ratio:1.07}.v9-journal{padding:58px 20px 65px}.v9-journal-title{font-size:clamp(56px,13vw,82px);margin-bottom:28px}.v9-journal-image{height:390px}.v9-journal-story{padding:52px 0}.v9-brew-values{gap:10px}.v9-brew-value{font-size:27px}}
+@media(prefers-reduced-motion:reduce){.v9-viewport{scroll-behavior:auto!important}.v9-buy-panel .product-cart-button{transition:none}}

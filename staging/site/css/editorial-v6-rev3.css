@@ -1,0 +1,51 @@
+/* v6 rev3: single shared editorial header/footer, page-only layout corrections */
+html,body{width:100%;max-width:100%;margin:0;overflow-x:clip}
+body{background:#f2f0e9}
+/* Explicit grid prevents legacy page styles and long nav from displacing the logo. */
+body > header.editorial-header{box-sizing:border-box!important;position:fixed!important;inset:0 0 auto 0!important;width:100%!important;max-width:100%!important;min-width:0!important;height:76px!important;padding:0 clamp(22px,5vw,84px)!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;align-items:center!important;gap:12px!important;overflow:visible!important;z-index:1000!important}
+body > header.editorial-header .logo{display:block!important;position:static!important;min-width:0!important;max-width:none!important;overflow:visible!important;white-space:nowrap!important;transform:none!important;margin:0!important;padding:0!important;justify-self:start!important;font:500 18px 'Cormorant Garamond',serif!important;letter-spacing:.14em!important;color:#272b27!important}
+body > header.editorial-header nav{display:flex!important;position:static!important;width:auto!important;min-width:0!important;max-width:none!important;height:auto!important;margin:0!important;padding:0!important;gap:clamp(11px,2vw,25px)!important;align-items:center!important;justify-content:end!important;flex-wrap:nowrap!important;transform:none!important;background:none!important;opacity:1!important;visibility:visible!important}
+body > header.editorial-header nav a,body > header.editorial-header nav button{display:inline-flex!important;position:relative;flex-shrink:0!important;white-space:nowrap!important;width:auto!important;height:auto!important;line-height:1.4!important;font:400 11px 'Noto Sans JP',sans-serif!important;letter-spacing:.14em!important;color:#272b27!important;text-decoration:none!important}
+body > header.editorial-header .cart-trigger{border:0!important;background:none!important;padding:0!important;min-width:0!important}
+body > header.editorial-header .cart-count.is-empty{display:none!important}
+body > header.editorial-header .cart-count:not(.is-empty){position:absolute!important;right:-12px!important;top:-12px!important;width:auto!important;min-width:16px!important;height:16px!important;padding:0 3px!important;border-radius:99px!important;background:#272b27!important;color:white!important;font:10px/16px Arial,sans-serif!important;text-align:center!important}
+body > header.editorial-header.is-hidden{transform:translateY(-105%)!important}
+body > header.editorial-header:not(.is-hidden){transform:translateY(0)!important}
+body > main{padding-top:76px!important;min-height:0!important;height:auto!important}
+/* SHOP: preserve the 2-column catalogue but remove wrapper that collapsed it to one grid child. */
+.v6-shop-intro{padding:80px clamp(24px,6vw,100px) 70px!important}
+.v6-shop-intro h1{margin:55px 0 55px!important;overflow-wrap:normal!important;word-break:normal!important}
+.v6-intro-bottom{display:block!important}
+.v6-intro-bottom p{max-width:100%!important;word-break:normal!important;overflow-wrap:normal!important}
+.products-page-list{padding-top:65px!important;padding-bottom:70px!important}
+.products-page-list .product-list{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;align-items:start!important}
+.products-page-list .product-list > .product-card{min-width:0!important;margin:0!important}
+.products-page-list .product-number{display:none!important}
+.products-page-list .product-info h2{overflow-wrap:anywhere!important;word-break:normal!important}
+.products-season{padding:45px 24px 55px!important;min-height:0!important;height:auto!important}
+.products-season-inner{min-height:0!important;height:auto!important}
+/* Details: content follows naturally; no full-screen blank spacer. */
+.product-detail,.product-detail-inner,.product-information,.product-handling,.product-handling-inner,.product-back{height:auto!important;min-height:0!important;max-height:none!important;opacity:1!important;visibility:visible!important;transform:none!important}
+.product-detail-inner{padding-bottom:35px!important}
+.product-detail-inner>h1{overflow-wrap:normal!important;word-break:normal!important;hyphens:none!important;line-height:.95!important}
+.product-handling{padding:35px 24px!important;display:block!important}
+.product-back{padding:30px 24px 50px!important;display:block!important}
+body>footer{min-height:0!important;height:auto!important}
+@media(max-width:700px){
+ body > header.editorial-header{height:66px!important;padding:0 22px!important;gap:8px!important}
+ body > header.editorial-header .logo{font-size:clamp(12px,3.05vw,15px)!important;letter-spacing:.10em!important}
+ body > header.editorial-header nav{gap:clamp(10px,2.6vw,15px)!important}
+ body > header.editorial-header nav a,body > header.editorial-header nav button{font-size:clamp(9px,2.55vw,11px)!important;letter-spacing:.09em!important}
+ body > main{padding-top:66px!important}
+ .v6-shop-intro{padding:62px 24px 55px!important}
+ .v6-shop-intro h1{font-size:clamp(58px,14.5vw,83px)!important;line-height:.91!important;margin:46px 0 52px!important}
+ .v6-intro-bottom p{font-size:clamp(16px,4.3vw,20px)!important;line-height:1.9!important;letter-spacing:0!important}
+ .products-page-list{padding:50px 24px 65px!important}
+ .products-page-list .product-list{gap:28px 14px!important}
+ .product-detail-inner{padding:24px 24px 35px!important}
+ .product-detail-inner>h1{font-size:clamp(43px,12vw,62px)!important;letter-spacing:-.035em!important;margin-bottom:10px!important}
+ .product-information{padding:0!important}
+ .product-information h2{font-size:clamp(20px,5.4vw,25px)!important}
+ .product-handling{padding:30px 24px!important}
+ .product-back{padding:25px 24px 45px!important}
+}

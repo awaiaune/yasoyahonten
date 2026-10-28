@@ -1,0 +1,4 @@
+/* v42: reveal roughly half the ALL VIEW teaser at first viewport */
+body:has(.v33-shop) .v33-shop{height:calc(100svh - 56px)!important;min-height:0!important}
+@media(max-width:700px){body:has(.v33-shop) .v33-shop{height:calc(100svh - 55px)!important;min-height:0!important}}
+@media(max-height:650px){body:has(.v33-shop) .v33-shop{height:calc(100svh - 52px)!important;min-height:0!important}}

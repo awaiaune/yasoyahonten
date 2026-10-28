@@ -1,0 +1,43 @@
+/* V6 editorial treatment: only visual/layout changes; cart, inventory and checkout scripts retained. */
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500&family=Noto+Sans+JP:wght@300;400;500&family=Shippori+Mincho:wght@400;500&display=swap');
+:root{--v6-paper:#f2f0e9;--v6-ink:#272b27;--v6-sage:#e5e4db}
+body{background:var(--v6-paper);color:var(--v6-ink);font-family:'Noto Sans JP',sans-serif;font-weight:300}
+.v6-header.editorial-header{height:76px;display:flex;align-items:center;justify-content:space-between;padding:0 clamp(22px,5vw,84px);position:fixed;inset:0 0 auto;z-index:1000;background:rgba(242,240,233,.97);border-bottom:1px solid rgba(39,43,39,.08);transform:translateY(0);transition:transform .32s ease,box-shadow .25s ease;width:100%}
+.v6-header.editorial-header.is-hidden{transform:translateY(-105%)}.v6-header.editorial-header.is-scrolled{box-shadow:0 5px 22px rgba(0,0,0,.045)}
+.v6-header .logo{font:500 18px 'Cormorant Garamond',serif;letter-spacing:.14em;text-decoration:none;color:var(--v6-ink);white-space:nowrap}
+.v6-header nav{display:flex;align-items:center;gap:clamp(14px,2vw,30px);position:static;width:auto;height:auto;background:none;transform:none;opacity:1;visibility:visible}
+.v6-header nav a,.v6-header .cart-trigger{color:var(--v6-ink);font:400 11px 'Noto Sans JP',sans-serif;letter-spacing:.18em;text-decoration:none}
+.v6-header .cart-trigger{display:inline-flex;position:relative;width:auto;height:auto;min-width:0;padding:0;border:0;background:transparent;cursor:pointer;align-items:center;justify-content:center}
+.v6-header .cart-count.is-empty{display:none}.v6-header .cart-count:not(.is-empty){position:absolute;right:-13px;top:-12px;min-width:16px;height:16px;border-radius:50px;padding:0 3px;background:#272b27;color:#fff;font:10px/16px Arial,sans-serif;text-align:center}
+.v6-header a:hover,.v6-header button:hover{opacity:.6}.v6-header a:focus-visible,.v6-header button:focus-visible{outline:2px solid currentColor;outline-offset:5px}
+body:has(.v6-header) main{padding-top:76px}
+.v6-shop-intro{padding:clamp(95px,13vw,200px) clamp(24px,6vw,100px) 85px;background:var(--v6-paper)}
+.v6-kicker,.v6-detail-kicker{font-size:11px;letter-spacing:.22em;text-transform:uppercase}
+.v6-shop-intro h1{font:300 clamp(90px,13vw,210px)/.78 'Cormorant Garamond',serif;letter-spacing:-.035em;margin:65px 0 75px}
+.v6-intro-bottom{display:flex;align-items:end;justify-content:space-between;gap:20px}.v6-intro-bottom p{font:400 clamp(18px,2vw,27px)/1.9 'Shippori Mincho',serif;margin:0}.v6-intro-bottom span{font-size:10px;letter-spacing:.17em}
+.products-page-list{background:var(--v6-sage)!important;padding:clamp(65px,8vw,130px) clamp(24px,6vw,100px)!important;margin:0!important}
+.products-page-list .product-list{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:clamp(36px,5vw,75px) clamp(15px,3vw,40px)!important;align-items:start!important;max-width:1250px;margin:0 auto}
+.products-page-list .product-list>.reveal{margin:0!important;transform:none!important;opacity:1!important;min-width:0}
+.products-page-list .product-card{display:block!important;width:100%!important;max-width:none!important;margin:0!important;text-decoration:none;color:var(--v6-ink)}
+.products-page-list .product-image{width:100%!important;aspect-ratio:4/5;overflow:hidden;position:relative;background:#d8d8ce}
+.products-page-list .product-image img{width:100%!important;height:100%!important;object-fit:cover;display:block;transition:transform .65s ease}
+.products-page-list .product-card:hover img{transform:scale(1.035)}
+.products-page-list .product-info{padding:15px 0 0!important;display:block!important}
+.products-page-list .product-info h2{font:500 clamp(15px,1.7vw,24px)/1.55 'Shippori Mincho',serif;margin:5px 0}
+.products-page-list .product-number,.products-page-list .product-en{font:400 10px/1.6 'Noto Sans JP',sans-serif;letter-spacing:.15em}
+.products-page-list .product-arrow{font-size:18px}.products-season{background:var(--v6-paper)!important}
+.v6-detail-kicker{padding:40px clamp(24px,6vw,100px) 0;display:flex;justify-content:space-between;gap:20px;color:#6b7169}.v6-detail-kicker a{text-decoration:none;color:inherit}
+.product-detail{padding-top:30px!important;background:var(--v6-paper)!important}
+.product-detail-inner{max-width:1320px!important;margin:auto!important;display:grid!important;grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr)!important;gap:clamp(35px,6vw,105px)!important;align-items:start!important;padding:40px clamp(24px,6vw,100px) 110px!important}
+.product-detail-inner>h1{grid-column:1/-1;font:300 clamp(88px,12vw,185px)/.8 'Cormorant Garamond',serif!important;letter-spacing:-.025em;margin:0 0 20px!important;text-align:left!important;overflow-wrap:anywhere}
+.product-main-image{width:100%!important;max-width:none!important;margin:0!important;aspect-ratio:4/5;background:#dddcd3;overflow:hidden}
+.product-main-image img{display:block;width:100%!important;height:100%!important;object-fit:cover}
+.product-information{width:100%!important;max-width:none!important;margin:0!important;padding:20px 0!important}
+.product-information h2{font:500 clamp(24px,2.6vw,39px)/1.5 'Shippori Mincho',serif!important;margin:0 0 25px!important}
+.product-description{font-size:13px!important;line-height:2.4!important;letter-spacing:.045em}
+.product-data{border-top:1px solid #bfc1b7;margin-top:35px!important}.product-data>div{border-bottom:1px solid #bfc1b7;padding:18px 0!important}
+.product-cart-area{margin-top:35px!important}.product-cart-button{background:#252b26!important;color:#f5f2ea!important;border-radius:0!important;letter-spacing:.13em!important;min-height:54px}
+.product-handling{background:#e5e4db!important}.product-handling-inner{max-width:1150px!important}.product-back{background:var(--v6-paper)!important}
+body:has(.v6-header) .footer{background:var(--v6-paper)!important}
+@media(max-width:700px){.v6-header.editorial-header{height:66px;padding:0 22px}.v6-header .logo{font-size:clamp(12px,3.05vw,17px);letter-spacing:.13em}.v6-header nav{gap:clamp(11px,3vw,19px)}.v6-header nav a,.v6-header .cart-trigger{font-size:clamp(10px,2.7vw,13px);letter-spacing:.12em}body:has(.v6-header) main{padding-top:66px}.v6-shop-intro{padding:95px 24px 65px}.v6-shop-intro h1{font-size:clamp(75px,17vw,118px);margin:70px 0 65px}.v6-intro-bottom span{font-size:8px;text-align:right}.products-page-list{padding:70px 24px!important}.products-page-list .product-list{gap:35px 14px!important}.products-page-list .product-info h2{font-size:14px}.products-page-list .product-number,.products-page-list .product-en{font-size:9px}.v6-detail-kicker{padding:33px 24px 0;font-size:8px;letter-spacing:.13em}.product-detail-inner{grid-template-columns:1fr!important;gap:26px!important;padding:30px 24px 75px!important}.product-detail-inner>h1{font-size:clamp(69px,17vw,115px)!important;margin:0 0 10px!important}.product-main-image{aspect-ratio:4/5}.product-information{padding:8px 0!important}.product-information h2{font-size:25px!important}}
+@media(prefers-reduced-motion:reduce){.v6-header.editorial-header{transition:none}.products-page-list .product-image img{transition:none}}

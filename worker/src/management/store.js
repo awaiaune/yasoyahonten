@@ -1,4 +1,6 @@
 import {production} from '../production-policy.js';
+import {productionDatabase} from '../production-policy.js';
+import {CATALOG} from '../catalog.js';
 import { need, now } from './domain.js';
 export class Store {
  constructor(env){this.db=env.ORDERS_DB;this.env=env;}
@@ -12,14 +14,23 @@ export class Store {
  async products(){const rows=await this.all('SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.draft_revision ORDER BY p.sort_order,p.id');return rows.map(p=>{const {data_json,...row}=p;return {...row,draft:JSON.parse(data_json)};});}
  async publicProducts(){
   const rows=await this.all("SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.published_revision WHERE p.status IN ('published','stopped') ORDER BY p.sort_order,p.id");
-  return rows.map(p=>({id:p.id,slug:p.slug,status:p.status,revision:p.published_revision,...JSON.parse(p.data_json)}));
+  const mappings=production(this.env)?await this.all('SELECT variant_id FROM mg_mappings'):null;
+  return rows.map(p=>({id:p.id,slug:p.slug,status:p.status,revision:p.published_revision,...JSON.parse(p.data_json),...(mappings?{checkoutVariantIds:JSON.parse(p.data_json).variants.filter(v=>mappings.some(m=>m.variant_id===v.id)).map(v=>v.id)}:{})}));
  }
  async catalog(){
   const products=await this.publicProducts(),maps=await this.all('SELECT * FROM mg_mappings');const byId=new Map(maps.map(m=>[m.variant_id,m]));const result={};
-  for(const p of products)for(const v of p.variants){const m=byId.get(v.id);need(m?.environment===(production(this.env)?'production':'sandbox')&&m.location_id===this.env.SQUARE_LOCATION_ID,'公開商品のSquare対応表がありません。',503);result[v.id]={...v,active:p.status==='published'&&v.active,squareVariationId:m.variation_id,revision:p.revision};}
+  for(const p of products)for(const v of p.variants){const m=byId.get(v.id);if(production(this.env)&&!m&&!CATALOG[v.id])continue;need(m?.environment===(production(this.env)?'production':'sandbox')&&m.location_id===this.env.SQUARE_LOCATION_ID,'公開商品のSquare対応表がありません。',503);result[v.id]={...v,active:p.status==='published'&&v.active,squareVariationId:m.variation_id,revision:p.revision};}
   return result;
  }
  async locked(ids){if(!ids.length)return [];const rows=await this.all('SELECT * FROM mg_locks');return rows.filter(r=>ids.includes(r.variant_id));}
  async assertUnlocked(ids){need(!(await this.locked(ids)).length,'この商品は同期・在庫確認中です。',409);}
 }
-export async function loadCatalog(env){env.MANAGED_CATALOG=await new Store(env).catalog();return env.MANAGED_CATALOG;}
+export async function loadCatalog(env){
+ if(production(env))await productionDatabase(env);
+ const store=new Store(env),catalog=await store.catalog();
+ if(production(env)){
+  env.MANAGED_CATALOG={...CATALOG,...catalog};
+  for(const p of await store.products())if(p.status==='archived')for(const v of p.draft.variants)if(env.MANAGED_CATALOG[v.id])env.MANAGED_CATALOG[v.id]={...env.MANAGED_CATALOG[v.id],active:false};
+ }else env.MANAGED_CATALOG=catalog;
+ return env.MANAGED_CATALOG;
+}

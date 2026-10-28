@@ -1,3 +1,4 @@
+import {assertStaging,assertStagingDatabase} from '../staging/safety.js';
 import {externalPolicy} from '../worker/src/external-policy.js';
 import { CATALOG } from '../worker/src/catalog.js';
 import { SANDBOX_CATALOG } from './catalog.js';
@@ -46,6 +47,7 @@ export function environmentVars(m) {
         ACCESS_TEAM_DOMAIN: m.accessTeamDomain, ACCESS_AUDIENCE: m.accessAudience, VALIDATION_MANIFEST: JSON.stringify(m), VALIDATION_INSTANCE_ID: m.instanceId };
 }
 export function assertRuntime(env) {
+    if(env.RUNTIME_TIER==='staging')return assertStaging(env);
     requireSafe(env.RUNTIME_TIER === 'sandbox-validation' && env.SQUARE_ENVIRONMENT === 'sandbox', 'Sandbox runtime required');
     const m = assertManifest(JSON.parse(env.VALIDATION_MANIFEST || '{}'));
     const vars = environmentVars(m);
@@ -69,18 +71,19 @@ export function assertRuntime(env) {
     return m;
 }
 export async function assertDatabase(env) {
+    if(env.RUNTIME_TIER==='staging')return assertStagingDatabase(env);
     const m = assertRuntime(env);
     const row = await env.ORDERS_DB.prepare('SELECT instance_id FROM validation_environment WHERE id=1').first();
     requireSafe(row?.instance_id === m.instanceId, 'validation D1 marker missing or mismatched');
 }
 export function assertSquareDestination(env, target) {
-    if (env.RUNTIME_TIER !== 'sandbox-validation') return;
+    if (!['sandbox-validation','staging'].includes(env.RUNTIME_TIER)) return;
     assertRuntime(env);
     const u = new URL(target);
     requireSafe(u.protocol === 'https:' && u.hostname === 'connect.squareupsandbox.com' && !u.port && !u.username && !u.password && u.pathname.startsWith('/v2/'), 'production/unknown Square destination refused');
 }
 export function assertTestEmail(env, payload) {
-    if (env.RUNTIME_TIER !== 'sandbox-validation') return;
+    if (!['sandbox-validation','staging'].includes(env.RUNTIME_TIER)) return;
     const m = assertRuntime(env);
     requireSafe(payload.from === m.resendFrom && Array.isArray(payload.to) && payload.to.length === 1 && payload.to[0] === m.notificationEmail && !payload.cc && !payload.bcc && (!payload.reply_to || payload.reply_to === m.notificationEmail), 'email must target only the approved test recipient');
 }

@@ -1,0 +1,479 @@
+/* ==================================================
+   Header
+================================================== */
+
+.header {
+
+    position: fixed;
+
+    top: 0;
+    left: 0;
+
+    z-index: 1000;
+
+    width: 100%;
+    height: var(--header-height);
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    padding-inline: var(--side-padding);
+
+    background:
+        rgba(248, 245, 238, 0.90);
+
+    border-bottom:
+        1px solid rgba(34, 35, 31, 0.045);
+
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+
+    transition:
+        height 0.5s var(--ease-main),
+        background 0.5s ease,
+        border-color 0.5s ease,
+        box-shadow 0.5s ease;
+
+}
+
+
+/* スクロール後 */
+
+.header.scrolled {
+
+    height: var(--header-height-small);
+
+    background:
+        rgba(248, 245, 238, 0.97);
+
+    border-bottom-color:
+        rgba(34, 35, 31, 0.07);
+
+    box-shadow:
+        0 6px 25px rgba(20, 24, 18, 0.035);
+
+}
+
+
+/* ==================================================
+   Header Actions
+================================================== */
+
+.header-actions {
+
+    position: absolute;
+
+    top: 50%;
+    right: 14px;
+
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+
+    gap: 10px;
+
+    transform:
+        translateY(-50%);
+
+}
+
+
+/* ==================================================
+   Logo
+================================================== */
+
+.logo {
+
+    position: absolute;
+
+    top: 50%;
+    left: 50%;
+
+    z-index: 2;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+
+    color:
+        var(--color-text);
+
+    transform:
+        translate(-50%, -50%);
+
+    transition:
+        transform 0.5s var(--ease-main),
+        opacity 0.35s ease;
+
+}
+
+
+.logo:hover {
+
+    opacity: 0.72;
+
+}
+
+
+.header.scrolled .logo {
+
+    transform:
+        translate(-50%, -50%)
+        scale(0.84);
+
+}
+
+
+.logo-jp {
+
+    font-size: 0.95rem;
+    font-weight: 500;
+
+    line-height: 1;
+
+    letter-spacing: 0.25em;
+
+    white-space: nowrap;
+
+}
+
+
+.logo-en {
+
+    margin-top: 6px;
+
+    font-family:
+        var(--font-en);
+
+    font-size: 0.59rem;
+    font-weight: 400;
+
+    line-height: 1;
+
+    letter-spacing: 0.34em;
+
+    opacity: 0.62;
+
+}
+
+
+/* ==================================================
+   Menu Button
+================================================== */
+
+.menu-btn {
+
+    position: relative;
+
+    z-index: 3;
+
+    width: 23px;
+    height: 19px;
+
+    padding: 0;
+
+    border: 0;
+
+    background: transparent;
+
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+
+    cursor: pointer;
+
+}
+
+
+.menu-btn span {
+
+    display: block;
+
+    width: 100%;
+    height: 1px;
+
+    background:
+        var(--color-text);
+
+    transform-origin:
+        center;
+
+    transition:
+        transform 0.4s var(--ease-main),
+        opacity 0.25s ease;
+
+}
+
+
+/* 開いたとき */
+
+.menu-btn.active span:nth-child(1) {
+
+    transform:
+        translateY(8.5px)
+        rotate(45deg);
+
+}
+
+
+.menu-btn.active span:nth-child(2) {
+
+    opacity: 0;
+
+}
+
+
+.menu-btn.active span:nth-child(3) {
+
+    transform:
+        translateY(-8.5px)
+        rotate(-45deg);
+
+}
+
+
+/* ==================================================
+   Drawer Menu
+================================================== */
+
+.menu {
+
+    position: fixed;
+
+    top: 0;
+    right: 0;
+
+    z-index: 900;
+
+    width: min(82vw, 380px);
+    height: 100svh;
+
+    padding:
+        calc(var(--header-height) + 58px)
+        38px
+        45px;
+
+    background:
+        var(--color-bg-light);
+
+    display: flex;
+    flex-direction: column;
+
+    overflow-y: auto;
+
+    transform:
+        translateX(100%);
+
+    visibility: hidden;
+
+    transition:
+        transform 0.55s cubic-bezier(.76, 0, .24, 1),
+        visibility 0.55s;
+
+}
+
+
+.menu.open {
+
+    transform:
+        translateX(0);
+
+    visibility: visible;
+
+}
+
+
+.menu a {
+
+    position: relative;
+
+    display: block;
+
+    padding:
+        0 32px 20px 0;
+
+    margin-bottom:
+        28px;
+
+    border-bottom:
+        1px solid var(--color-line);
+
+    font-size:
+        0.82rem;
+
+    line-height:
+        1.8;
+
+    letter-spacing:
+        0.15em;
+
+    transition:
+        opacity 0.3s ease,
+        padding-left 0.35s var(--ease-main);
+
+}
+
+
+.menu a::after {
+
+    content: "→";
+
+    position: absolute;
+
+    top: 0;
+    right: 0;
+
+    font-family:
+        var(--font-en);
+
+    font-size:
+        1rem;
+
+    transition:
+        transform 0.35s var(--ease-main);
+
+}
+
+
+.menu a:hover {
+
+    padding-left:
+        7px;
+
+    opacity:
+        0.68;
+
+}
+
+
+.menu a:hover::after {
+
+    transform:
+        translateX(4px);
+
+}
+
+
+/* ==================================================
+   Menu Overlay
+================================================== */
+
+.menu-overlay {
+
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 800;
+
+    background:
+        rgba(18, 21, 16, 0.34);
+
+    opacity: 0;
+    visibility: hidden;
+
+    backdrop-filter:
+        blur(2px);
+
+    -webkit-backdrop-filter:
+        blur(2px);
+
+    transition:
+        opacity 0.45s ease,
+        visibility 0.45s ease;
+
+}
+
+
+.menu-overlay.open {
+
+    opacity: 1;
+    visibility: visible;
+
+}
+
+
+/* ==================================================
+   Tablet / PC
+================================================== */
+
+@media (min-width: 768px) {
+
+    .header-actions {
+
+        right:
+            var(--side-padding);
+
+        gap:
+            12px;
+
+    }
+
+    .menu-btn {
+
+        width:
+            27px;
+
+        height:
+            19px;
+
+    }
+
+
+    .menu-btn.active span:nth-child(1) {
+
+        transform:
+            translateY(9px)
+            rotate(45deg);
+
+    }
+
+
+    .menu-btn.active span:nth-child(3) {
+
+        transform:
+            translateY(-9px)
+            rotate(-45deg);
+
+    }
+
+
+    .logo-jp {
+
+        font-size:
+            1rem;
+
+    }
+
+
+    .logo-en {
+
+        font-size:
+            0.62rem;
+
+    }
+
+
+    .menu {
+
+        width:
+            min(420px, 38vw);
+
+        padding:
+            calc(var(--header-height) + 75px)
+            52px
+            55px;
+
+    }
+
+
+    .menu a {
+
+        font-size:
+            0.88rem;
+
+    }
+
+}

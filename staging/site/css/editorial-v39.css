@@ -1,0 +1,17 @@
+/* v39: identical overlay header behavior on product listing and detail pages */
+body:has(.v33-shop)>header.editorial-header{position:fixed!important;inset:0 0 auto 0!important;background:transparent!important;box-shadow:none!important;border:0!important;z-index:1000!important}
+body:has(.v33-shop)>header.editorial-header .logo,
+body:has(.v33-shop)>header.editorial-header nav a,
+body:has(.v33-shop)>header.editorial-header nav button{color:#fff!important}
+body:has(.v33-shop)>header.editorial-header .cart-count:not(.is-empty){background:#f3f0e8!important;color:#24372c!important}
+body:has(.v33-shop) .v33-scene-label{top:clamp(135px,20svh,200px)!important}
+body:has(.v33-shop) .v33-shop{height:calc(100svh - 26px)!important}
+/* Full-photo tap target, limited to visible botanical slide. */
+/* Preserve first slide in document flow so the BOTANICALS stage retains its height. */
+#botanicalTrack .v19-slide{position:absolute}
+#botanicalTrack .v19-slide:first-child{position:relative}
+#botanicalTrack .v39-botanical-link{position:absolute;inset:0;z-index:6;display:block;cursor:pointer;touch-action:pan-y}
+#botanicalTrack .v19-slide:not(.v24-active) .v39-botanical-link{pointer-events:none}
+#botanicalTrack .v19-slide.v24-active .v39-botanical-link:focus-visible{outline:3px solid #fff;outline-offset:-6px}
+@media(max-width:700px){body:has(.v33-shop) .v33-scene-label{top:clamp(125px,19svh,165px)!important}}
+@media(max-height:680px){body:has(.v33-shop) .v33-scene-label{top:112px!important}}

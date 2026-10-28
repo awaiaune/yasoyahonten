@@ -10,7 +10,7 @@ export async function guard(env){
  need(enabled(env),'商品管理は無効です。',404);
  if(production(env)){productionGrant(env,'read');await productionDatabase(env);return;}
  need(env.SQUARE_ENVIRONMENT==='sandbox','商品管理はSandbox専用です。',503);
- if(env.RUNTIME_TIER==='sandbox-validation') await assertDatabase(env);
+ if(['sandbox-validation','staging'].includes(env.RUNTIME_TIER)) await assertDatabase(env);
  else need(env.LOCAL_TEST_MODE==='1'&&env.LOCAL_SQUARE,'外部接続を許可しないローカル構成が必要です。',503);
  need(env.ORDERS_DB,'管理DBが未設定です。',503);
 }

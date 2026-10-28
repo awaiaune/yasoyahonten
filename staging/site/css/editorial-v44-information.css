@@ -1,0 +1,13 @@
+/* v44: informational content is visible without JavaScript.
+   Retain the accepted v43 typography, header, and footer. */
+body.v43-information main.v43-main,
+body.v43-information main.v43-main .contact,
+body.v43-information main.v43-main .legal-page,
+body.v43-information main.v43-main .privacy-page {
+  opacity:1!important;
+  visibility:visible!important;
+  transform:none!important;
+  display:block!important;
+}
+body.v43-information main.v43-main{position:relative;z-index:1}
+body.v43-information main.v43-main a{pointer-events:auto}
