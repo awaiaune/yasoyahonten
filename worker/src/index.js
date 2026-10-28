@@ -1,4 +1,18 @@
+import {checkoutRoute,checkoutCapabilities,CheckoutContractError} from './checkout-contract.js';
+import {production,productionPolicy,productionGrant,ProductionError,adaptProductionPurchase,adaptProductionPurchaseResponse} from './production-policy.js';
+import {assertProductionAdmin} from '../../production/access.js';
+const catalogEnabled=env=>managementEnabled(env)&&!production(env);
+const managementEffects=env=>managementEnabled(env)&&(!production(env)||env.PRODUCTION_MANAGEMENT_SCHEMA_READY==='1');
+import { ExternalPolicyError, externalPolicy, assertSquareRequest, assertCheckout, assertMail } from './external-policy.js';
+import { enabled as managementEnabled, guard as managementGuard, ManagementError, squareId as managedSquareId } from './management/domain.js';
+import { Management } from './management/service.js';
+import { loadCatalog, Store as ManagementStore } from './management/store.js';
+import { uploadImage, serveImage } from './management/images.js';
+import { renderPage } from './management/storefront.js';
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
+import { SANDBOX_CATALOG } from "../../validation/catalog.js";
+import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
+import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
 const JSON_HEADERS = {
     "Content-Type": "application/json; charset=utf-8",
@@ -9,24 +23,67 @@ const MAX_BODY_BYTES = 24_000;
 const MAX_ITEM_TYPES = 20;
 
 export default {
+    async scheduled(event,env,ctx) {
+        if(!managementEnabled(env))return;
+        if(!externalPolicy(env).cron)return;
+        await managementGuard(env);
+        const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
+        const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/management-monitor',{method:'POST',body:'{}'});
+        if(!r.ok)throw Error('Management watchdog requires review');
+    },
     async fetch(request, env, ctx) {
         const origin = request.headers.get("Origin") || "";
-        const allowedOrigins = parseAllowedOrigins(env.ALLOWED_ORIGINS);
+        const allowedOrigins = parseAllowedOrigins(production(env)&&new URL(request.url).pathname.startsWith('/api/admin/')?env.PRODUCTION_ADMIN_ORIGIN:env.ALLOWED_ORIGINS);
 
         if (request.method === "OPTIONS") {
             return corsResponse(null, 204, origin, allowedOrigins);
         }
 
+        let route;
+        try{route=checkoutRoute(request);request=route.request;}catch(error){return corsJson({error:{code:error.code,message:error.message}},error.status||400,origin,allowedOrigins);}
         const url = new URL(request.url);
 
         try {
+            const policy=externalPolicy(env);
+            if(url.pathname==='/api/checkout-capabilities'&&request.method==='GET')return corsJson(checkoutCapabilities(env,policy),200,origin,allowedOrigins);
+            if(production(env)&&url.pathname.startsWith('/api/admin/')){await assertProductionAdmin(request,env);productionGrant(env,'read');}
+            if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
+            if (managementEnabled(env)) {
+                if(!production(env)||/^\/api\/(admin\/(products|inventory|jobs|audit|images)(\/|$)|media\/)/.test(url.pathname))await managementGuard(env);
+                if (url.pathname.startsWith('/api/admin/images')) {
+                    await assertAdmin(request, env);
+                    if(origin && request.method!=='GET') assertAllowedOrigin(origin,allowedOrigins);
+                    if (request.method === 'POST' && url.pathname === '/api/admin/images') return corsJson(await uploadImage(request,env),200,origin,allowedOrigins);
+                    if (request.method === 'GET' && /^\/api\/admin\/images\/[a-f0-9]{64}$/.test(url.pathname)) return await serveImage(url.pathname.split('/').pop(),env,true);
+                    throw new ManagementError(405,'Method not allowed');
+                }
+                if (request.method==='GET' && /^\/api\/media\/[a-f0-9]{64}$/.test(url.pathname)) return await serveImage(url.pathname.split('/').pop(),env);
+                if (/^\/api\/admin\/(products|inventory|jobs|audit)(\/|$)/.test(url.pathname)) {
+                    await assertAdmin(request, env);
+                    if(origin && request.method!=='GET') assertAllowedOrigin(origin,allowedOrigins);
+                    if (!['GET','PUT','POST'].includes(request.method)) throw new ManagementError(405,'Method not allowed');
+                    const payload=request.method==='GET'?{}:await readJson(request);
+                    const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
+                    const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/management',{method:'POST',body:JSON.stringify({path:url.pathname,method:request.method,body:payload,actor:'authenticated-admin'})});
+                    return corsJson(await r.json(),r.status,origin,allowedOrigins);
+                }
+                if(catalogEnabled(env))await loadCatalog(env);
+                if(catalogEnabled(env)&&request.method==='GET' && !url.pathname.startsWith('/api/')) {const page=await renderPage(request,env);if(page)return page;}
+                if(catalogEnabled(env)&&request.method==='GET'&&url.pathname==='/api/catalog') return corsJson({products:await new ManagementStore(env).publicProducts()},200,origin,allowedOrigins);
+                if(catalogEnabled(env)&&request.method==='POST'&&['/api/inventory','/api/quote'].includes(url.pathname)) {
+                    assertAllowedOrigin(origin,allowedOrigins);const body=await readJson(request);
+                    const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
+                    const r=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/'+(url.pathname.endsWith('quote')?'managed-quote':'managed-stock'),{method:'POST',body:JSON.stringify(body)});
+                    return corsJson(await r.json(),r.status,origin,allowedOrigins);
+                }
+            }
             if (request.method === "GET" && url.pathname === "/api/health") {
                 return corsJson({
                     ok: true,
                     service: "YASOYA HONTEN PAYMENTS",
                     version: "2.0.0",
                     environment: env.SQUARE_ENVIRONMENT || "sandbox",
-                    emailConfigured: Boolean(env.RESEND_API_KEY && env.RESEND_FROM_EMAIL)
+                    emailConfigured: Boolean(resendKey(env) && env.RESEND_FROM_EMAIL)
                 }, 200, origin, allowedOrigins);
             }
 
@@ -42,7 +99,7 @@ export default {
 
                 const ids = [...new Set(rawIds.map((id) => String(id || "").trim()))];
                 const items = ids.map((id) => {
-                    const product = CATALOG[id];
+                    const product = catalogFor(env)[id];
                     if (!product || !product.active) {
                         throw new HttpError(400, "販売できない商品が含まれています。");
                     }
@@ -63,7 +120,7 @@ export default {
             if (request.method === "POST" && url.pathname === "/api/quote") {
     assertAllowedOrigin(origin, allowedOrigins);
     const body = await readJson(request);
-    const quote = buildQuote(body.items);
+    const quote = buildQuote(body.items, env);
 
     const inventory = await assertSquareInventoryAvailable(env, quote);
 
@@ -74,9 +131,12 @@ export default {
             }
 
             
-            if (request.method === "POST" && url.pathname === "/api/payments") {
+            if (request.method === "POST" && ["/api/payments", "/api/payments/status"].includes(url.pathname)) {
                 assertAllowedOrigin(origin, allowedOrigins);
-                const body = await readJson(request);
+                if(url.pathname==='/api/payments'&&managementEnabled(env)&&env.MANAGEMENT_CHECKOUT_PAUSED==='1')throw new HttpError(503,'新規注文を一時停止しています。既存注文の確認は継続できます。');
+                let body = await readJson(request);
+                if(route.version&&body.contractVersion!==undefined&&body.contractVersion!==1)throw new CheckoutContractError('CHECKOUT_CONTRACT_UNSUPPORTED','購入画面を更新してください。',426);
+                if(production(env)&&url.pathname==='/api/payments')body=adaptProductionPurchase(request,body,env);
                 if (!env.PURCHASE_COORDINATOR) {
                     throw new Error("PURCHASE_COORDINATOR binding is missing.");
                 }
@@ -84,7 +144,7 @@ export default {
                 // 「在庫確認→決済→在庫減算」が同時に走らないため、残り1点の二重販売を防ぎます。
                 const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
                 const stub = env.PURCHASE_COORDINATOR.get(id);
-                const coordinated = await stub.fetch("https://purchase.internal/pay", {
+                const coordinated = await stub.fetch(url.pathname.endsWith("/status") ? "https://purchase.internal/status" : "https://purchase.internal/pay", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(body)
@@ -93,11 +153,23 @@ export default {
                 if (!coordinated.ok) {
                     throw new HttpError(coordinated.status, result?.error?.message || "決済を完了できませんでした。");
                 }
-                return corsJson(result, 200, origin, allowedOrigins);
+                if(production(env)){const adapted=adaptProductionPurchaseResponse(result,coordinated.status,route.originalPath);return corsJson(adapted.body,adapted.status,origin,allowedOrigins);}
+                return corsJson(result, coordinated.status, origin, allowedOrigins);
             }
 
             if (url.pathname.startsWith("/api/admin/")) {
-                assertAdmin(request, env);
+                await assertAdmin(request, env);
+                if (url.pathname === "/api/admin/payment-attempts" || /^\/api\/admin\/payment-attempts\/[a-f0-9-]+\/recover$/.test(url.pathname)) {
+                    const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
+                    const stub = env.PURCHASE_COORDINATOR.get(id);
+                    const recovery = url.pathname.endsWith("/recover");
+                    if ((recovery && request.method !== "POST") || (!recovery && request.method !== "GET")) throw new HttpError(405, "Method not allowed.");
+                    const attemptId = recovery ? url.pathname.split("/")[4] : null;
+                    const response = await stub.fetch(`https://purchase.internal/${recovery ? "recover" : "warnings"}`, {
+                        method: "POST", body: JSON.stringify({ attemptId })
+                    });
+                    return corsJson(await response.json(), response.status, origin, allowedOrigins);
+                }
                 if (request.method === "GET" && url.pathname === "/api/admin/orders") {
                     const status = url.searchParams.get("status") || "pending";
                     return corsJson({ orders: await listOrders(env, status) }, 200, origin, allowedOrigins);
@@ -129,13 +201,13 @@ export default {
         } catch (error) {
             console.error(error);
 
-            const status = error instanceof HttpError ? error.status : 500;
-            const message = error instanceof HttpError
+            const status = error instanceof HttpError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 500;
+            const message = error instanceof HttpError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)
                 ? error.message
                 : "サーバーで問題が発生しました。";
 
             return corsJson(
-                { error: { message } },
+                { error: { message,...((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)?{code:error.code}:{}) } },
                 status,
                 origin,
                 allowedOrigins
@@ -144,7 +216,12 @@ export default {
     }
 };
 
-function buildQuote(rawItems) {
+function catalogFor(env) {
+    if (catalogEnabled(env)) { if(!env.MANAGED_CATALOG) throw new ManagementError(503,"公開商品情報が未読込です。"); return env.MANAGED_CATALOG; }
+    return env?.RUNTIME_TIER === "sandbox-validation" ? SANDBOX_CATALOG : CATALOG;
+}
+
+function buildQuote(rawItems, env) {
     if (!Array.isArray(rawItems) || rawItems.length === 0) {
         throw new HttpError(400, "カートが空です。");
     }
@@ -158,7 +235,7 @@ function buildQuote(rawItems) {
     for (const rawItem of rawItems) {
         const id = String(rawItem?.id || "").trim();
         const quantity = Number.parseInt(rawItem?.quantity, 10);
-        const product = CATALOG[id];
+        const product = catalogFor(env)[id];
 
         if (!product || !product.active) {
             throw new HttpError(400, "販売できない商品が含まれています。");
@@ -178,14 +255,15 @@ function buildQuote(rawItems) {
     }
 
     const items = [...quantities.entries()].map(([id, quantity]) => {
-        const product = CATALOG[id];
+        const product = catalogFor(env)[id];
 
         return {
             id,
             name: product.name,
             unitPrice: product.price,
             quantity,
-            lineTotal: product.price * quantity
+            lineTotal: product.price * quantity,
+            ...(production(env)?{squareVariationId:product.squareVariationId}:catalogEnabled(env)?{squareVariationId:product.squareVariationId,revision:product.revision}:{})
         };
     });
 
@@ -262,6 +340,12 @@ function validateContact(rawContact) {
     };
 }
 
+function squareToken(env) {
+    return env.RUNTIME_TIER === "sandbox-validation" ? env.SQUARE_SANDBOX_ACCESS_TOKEN : env.SQUARE_ACCESS_TOKEN;
+}
+function resendKey(env) {
+    return env.RUNTIME_TIER === "sandbox-validation" ? env.RESEND_VALIDATION_API_KEY : env.RESEND_API_KEY;
+}
 function squareBaseUrl(env) {
     return (env.SQUARE_ENVIRONMENT || "sandbox") === "production"
         ? "https://connect.squareup.com"
@@ -270,21 +354,25 @@ function squareBaseUrl(env) {
 
 
 function squareHeaders(env) {
-    if (!env.SQUARE_ACCESS_TOKEN) {
+    if (!squareToken(env)) {
         throw new Error("SQUARE_ACCESS_TOKEN is missing.");
     }
 
     return {
-        "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
+        "Authorization": `Bearer ${squareToken(env)}`,
         "Content-Type": "application/json",
         "Square-Version": env.SQUARE_API_VERSION || "2026-07-15"
     };
 }
 
 
-function getSquareVariationId(item) {
-    const product = CATALOG[item.id];
-    const variationId = String(product?.squareVariationId || "").trim();
+function getSquareVariationId(item, env) {
+    if(production(env)&&item.squareVariationId){managedSquareId(item.squareVariationId,env);return item.squareVariationId;}
+    if(Number.isSafeInteger(item.revision)&&item.revision>0&&item.squareVariationId&&env.SQUARE_ENVIRONMENT==='sandbox'){ managedSquareId(item.squareVariationId);return item.squareVariationId; }
+    if(catalogEnabled(env)) { const id=item.squareVariationId||env.MANAGED_CATALOG?.[item.id]?.squareVariationId; if(!id) throw new ManagementError(503,"Square対応情報がありません。"); return id; }
+    const product = catalogFor(env)[item.id];
+    const override = env?.RUNTIME_TIER === "sandbox-validation" ? JSON.parse(env.SQUARE_VARIATION_IDS || "{}") : null;
+    const variationId = String(override ? override[item.id] || "" : product?.squareVariationId || "").trim();
 
     if (!variationId || variationId.startsWith("SET_SQUARE_VARIATION_ID_")) {
         throw new Error(`Square在庫連携が未設定です: ${item.id}`);
@@ -294,6 +382,43 @@ function getSquareVariationId(item) {
 }
 
 
+async function squareFetch(env, url, options = {}) {
+    assertSquareDestination(env, url);
+    assertSquareRequest(env, url, options.method || "GET");
+    options = { ...options, redirect:'manual', signal: options.signal || AbortSignal.timeout(5000) };
+    if (env.LOCAL_SQUARE) {
+        if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Square binding is not allowed here.");
+        return env.LOCAL_SQUARE.fetch(url, options);
+    }
+    return fetch(url, options);
+}
+
+async function lookupSquarePayment(env, record) {
+    if (record.payment?.id) {
+        const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments/${encodeURIComponent(record.payment.id)}`, { headers: squareHeaders(env) });
+        if (!response.ok) throw new Error("Payment lookup unavailable");
+        return (await response.json()).payment;
+    }
+    // Square has no assumed 'retrieve by idempotency key' endpoint. Absence from this
+    // bounded scan is NOT proof of no charge: keep unknown and never charge again.
+    let cursor; const matches = []; const deadline = Date.now() + 5000;
+    for (let page = 0; page < 20; page++) {
+        if (Date.now() >= deadline) throw new Error("Payment reconciliation time budget exceeded");
+        const query = new URLSearchParams({ begin_time: new Date(Date.parse(record.createdAt) - 300000).toISOString(), limit: "100" });
+        if (cursor) query.set("cursor", cursor);
+        const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments?${query}`, { headers: squareHeaders(env), signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now()))) });
+        if (!response.ok) throw new Error("Payment reconciliation unavailable");
+        const result = await response.json();
+        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference));
+        cursor = result.cursor;
+        if (!cursor) {
+            if (matches.length > 1) throw new Error("Multiple matching payments");
+            return matches[0] || null;
+        }
+    }
+    throw new Error("Payment reconciliation scan incomplete");
+}
+
 async function retrieveSquareInventory(env, quote) {
     if (!env.SQUARE_LOCATION_ID) {
         throw new Error("SQUARE_LOCATION_ID is missing.");
@@ -301,10 +426,10 @@ async function retrieveSquareInventory(env, quote) {
 
     const requested = quote.items.map((item) => ({
         item,
-        variationId: getSquareVariationId(item)
+        variationId: getSquareVariationId(item, env)
     }));
 
-    const response = await fetch(
+    const response = await squareFetch(env,
         `${squareBaseUrl(env)}/v2/inventory/counts/batch-retrieve`,
         {
             method: "POST",
@@ -392,19 +517,21 @@ async function decrementSquareInventory({
     env,
     quote,
     orderReference,
-    paymentId
+    paymentId,
+    inventoryOperation
 }) {
+    if(externalPolicy(env).managementOnly)assertCheckout(env);
     if (!env.SQUARE_LOCATION_ID) {
         throw new Error("SQUARE_LOCATION_ID is missing.");
     }
 
-    const occurredAt = new Date().toISOString();
+    const occurredAt = inventoryOperation.occurredAt;
 
     const changes = quote.items.map((item) => ({
         type: "ADJUSTMENT",
         adjustment: {
             reference_id: `${orderReference}:${paymentId}`.slice(0, 255),
-            catalog_object_id: getSquareVariationId(item),
+            catalog_object_id: getSquareVariationId(item, env),
             from_state: "IN_STOCK",
             to_state: "SOLD",
             from_location_id: env.SQUARE_LOCATION_ID,
@@ -414,13 +541,13 @@ async function decrementSquareInventory({
         }
     }));
 
-    const response = await fetch(
+    const response = await squareFetch(env,
         `${squareBaseUrl(env)}/v2/inventory/changes/batch-create`,
         {
             method: "POST",
             headers: squareHeaders(env),
             body: JSON.stringify({
-                idempotency_key: `yh-inventory-${paymentId}`.slice(0, 128),
+                idempotency_key: inventoryOperation.key,
                 changes
             })
         }
@@ -434,20 +561,19 @@ async function decrementSquareInventory({
     ) {
         console.error("Square inventory adjustment error:", result);
 
-        throw new Error(
-            result?.errors?.[0]?.detail ||
-            result?.errors?.[0]?.code ||
-            "Square inventory adjustment failed."
-        );
+        const error = new Error("Square inventory adjustment failed.");
+        error.permanent = response.status === 409;
+        throw error;
     }
 
     return result;
 }
 
-async function createSquarePayment({ env, sourceId, quote, contact, orderReference }) {
+async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey }) {
+    if(externalPolicy(env).managementOnly)assertCheckout(env);
     const baseUrl = squareBaseUrl(env);
 
-    if (!env.SQUARE_ACCESS_TOKEN) {
+    if (!squareToken(env)) {
         throw new Error("SQUARE_ACCESS_TOKEN is missing.");
     }
 
@@ -457,7 +583,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
 
     const requestBody = {
         source_id: sourceId,
-        idempotency_key: crypto.randomUUID(),
+        idempotency_key: paymentKey,
         amount_money: {
             amount: quote.total,
             currency: quote.currency
@@ -486,10 +612,10 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
         requestBody.buyer_phone_number = normalizedPhone;
     }
 
-    const response = await fetch(`${baseUrl}/v2/payments`, {
+    const response = await squareFetch(env, `${baseUrl}/v2/payments`, {
         method: "POST",
         headers: {
-            "Authorization": `Bearer ${env.SQUARE_ACCESS_TOKEN}`,
+            "Authorization": `Bearer ${squareToken(env)}`,
             "Content-Type": "application/json",
             "Square-Version": env.SQUARE_API_VERSION || "2026-07-15"
         },
@@ -558,10 +684,17 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
 }
 
 async function sendResendEmail(env, payload, idempotencyKey) {
-    const response = await fetch("https://api.resend.com/emails", {
+    assertMail(env);
+    assertTestEmail(env, payload);
+    const transport = env.LOCAL_RESEND ? (url, options) => {
+        if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
+        return env.LOCAL_RESEND.fetch(url, options);
+    } : fetch;
+    const response = await transport("https://api.resend.com/emails", {
+        signal: AbortSignal.timeout(5000),
         method: "POST",
         headers: {
-            "Authorization": `Bearer ${env.RESEND_API_KEY}`,
+            "Authorization": `Bearer ${resendKey(env)}`,
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey.slice(0, 256)
         },
@@ -834,7 +967,7 @@ function corsHeaders(origin, allowedOrigins) {
         headers.set("Access-Control-Allow-Origin", origin);
         headers.set("Vary", "Origin");
         headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, Idempotency-Key");
         headers.set("Access-Control-Max-Age", "86400");
     }
 
@@ -868,6 +1001,7 @@ function escapeHtml(value) {
 
 
 async function ensureOrdersTable(env) {
+    if(production(env))return; // Existing production orders schema is never created or altered by a read request.
     if (!env.ORDERS_DB) throw new Error("ORDERS_DB binding is missing.");
     await env.ORDERS_DB.prepare(`CREATE TABLE IF NOT EXISTS orders (
         order_reference TEXT PRIMARY KEY,
@@ -895,6 +1029,10 @@ async function saveOrder(env, { payment, quote, contact, orderReference, invento
         .bind(orderReference, payment.id, payment.created_at || new Date().toISOString(), "pending",
             quote.subtotal, quote.shipping, quote.total, JSON.stringify(quote.items), JSON.stringify(contact), inventoryAdjusted ? 1 : 0)
         .run();
+    const row = await env.ORDERS_DB.prepare("SELECT payment_id FROM orders WHERE order_reference=?").bind(orderReference).first();
+    if (row?.payment_id !== payment.id) throw new Error("Order/payment projection conflict");
+    await env.ORDERS_DB.prepare("UPDATE orders SET inventory_adjusted=? WHERE order_reference=? AND payment_id=?")
+        .bind(inventoryAdjusted ? 1 : 0, orderReference, payment.id).run();
 }
 
 function rowToOrder(row) {
@@ -920,14 +1058,18 @@ async function markOrderShipped(env, ref, shippingMethod, trackingNumber) {
         .bind(shippingMethod, trackingNumber || null, new Date().toISOString(), ref).run();
 }
 
-function assertAdmin(request, env) {
-    if (!env.ADMIN_TOKEN) throw new Error("ADMIN_TOKEN secret is missing.");
+async function assertAdmin(request, env) {
+    const token = env.RUNTIME_TIER === "sandbox-validation" ? env.VALIDATION_ADMIN_TOKEN : env.ADMIN_TOKEN;
+    if (!token) throw new Error("ADMIN_TOKEN secret is missing.");
     const auth = request.headers.get("Authorization") || "";
-    if (auth !== `Bearer ${env.ADMIN_TOKEN}`) throw new HttpError(401, "管理者認証が必要です。");
+    if(auth.length>8192) throw new HttpError(401,"管理者認証が必要です。");
+    const encode=new TextEncoder();const [a,b]=await Promise.all([crypto.subtle.digest('SHA-256',encode.encode(auth)),crypto.subtle.digest('SHA-256',encode.encode(`Bearer ${token}`))]);
+    let mismatch=0;const x=new Uint8Array(a),y=new Uint8Array(b);for(let i=0;i<x.length;i++)mismatch|=x[i]^y[i];
+    if(mismatch) throw new HttpError(401, "管理者認証が必要です。");
 }
 
 async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
-    if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
+    if (!resendKey(env) || !env.RESEND_FROM_EMAIL) {
         throw new HttpError(503, "メール送信設定がありません。");
     }
 
@@ -977,42 +1119,105 @@ async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
 }
 
 export class PurchaseCoordinator {
-    constructor(ctx, env) { this.ctx = ctx; this.env = env; this.queue = Promise.resolve(); }
-    async fetch(request) {
-        const body = await request.json().catch(() => ({}));
-        const job = this.queue.then(() => this.process(body), () => this.process(body));
+    constructor(ctx, env) {
+        this.ctx = ctx; this.env = env; this.queue = Promise.resolve();
+        this.ledger = new PurchaseLedger(ctx.storage, {
+            location: env.SQUARE_LOCATION_ID,
+            validate: body => {
+                requireString(body.sourceId, "決済トークンがありません。", 500);
+                body.attemptId = validateAttemptId(body.attemptId);
+                const quote = buildQuote(body.items, env);
+                quote.items.sort((a, b) => a.id.localeCompare(b.id));
+                return { quote, stockKeys: quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`), contact: validateContact(body.contact) };
+            },
+            stockKeys: quote => quote.items.map(item => `${env.SQUARE_LOCATION_ID}:${getSquareVariationId(item, env)}`),
+            notify: async record => {
+                if(externalPolicy(env).managementOnly)assertMail(env);
+                if (!resendKey(env) || !env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL) return false;
+                await sendResendEmail(env, {
+                    from: env.RESEND_FROM_EMAIL, to: [env.ORDER_NOTIFICATION_EMAIL],
+                    subject: `【要確認】注文 ${record.orderReference}`,
+                    text: `注文番号: ${record.orderReference}\n状態: ${record.warning}\n対象: ${record.quote.items.map(i => i.id).join(", ")}\n再課金せず管理者APIで状況を確認してください。`
+                }, `purchase-review-${record.id}`);
+                return true;
+            },
+            reference: makeOrderReference,
+            stock: async quote => { if(managementEffects(env)){ const manager=new Management(env,this.ctx.storage);await manager.s.assertUnlocked(quote.items.map(i=>i.id));if(catalogEnabled(env))await manager.assertSalesCatalog(quote); } return assertSquareInventoryAvailable(env, quote); },
+            charge: (record, sourceId) => createSquarePayment({ env, ...record, sourceId }),
+            lookup: record => lookupSquarePayment(env, record),
+            decrement: async record => { if(externalPolicy(env).managementOnly)assertCheckout(env);return decrementSquareInventory({ env, ...record, paymentId: record.payment.id }); },
+            project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
+            email: async record => {
+                if(externalPolicy(env).managementOnly)assertMail(env);
+                if (resendKey(env) && env.RESEND_FROM_EMAIL) {
+                    this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
+                    return true;
+                }
+                return false;
+            }
+        });
+    }
+    management() {
+        const env=this.env;
+        const notify=resendKey(env)&&env.RESEND_FROM_EMAIL&&env.ORDER_NOTIFICATION_EMAIL?async(payload,key)=>{
+            await managementGuard(env);
+            await sendResendEmail(env,{from:env.RESEND_FROM_EMAIL,to:[env.ORDER_NOTIFICATION_EMAIL],
+                subject:'【管理同期・要確認】八草屋本店',
+                text:`管理同期ジョブ: ${payload.jobId}\n種類: ${payload.kind}\n対象: ${payload.resourceId}\n検出: ${payload.event}\n新しい操作IDで再送せず、管理画面で照合してください。`},key);
+            return true;
+        }:undefined;
+        return new Management(env,this.ctx.storage,{notify});
+    }
+    serialize(action,{catalog=true,management=false}={}) {
+        const guarded=async()=>{if(managementEnabled(this.env)&&(!production(this.env)||management)){
+            await managementGuard(this.env);
+            if(!this.managementStarted){try{await this.management().supervision.tick({run:false});this.managementStarted=true;}catch{console.error('Management startup scan requires watchdog review');}}
+            if(catalog&&catalogEnabled(this.env))await loadCatalog(this.env);
+        }return action();};
+        const job = this.queue.then(guarded, guarded);
         this.queue = job.catch(() => {});
         return job;
     }
-    async process(body) {
-        try {
-            const sourceId = requireString(body.sourceId, "決済トークンがありません。", 500);
-            const contact = validateContact(body.contact);
-            const quote = buildQuote(body.items);
-            const orderReference = makeOrderReference();
-            // このObject内のPromiseキューにより、購入処理全体を1件ずつ直列実行する。
-            await assertSquareInventoryAvailable(this.env, quote);
-            const payment = await createSquarePayment({ env: this.env, sourceId, quote, contact, orderReference });
-            if (payment.status !== "COMPLETED") throw new HttpError(502, "決済状態を確認できませんでした。お問い合わせください。");
-            let inventoryAdjusted = false;
+    async fetch(request) {
+        const body = await request.json().catch(() => ({}));
+        const path = new URL(request.url).pathname;
+        return this.serialize(async () => {
             try {
-                await decrementSquareInventory({ env: this.env, quote, orderReference, paymentId: payment.id });
-                inventoryAdjusted = true;
-            } catch (e) {
-                console.error("CRITICAL: Payment completed but inventory adjustment failed:", { paymentId: payment.id, orderReference, error: e });
+                const policy=externalPolicy(this.env);
+                if(path==='/pay')assertCheckout(this.env);
+                if((policy.readOnly||policy.managementOnly)&&['/recover','/status'].includes(path)) {
+                    const record=await this.ledger.read(validateAttemptId(body.attemptId));
+                    return Response.json({attemptId:body.attemptId,phase:record?.phase||'unknown',held:true,reason:policy.managementOnly?'SANDBOX_MANAGEMENT':'READ_ONLY'});
+                }
+                let result;
+                if(managementEnabled(this.env)&&path==='/management-monitor'){await this.management().recover();return Response.json({ok:true});}
+                if(managementEnabled(this.env)&&path==='/management') return Response.json(await this.management().handle(body.path,body.method,body.body,body.actor));
+                if(managementEnabled(this.env)&&['/managed-stock','/managed-quote'].includes(path)) {
+                    const manager=new Management(this.env,this.ctx.storage);
+                    if(path==='/managed-quote'){const quote=buildQuote(body.items,this.env);await manager.s.assertUnlocked(quote.items.map(i=>i.id));await manager.assertSalesCatalog(quote);await manager.assertNoPurchaseHold(quote.items.map(i=>i.id));return Response.json({...quote,inventory:await assertSquareInventoryAvailable(this.env,quote)});}
+                    if(!Array.isArray(body.ids)||!body.ids.length||body.ids.length>20)throw new ManagementError(400,'商品IDが正しくありません。');
+                    const catalog=catalogFor(this.env),ids=[...new Set(body.ids)];if(!ids.every(id=>catalog[id]))throw new ManagementError(400,'商品がありません。');
+                    const rows=await manager.inventory();return Response.json({inventory:ids.map(id=>{const r=rows.find(r=>r.id===id);return {id,name:catalog[id].name,availableQuantity:catalog[id].active&&!r?.held?(r?.quantity||0):0};})});
+                }
+                if (path === "/warnings") result = { attempts: await this.ledger.warnings() };
+                else if (path === "/status" || path === "/recover") {
+                    body.attemptId = validateAttemptId(body.attemptId);
+                    result = await this.ledger.recover(body.attemptId, path === "/recover");
+                } else {assertCheckout(this.env);result = await this.ledger.submit(body);}
+                return Response.json(result, { status: result.attemptId && !result.ok ? 202 : 200 });
+            } catch (error) {
+                const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 503;
+                return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)?error.code:undefined,message: status === 503 && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-            // 決済済み注文は、メールより先に受注DBへ永続化。
-            await saveOrder(this.env, { payment, quote, contact, orderReference, inventoryAdjusted });
-            if (this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) {
-                this.ctx.waitUntil(sendOrderEmails({ env: this.env, payment, quote, contact, orderReference }).catch(e => console.error("Order email error:", e)));
-            }
-            return Response.json({ ok:true, paymentId:payment.id, status:payment.status, amount:quote.total, orderReference, inventoryAdjusted, emailQueued:Boolean(this.env.RESEND_API_KEY && this.env.RESEND_FROM_EMAIL) });
-        } catch (error) {
-            console.error(error);
-            const status = error instanceof HttpError ? error.status : 500;
-            return Response.json({ error:{ message:error instanceof HttpError ? error.message : "サーバーで問題が発生しました。" } }, { status });
-        }
+        },{catalog:!['/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
     }
+    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEffects(this.env))await this.management().recover();} },{catalog:false}); }
+}
+function validateAttemptId(id) {
+    if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+        throw new HttpError(400, "注文処理番号がありません。画面を更新して確認してください。");
+    }
+    return id.toLowerCase();
 }
 
 class HttpError extends Error {
