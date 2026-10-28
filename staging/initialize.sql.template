@@ -1,2 +1,2 @@
--- NEW staging DB only. Replace both values with the dedicated staging values.
-INSERT INTO staging_environment VALUES(1,'REPLACE_WITH_NEW_STAGING_INSTANCE_UUID','REPLACE_WITH_NEW_STAGING_D1_ID');
+-- Run once, only on yasoya-v53-staging-orders AFTER staging migrations.
+INSERT INTO staging_environment VALUES(1,'853e7e9a-fbf1-4d88-94b6-16506a9f09a3','d16c9e56-076a-4470-8d78-4fcfbe32b4dd');

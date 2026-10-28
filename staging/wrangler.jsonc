@@ -1,24 +1,70 @@
 {
- "name":"yasoya-v53-staging",
- "main":"worker.js",
- "compatibility_date":"2026-08-04",
- "workers_dev":false,
- "preview_urls":false,
- "routes":[{"pattern":"staging.awaiaune.com","custom_domain":true}],
- "assets":{"directory":".generated/site","binding":"ASSETS","run_worker_first":true},
- "d1_databases":[{"binding":"ORDERS_DB","database_name":"yasoya-v53-staging-orders","database_id":"REPLACE_WITH_NEW_STAGING_D1_ID","migrations_dir":"migrations"}],
- "r2_buckets":[{"binding":"PRODUCT_IMAGES","bucket_name":"yasoya-v53-staging-images"}],
- "durable_objects":{"bindings":[{"name":"PURCHASE_COORDINATOR","class_name":"StagingPurchaseCoordinator"}]},
- "migrations":[{"tag":"v1-v53-staging","new_sqlite_classes":["StagingPurchaseCoordinator"]}],
- "vars":{
-  "RUNTIME_TIER":"staging","STAGING_WORKER_NAME":"yasoya-v53-staging",
-  "STAGING_DATABASE_ID":"REPLACE_WITH_NEW_STAGING_D1_ID","STAGING_INSTANCE_ID":"REPLACE_WITH_NEW_STAGING_INSTANCE_UUID",
-  "SITE_URL":"https://staging.awaiaune.com","ALLOWED_ORIGINS":"https://staging.awaiaune.com",
-  "SQUARE_ENVIRONMENT":"sandbox","SQUARE_LOCATION_ID":"REPLACE_WITH_SANDBOX_LOCATION_ID",
-  "SQUARE_SANDBOX_APPLICATION_ID":"REPLACE_WITH_SANDBOX_APPLICATION_ID","SQUARE_API_VERSION":"2026-07-15",
-  "SQUARE_ACCESS_MODE":"READ_WRITE","VALIDATION_CHECKOUT_ENABLED":"0","VALIDATION_MAIL_ENABLED":"0","VALIDATION_CRON_ENABLED":"0",
-  "MANAGEMENT_ENABLED":"1","MANAGEMENT_CHECKOUT_PAUSED":"0","MANAGEMENT_STOCK_WRITES":"single-writer",
-  "ACCESS_TEAM_DOMAIN":"REPLACE_WITH_ACCESS_TEAM.cloudflareaccess.com","ACCESS_AUDIENCE":"REPLACE_WITH_STAGING_ACCESS_AUD",
-  "STAGING_ADMIN_EMAIL":"REPLACE_WITH_APPROVED_TEST_EMAIL"
- }
+  "name": "yasoya-v53-staging",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "staging.awaiaune.com",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": ".generated/site",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "ORDERS_DB",
+      "database_name": "yasoya-v53-staging-orders",
+      "database_id": "d16c9e56-076a-4470-8d78-4fcfbe32b4dd",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "yasoya-v53-staging-images"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PURCHASE_COORDINATOR",
+        "class_name": "StagingPurchaseCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-v53-staging",
+      "new_sqlite_classes": [
+        "StagingPurchaseCoordinator"
+      ]
+    }
+  ],
+  "vars": {
+    "RUNTIME_TIER": "staging",
+    "STAGING_WORKER_NAME": "yasoya-v53-staging",
+    "STAGING_DATABASE_ID": "d16c9e56-076a-4470-8d78-4fcfbe32b4dd",
+    "STAGING_INSTANCE_ID": "853e7e9a-fbf1-4d88-94b6-16506a9f09a3",
+    "SITE_URL": "https://staging.awaiaune.com",
+    "ALLOWED_ORIGINS": "https://staging.awaiaune.com",
+    "SQUARE_ENVIRONMENT": "sandbox",
+    "SQUARE_LOCATION_ID": "REPLACE_WITH_SANDBOX_LOCATION_ID",
+    "SQUARE_SANDBOX_APPLICATION_ID": "REPLACE_WITH_SANDBOX_APPLICATION_ID",
+    "SQUARE_API_VERSION": "2026-07-15",
+    "SQUARE_ACCESS_MODE": "READ_WRITE",
+    "VALIDATION_CHECKOUT_ENABLED": "0",
+    "VALIDATION_MAIL_ENABLED": "0",
+    "VALIDATION_CRON_ENABLED": "0",
+    "MANAGEMENT_ENABLED": "1",
+    "MANAGEMENT_CHECKOUT_PAUSED": "0",
+    "MANAGEMENT_STOCK_WRITES": "single-writer",
+    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_ACCESS_TEAM.cloudflareaccess.com",
+    "ACCESS_AUDIENCE": "REPLACE_WITH_STAGING_ACCESS_AUD",
+    "STAGING_ADMIN_EMAIL": "REPLACE_WITH_APPROVED_TEST_EMAIL"
+  }
 }
