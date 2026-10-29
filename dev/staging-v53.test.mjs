@@ -27,11 +27,40 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': Access-protected v5
  const photo=await mf.dispatchFetch(env.SITE_URL+'/api/admin/images',{method:'POST',headers:{...headers,'Content-Type':'image/jpeg'},body:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});assert.equal(photo.status,200);const image=await photo.json();
  const name='v53-test';await api('/api/admin/products/'+name,'PUT',{operationId:crypto.randomUUID(),expectedVersion:0,slug:name,name:'v53 新商品',description:'テスト説明 <script>unsafe</script>',sortOrder:0,images:[image.id],variants:[{id:'v53-test-10g',name:'通常',amount:'10g',price:980,maxQuantity:10,active:true}]});
  assert.equal((await api('/api/admin/products/'+name+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:1})).state,'done');
+ assert.equal((await api('/api/admin/products/'+name+'/site','POST',{operationId:crypto.randomUUID(),expectedVersion:2,status:'published'})).siteOnly,true);
  const home=await req('/');assert.match(home.headers.get('X-Robots-Tag'),/noindex/);assert((await home.text()).includes('/products/v53-test.html'));
  const shop=await (await req('/products.html')).text();assert(shop.includes('v33-scene'));assert(shop.includes('v53 新商品'));assert(shop.includes('shop-refinement-v53.css'));assert(!shop.includes('products/lemonbalm.html'));
  const detail=await (await req('/products/v53-test.html')).text();assert(detail.includes('v30-gallery'));assert(detail.includes('&lt;script&gt;unsafe'));assert(detail.includes('data-add-to-cart'));assert(detail.includes('/api/media/'+image.id));assert.equal((await req('/api/media/'+image.id)).status,200);assert(!detail.includes('<script>unsafe'));
  const inventory=(await api('/api/admin/inventory')).inventory[0];await api('/api/admin/inventory/'+inventory.id,'POST',{operationId:crypto.randomUUID(),kind:'count',quantity:3,reason:'Sandbox試験',expectedQuantity:inventory.quantity,observedAt:inventory.observedAt});assert.equal((await api('/api/admin/inventory')).inventory[0].quantity,3);
  const pay=await req('/api/v1/payments','POST',{contractVersion:1,attemptId:crypto.randomUUID(),sourceId:'offline-card',contact:{...contact,email:env.STAGING_ADMIN_EMAIL},items:[{id:'v53-test-10g',quantity:1}]});assert.equal(pay.status,checkout==='1'?200:503);if(checkout==='1'){assert.equal((await pay.json()).ok,true);assert.equal((await api('/api/admin/inventory')).inventory[0].quantity,2);}
+ // Regression: two registered products survive a blocked Square job. Presentation
+ // changes publish without any Square calls; commercial edits keep their guards.
+ const second='second-herb';await api('/api/admin/products/'+second,'PUT',{operationId:crypto.randomUUID(),expectedVersion:0,slug:second,name:'別の商品',description:'保持する説明',images:[image.id],variants:[{id:second+'-10g',name:'通常',price:750,amount:'10g',maxQuantity:10,active:true}]});
+ await api('/api/admin/products/'+second+'/site','POST',{operationId:crypto.randomUUID(),expectedVersion:1});
+ assert((await (await req('/products/'+second+'.html')).text()).includes('購入準備中'));
+ let p=(await api('/api/admin/products/'+name)).product;
+ square.failBefore='/v2/catalog/batch-upsert';
+ const blocked=await api('/api/admin/products/'+name+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:p.version});assert.equal(blocked.state,'retry');
+ p=(await api('/api/admin/products/'+name)).product;assert.equal(p.blockingJobs[0].id,blocked.id);assert.match(p.blockingJobs[0].error,/Square/);
+ const lockCount=(await db.prepare('SELECT COUNT(*) AS n FROM mg_locks').first()).n;
+ const edited={...p.draft,name:'変更済みの名前',description:'新しい説明 <安全>',alt:'変更画像説明',images:[]};
+ const callCount=square.calls.length;
+ const saved=await api('/api/admin/products/'+name,'PUT',{...edited,slug:p.slug,expectedVersion:p.version,operationId:crypto.randomUUID()});
+ const published=await api('/api/admin/products/'+name+'/site','POST',{expectedVersion:saved.version,operationId:crypto.randomUUID()});assert.equal(published.siteOnly,true);assert.equal(square.calls.length,callCount,'presentation publication must not contact Square');
+ const updated=await (await req('/products/'+name+'.html')).text();assert(updated.includes('変更済みの名前'));assert(updated.includes('新しい説明 &lt;安全&gt;'));assert(!updated.includes('/api/media/'+image.id));
+ assert((await (await req('/products.html')).text()).includes('変更済みの名前'));assert((await (await req('/')).text()).includes('変更済みの名前'));
+ assert((await (await req('/products/'+second+'.html')).text()).includes('別の商品'));
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,2);
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_images').first()).n,1,'removing a draft image never deletes its stored asset');
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_locks').first()).n,lockCount,'site publication must not release Square locks');
+ p=(await api('/api/admin/products/'+name)).product;
+ assert.equal((await req('/api/admin/products/'+name,'PUT',{...p.draft,variants:p.draft.variants.map(v=>({...v,price:1200})),slug:p.slug,expectedVersion:p.version,operationId:crypto.randomUUID()})).status,409);
+ square.failBefore=null;assert.equal((await api('/api/admin/jobs/'+blocked.id+'/retry','POST',{})).state,'done');
+ assert((await (await req('/products/'+name+'.html')).text()).includes('変更済みの名前'),'late Square completion must not restore old site content');
+ p=(await api('/api/admin/products/'+name)).product;
+ const changedPrice=await api('/api/admin/products/'+name,'PUT',{...p.draft,variants:p.draft.variants.map(v=>({...v,price:1200})),slug:p.slug,expectedVersion:p.version,operationId:crypto.randomUUID()});
+ assert.equal((await req('/api/admin/products/'+name+'/site','POST',{expectedVersion:changedPrice.version,operationId:crypto.randomUUID()})).status,409,'unsynchronized price cannot be published');
+ assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,2);
  const config=await (await req('/js/store-config.js')).text();assert(!config.includes('production'));assert(config.includes('sandbox-sq0idb-'));
  
  if(checkout==='0'){
@@ -44,9 +73,15 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': Access-protected v5
   await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
   await page.getByRole('button',{name:'＋ 商品登録',exact:true}).click();await page.getByLabel('商品名',{exact:true}).fill('ブラウザ追加商品');await page.getByLabel('URL識別子',{exact:true}).fill('browser-v53');await page.locator('[name=vname]').fill('通常');
   await page.locator('#imageFiles').setInputFiles({name:'staging.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});await idle();
-  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'保存内容を公開',exact:true}).click();await idle();
-  await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-top h1').waitFor();assert.equal(await page.locator('.v30-top h1').innerText(),'ブラウザ追加商品');
-  await page.goto(env.SITE_URL+'/products.html');assert(await page.locator('.v35-all-card').filter({hasText:'ブラウザ追加商品'}).count());assert.deepEqual(errors,[]);
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
+  // Edit an already published product through the actual admin form, preserving
+  // the other registered products and the uploaded image.
+  await page.getByLabel('商品名',{exact:true}).fill('ブラウザ編集済み商品');
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
+  await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
+  await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-top h1').waitFor();assert.equal(await page.locator('.v30-top h1').innerText(),'ブラウザ編集済み商品');
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
+  await page.goto(env.SITE_URL+'/products.html');assert(await page.locator('.v35-all-card').filter({hasText:'ブラウザ編集済み商品'}).count());assert.deepEqual(errors,[]);
  }
 assert(!calls.includes('connect.squareup.com'));assert.equal((await api('/api/admin/orders')).orders.length,checkout==='1'?1:0);
 });

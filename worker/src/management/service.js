@@ -2,11 +2,11 @@ import {production,productionGrant,productionPolicy} from '../production-policy.
 import {externalPolicy,assertSquareWrite} from '../external-policy.js';
 import { importLegacy } from './importer.js';
 import { CATALOG } from '../catalog.js';
-import {publishSite} from './site-publication.js';
+import {publishSite,independentPublication,sameVariants} from './site-publication.js';
 import { Store } from './store.js';
 import { Square } from './square.js';
 import { Supervision } from './supervision.js';
-import { need, draft, identifier, operation, integer, text, digest, now, json, squareId } from './domain.js';
+import { need, ManagementError, draft, identifier, operation, integer, text, digest, now, json, squareId } from './domain.js';
 export class Management {
  constructor(env,storage,services={}){this.env=env;this.storage=storage;this.s=new Store(env);this.square=new Square(env);this.supervision=new Supervision(this,services);}
  async command(id,fingerprint){const previous=await this.s.one('SELECT * FROM mg_commands WHERE id=?',[id]);if(!previous)return null;need(previous.fingerprint===fingerprint,'同じ操作IDの内容を変更できません。',409);return JSON.parse(previous.result_json);}
@@ -16,7 +16,7 @@ export class Management {
   const p=await this.s.product(id);need((p?.version||0)===input.expectedVersion,'別の画面で更新されています。再読込してください。',409);
   const slug=identifier(input.slug);need(!p||p.slug===slug,'既存商品のURLは変更できません。',409);
   const old=p?.draft.variants||[];need(old.every(v=>data.variants.some(n=>n.id===v.id)),'既存バリエーションは削除せず販売停止にしてください。');
-  await this.s.assertUnlocked([...old,...data.variants].map(v=>v.id));
+  if(this.env.RUNTIME_TIER!=='staging'||!p||!sameVariants(p.draft,data))await this.s.assertUnlocked([...old,...data.variants].map(v=>v.id));
   for(const v of data.variants){const row=await this.s.one('SELECT product_id FROM mg_variants WHERE id=?',[v.id]);need(!row||row.product_id===id,'別商品で使用中の識別子です。',409);}
   for(const image of data.images)need(await this.s.one('SELECT id FROM mg_images WHERE id=?',[image]),'画像を先にアップロードしてください。');
   const revision=(p?.draft_revision||0)+1,version=(p?.version||0)+1,result={id,version,revision};const at=now();
@@ -157,14 +157,14 @@ export class Management {
     updates.push(['UPDATE mg_inventory_operations SET after_quantity=?,state=? WHERE id=?',[quantity,'done',id]],['INSERT INTO mg_stock_snapshot VALUES(?,?,?) ON CONFLICT(variant_id) DO UPDATE SET quantity=excluded.quantity,observed_at=excluded.observed_at',[j.resource_id,quantity,now()]]);
    }else{
     updates.push(...result.mappings.map(m=>this.mappingInsert(m)));
-    if(production(this.env)&&this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1')updates.push(['UPDATE mg_products SET version=version+1,updated_at=? WHERE id=?',[now(),j.resource_id]]);
+    if(independentPublication(this.env))updates.push(['UPDATE mg_products SET version=version+1,updated_at=? WHERE id=?',[now(),j.resource_id]]);
     else updates.push(['UPDATE mg_products SET published_revision=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?',[p.revision,p.targetStatus,p.data.sortOrder,now(),j.resource_id]]);
    }
    updates.push(["UPDATE mg_jobs SET state='done',last_error=NULL,updated_at=? WHERE id=?",[now(),id]],['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('system','job_completed',j.resource_id,{job:id,kind:j.kind}));
    await this.s.batch(updates);
   }catch(error){
    const review=error.status===409||error.status===422||j.attempts>=7;const state=review?'review':'retry';
-   await this.s.run('UPDATE mg_jobs SET state=?,last_error=?,next_due=?,updated_at=? WHERE id=?',[state,error.status?'同期内容・競合を確認してください。':'通信または保存に失敗しました。固定IDで再試行します。',Date.now()+Math.min(3600000,15000*2**j.attempts),now(),id]);
+   await this.s.run('UPDATE mg_jobs SET state=?,last_error=?,next_due=?,updated_at=? WHERE id=?',[state,error instanceof ManagementError?error.message:'通信または保存に失敗しました。固定IDで再試行します。',Date.now()+Math.min(3600000,15000*2**j.attempts),now(),id]);
    if(j.kind==='stock')await this.s.run('UPDATE mg_inventory_operations SET state=? WHERE id=?',[state,id]);
   }
  }
@@ -174,14 +174,15 @@ export class Management {
   const j=await this.s.one("SELECT state FROM mg_jobs WHERE resource_id=? AND kind IN ('publish','state') ORDER BY rowid DESC LIMIT 1",[p.id]);
   const maps=await this.s.all('SELECT m.variant_id FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[p.id]);
   const policy=externalPolicy(this.env);
-  return {...p,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
-   source:policy.source,...(production(this.env)?{capabilities:{...productionPolicy(this.env),sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1'&&productionPolicy(this.env).draft}}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
+  const blockingJobs=await this.s.all('SELECT DISTINCT l.job_id AS id,j.kind,j.state,j.last_error AS error,j.updated_at AS updatedAt FROM mg_locks l JOIN mg_variants v ON v.id=l.variant_id LEFT JOIN mg_jobs j ON j.id=l.job_id WHERE v.product_id=?',[p.id]);
+  return {...p,blockingJobs,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
+   source:policy.source,...(this.env.RUNTIME_TIER==='staging'?{capabilities:{draft:true,images:true,sitePublish:true,catalog:!policy.readOnly,inventory:!policy.readOnly}}:{}),...(production(this.env)?{capabilities:{...productionPolicy(this.env),sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1'&&productionPolicy(this.env).draft}}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
    useConfiguredLinks:this.env.RUNTIME_TIER==='sandbox-validation'&&p.draft.variants.every(v=>Boolean(this.square.expectedLink(v.id)))};
  }
  async products(){return Promise.all((await this.s.products()).map(p=>this.productView(p)));}
  async handle(path,method,body,actor){
   if(path==='/api/admin/products/import'&&method==='POST'){need(!production(this.env),'本番の既存商品は実照合した下書きと対応表で導入してください。',409);return importLegacy(this,actor);}
-  if(path==='/api/admin/products'&&method==='GET')return {products:await this.products(),...(production(this.env)?{source:'square-production',capabilities:productionPolicy(this.env)}:{})};
+  if(path==='/api/admin/products'&&method==='GET')return {products:await this.products(),...(this.env.RUNTIME_TIER==='staging'?{source:'square-sandbox',capabilities:{draft:true,images:true,sitePublish:true,catalog:!externalPolicy(this.env).readOnly,inventory:!externalPolicy(this.env).readOnly}}:{}),...(production(this.env)?{source:'square-production',capabilities:productionPolicy(this.env)}:{})};
   if(path==='/api/admin/inventory'&&method==='GET')return {inventory:await this.inventory()};
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
   if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),monitoring:await this.supervision.status()};
