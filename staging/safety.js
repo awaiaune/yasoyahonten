@@ -1,6 +1,9 @@
 // Independent remote staging boundary; never accepts a production binding.
+export class StagingSetupError extends Error {
+ constructor(code){super(code);this.code=code;}
+}
 export function assertStaging(env){
- const need=(v,m)=>{if(!v)throw Error('Staging configuration rejected: '+m);};
+ const need=(v,m)=>{if(!v)throw new StagingSetupError('SETUP_'+m.toUpperCase().replace(/[^A-Z0-9]+/g,'_'));};
  need(env.RUNTIME_TIER==='staging'&&env.SQUARE_ENVIRONMENT==='sandbox','Sandbox only');
  need(env.STAGING_WORKER_NAME==='yasoya-v53-staging','dedicated Worker');
  need(env.SITE_URL==='https://staging.awaiaune.com'&&env.ALLOWED_ORIGINS===env.SITE_URL,'dedicated origin');
@@ -18,6 +21,6 @@ export function assertStaging(env){
 }
 export async function assertStagingDatabase(env){
  const m=assertStaging(env);const row=await env.ORDERS_DB.prepare('SELECT instance_id,database_id FROM staging_environment WHERE id=1').first();
- if(row?.instance_id!==m.instanceId||row?.database_id!==env.STAGING_DATABASE_ID)throw Error('Staging D1 marker mismatch');
+ if(row?.instance_id!==m.instanceId||row?.database_id!==env.STAGING_DATABASE_ID)throw new StagingSetupError('D1_MARKER_MISMATCH');
  return m;
 }
