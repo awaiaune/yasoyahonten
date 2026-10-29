@@ -7,7 +7,7 @@ const json=x=>JSON.stringify(x).replaceAll('<','\\u003c');
 export async function renderV53(request,env){
  const u=new URL(request.url),match=u.pathname.match(/^\/products\/([a-z0-9-]+)\.html$/);
  if(!match&&!['/','/index.html','/products.html'].includes(u.pathname))return null;
- const products=await new Store(env).publicProducts(),p=match?products.find(p=>p.slug===match[1]):null;
+ const allProducts=await new Store(env).publicProducts(),products=allProducts.filter(p=>p.status==='published'),p=match?allProducts.find(p=>p.slug===match[1]):null;
  if(match&&!p)return new Response('商品がありません。',{status:404});
  const template=new URL(request.url);if(match)template.pathname='/products/lemonbalm.html';
  const asset=await env.ASSETS.fetch(new Request(template));if(asset.status!==200)return asset;
