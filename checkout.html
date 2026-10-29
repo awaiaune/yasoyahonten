@@ -501,7 +501,7 @@
                     <button
                         class="checkout-submit"
                         id="paymentButton"
-                        type="submit">
+                        type="submit" disabled>
                         PAY NOW
                     </button>
 
@@ -512,6 +512,8 @@
                         role="alert"
                         aria-live="polite">
                     </p>
+                    <button type="button" id="checkPaymentStatus" hidden>処理状況を確認</button>
+                    <button type="button" id="refreshCheckout">購入画面を更新</button>
 
                 </form>
 
@@ -669,10 +671,10 @@ document.addEventListener("DOMContentLoaded", () => {
     </script>
 
     <script src="js/script.js"></script>
-    <script src="js/store-config.js"></script>
+    <script src="js/store-config.js?release=checkout-v1-20261027"></script>
     <script src="js/cart.js"></script>
     <script src="js/cart-drawer.js"></script>
-    <script src="js/checkout.js"></script>
+    <script src="js/checkout-v1.js?release=checkout-v1-20261027"></script>
 
 </body>
 
