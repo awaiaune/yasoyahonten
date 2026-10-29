@@ -1,0 +1,8 @@
+/* v53 markup stays intact. Only guard dynamic names and multiple variants. */
+.v53-managed-product .v30-product-line>div{min-width:0}
+.v53-managed-product .v30-product-line strong{overflow-wrap:anywhere}
+.v53-managed-product .v30-price{flex-shrink:0}
+.v53-managed-product .v30-cart-row .v30-cart-button{min-width:0}
+.v53-managed-product .v30-top h1{overflow-wrap:anywhere;text-wrap:balance}
+.v53-managed-product .v53-variant-purchase+.v53-variant-purchase{margin-top:20px}
+.v53-managed-product .v30-purchase{overflow-y:auto;overscroll-behavior:contain}

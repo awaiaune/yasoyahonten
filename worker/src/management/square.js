@@ -27,7 +27,7 @@ export class Square {
   const options={method,redirect:'manual',signal:AbortSignal.timeout(8000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json','Square-Version':'2026-07-15'},...(body?{body:JSON.stringify(body)}:{})};
   const r=this.env.LOCAL_SQUARE?await this.env.LOCAL_SQUARE.fetch(new Request(url,options)):await fetch(url,options);
   const data=await r.json().catch(()=>({}));
-  if(!r.ok){const conflict=r.status===409||data.errors?.some(e=>['VERSION_MISMATCH','CATALOG_VERSION_MISMATCH'].includes(e.code));throw new ManagementError(conflict?409:(r.status>=400&&r.status<500&&r.status!==429?422:503),conflict?'Square側が変更されています。自動上書きを停止しました。':'Square同期に失敗しました。');}
+  if(!r.ok){const conflict=r.status===409||data.errors?.some(e=>['VERSION_MISMATCH','CATALOG_VERSION_MISMATCH'].includes(e.code));const error=new ManagementError(conflict?409:(r.status>=400&&r.status<500&&r.status!==429?422:503),conflict?'Square側が変更されています。自動上書きを停止しました。':'Square同期に失敗しました。');error.upstreamStatus=r.status;error.squareCode=/^[A-Z0-9_]{1,80}$/.test(data.errors?.[0]?.code||'')?data.errors[0].code:'UNKNOWN';throw error;}
   return data;
  }
  async assertUniqueSku(id,sku){
@@ -41,7 +41,7 @@ export class Square {
   need(matches.length===1&&matches[0].status==='ACTIVE'&&matches[0].country==='JP'&&matches[0].currency==='JPY','Sandbox Locationの状態・国・通貨が一致しません。書き込みを停止しました。',409);
  }
  async assertNewSkusAvailable(product,maps){
-  if(!production(this.env)&&!externalPolicy(this.env).managementOnly)return;
+  if(!production(this.env)&&!externalPolicy(this.env).managementOnly&&this.env.RUNTIME_TIER!=='staging')return;
   const missing=product.variants.filter(v=>!maps.some(m=>m.variant_id===v.id));if(!missing.length)return;
   const skus=new Set(missing.map(v=>v.id)),seen=new Set();let cursor;
   for(let page=0;page<100;page++){
@@ -90,6 +90,18 @@ export class Square {
    const n=Number(c.quantity);need(Number.isSafeInteger(n)&&n>=0,'在庫数を安全に扱えません。',409);result.set(c.catalog_object_id,n);
   }
   return result;
+ }
+ async findCreatedItem(body){
+  const sent=body?.batches?.[0]?.objects?.[0],skus=sent?.item_data?.variations?.map(v=>v.item_variation_data?.sku);
+  need(sent?.id?.startsWith('#')&&skus?.length&&skus.every(Boolean)&&new Set(skus).size===skus.length,'作成時のSKU証跡がありません。自動照合できません。',409);
+  const matches=new Map(),seen=new Set();let cursor;
+  for(let page=0;page<100;page++){
+   const data=await this.request('/v2/catalog/list?types=ITEM'+(cursor?'&cursor='+encodeURIComponent(cursor):''));
+   for(const item of data.objects||[])if(!item.is_deleted&&item.type==='ITEM'&&item.item_data?.variations?.some(v=>skus.includes(v.item_variation_data?.sku)))matches.set(item.id,item);
+   if(!data.cursor){need(matches.size===1,'作成済みItemを一意に確認できません。SKUの欠落・重複を確認してください。',409);return [...matches.values()][0];}
+   need(typeof data.cursor==='string'&&!seen.has(data.cursor),'Square一覧の照合が不完全です。',503);seen.add(data.cursor);cursor=data.cursor;
+  }
+  need(false,'Square一覧の確認上限を超えました。',503);
  }
  async object(id){squareId(id,this.env);return (await this.request('/v2/catalog/object/'+id)).object;}
  catalogBody(product,maps,key,imageIds=[]){

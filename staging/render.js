@@ -14,7 +14,10 @@ export async function renderV53(request,env){
  let r=new HTMLRewriter();
  if(p){
   const gallery=p.images.map((id,i)=>`<figure class="v30-slide ${i===0?'is-active':''}" data-index="${i}" aria-hidden="${i!==0}"><img src="/api/media/${id}" alt="${escape(p.alt)}"><figcaption class="v30-caption"><span>${i+1}</span></figcaption></figure>`).join('');
-  r=r.on('title',{element:e=>e.setInnerContent(p.name+'｜八草屋本店')})
+  r=r.on('.v30-product',{element:e=>e.setAttribute('class','v30-product v53-managed-product')})
+   .on('head',{element:e=>e.append('<link rel="stylesheet" href="/css/managed-product.css">',{html:true})})
+   .on('body',{element:e=>e.append('<script src="/js/managed-product.js"></script>',{html:true})})
+   .on('title',{element:e=>e.setInnerContent(p.name+'｜八草屋本店')})
    .on('meta[name="description"]',{element:e=>e.setAttribute('content',p.description.replace(/<[^>]*>/g,'').slice(0,160))})
    .on('link[rel="canonical"]',{element:e=>e.setAttribute('href',u.origin+href(p))})
    .on('script[type="application/ld+json"]',{element:e=>e.setInnerContent(json({'@context':'https://schema.org','@type':'Product',name:p.name,description:p.description,url:u.origin+href(p)}),{html:true})})
@@ -23,7 +26,10 @@ export async function renderV53(request,env){
    .on('.v30-top h1',{element:e=>e.setInnerContent(p.name)})
    .on('.v30-current',{element:e=>e.setInnerContent('1')})
    .on('.v30-dots',{element:e=>e.setInnerContent(p.images.map((_,i)=>`<button type="button" data-go="${i}" aria-label="画像${i+1}" aria-current="${i===0}"></button>`).join(''),{html:true})})
-   .on('.v30-purchase',{element:e=>e.setInnerContent(`<div class="v30-product-line"><span class="v30-overline">${escape(p.name)}</span></div>`+p.variants.map(v=>`<div class="product-cart-area"><span class="v30-price">${escape(v.name)} ${escape(v.amount)} / ¥${v.price.toLocaleString('ja-JP')}</span><div class="v30-cart-row"><label class="v30-qty">数量<select class="product-quantity" id="qty-${escape(v.id)}">${Array.from({length:v.maxQuantity},(_,i)=>`<option>${i+1}</option>`).join('')}</select></label><button type="button" data-add-to-cart data-quantity-selector="#qty-${escape(v.id)}" class="product-cart-button v30-cart-button" data-product-id="${escape(v.id)}" data-product-name="${escape(p.name+' '+v.amount)}" data-product-price="${v.price}" ${p.status!=='published'||!v.active||!p.checkoutVariantIds?.includes(v.id)?'disabled data-site-disabled="true"':''}>${p.status==='published'&&v.active?(p.checkoutVariantIds?.includes(v.id)?'カートに入れる':'購入準備中'):'販売停止'}</button></div></div>`).join(''),{html:true})})
+   .on('.v30-purchase',{element:e=>e.setInnerContent(p.variants.map(v=>{
+    const available=p.status==='published'&&v.active&&p.checkoutVariantIds?.includes(v.id);
+    return `<div class="v53-variant-purchase"><div class="v30-product-line"><div><span class="v30-overline">JAPANESE BOTANICALS${v.amount?' · '+escape(v.amount):''}</span><strong>${escape(p.name)}${p.variants.length>1?' / '+escape(v.name):''}</strong></div><span class="v30-price">¥${v.price.toLocaleString('ja-JP')}<small> 税込</small></span></div><div class="v30-cart-row"><label class="v30-qty">数量<select class="product-quantity" id="qty-${escape(v.id)}" name="quantity">${Array.from({length:v.maxQuantity??10},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select></label><button type="button" data-add-to-cart data-quantity-selector="#qty-${escape(v.id)}" class="product-cart-button v30-cart-button" data-product-id="${escape(v.id)}" data-product-name="${escape(p.name+' '+(v.amount||''))}" data-product-price="${v.price}" ${available?'':'disabled data-site-disabled="true"'}>${available?'ADD TO CART <span>↗</span>':p.status!=='published'||!v.active?'販売停止':'購入準備中'}</button></div></div>`;
+   }).join(''),{html:true})})
    .on('.v30-below',{element:e=>e.setInnerContent(`<div><span>ABOUT</span><p style="white-space:pre-line">${escape(p.description)}</p></div>`,{html:true})});
  }else{
   const scenes=products.map((p,i)=>`<div class="v33-scene ${i===0?'is-active':''}" aria-hidden="${i!==0}" data-product-href="${href(p)}">${img(p)}<div class="v33-scene-shade"></div><div class="v33-scene-label"><span class="v33-kicker">BOTANICALS</span><h1>${escape(p.name)}</h1><p>${p.status==='stopped'?'販売停止':'¥'+Math.min(...p.variants.map(v=>v.price))}</p></div></div>`).join('');

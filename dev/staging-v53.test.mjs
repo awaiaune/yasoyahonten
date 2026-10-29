@@ -46,6 +46,8 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  square.failBefore='/v2/catalog/batch-upsert';
  const blocked=await api('/api/admin/products/'+name+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:p.version});assert.equal(blocked.state,'retry');
  p=(await api('/api/admin/products/'+name)).product;assert.equal(p.blockingJobs[0].id,blocked.id);assert.match(p.blockingJobs[0].error,/Square/);
+ const beforeCheck=square.calls.length;const syncCheck=await api('/api/admin/products/'+name+'/sync-check','POST',{});assert.equal(syncCheck.connection.ok,true);assert.equal(syncCheck.jobs[0].state,'retry');assert(syncCheck.variants[0].checks.price);assert(square.calls.slice(beforeCheck).every(p=>p==='/v2/locations'||p.startsWith('/v2/catalog/object/')||p==='/v2/catalog/list'||p==='/v2/inventory/counts/batch-retrieve'));
+ assert.equal((await req('/api/admin/products/'+name+'/publish','POST',{expectedVersion:p.version,operationId:crypto.randomUUID()})).status,409);
  const lockCount=(await db.prepare('SELECT COUNT(*) AS n FROM mg_locks').first()).n;
  const edited={...p.draft,name:'変更済みの名前',description:'新しい説明 <安全>',alt:'変更画像説明',images:[]};
  const callCount=square.calls.length;
@@ -110,18 +112,29 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  assert.equal((await api('/api/admin/jobs')).jobs.find(j=>j.id===unresolved.id).lockCount,1);
  square.failBefore=null;
  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,2);
+ // A lost creation response has no local Item IDs. Find only its original SKUs,
+ // verify the immutable request, then persist mappings without another upsert.
+ let secondProduct=(await api('/api/admin/products/'+second)).product;square.loseAfter='/v2/catalog/batch-upsert';
+ const createdUnknown=await api('/api/admin/products/'+second+'/publish','POST',{expectedVersion:secondProduct.version,operationId:crypto.randomUUID()});assert.equal(createdUnknown.state,'retry');
+ await db.prepare("UPDATE mg_jobs SET state='review' WHERE id=?").bind(createdUnknown.id).run();
+ const beforeDiscovery=square.calls.length;const discovered=await api('/api/admin/products/'+second+'/sync-check','POST',{});
+ assert.equal(discovered.variants[0].discovered,true);assert(discovered.variants[0].sku);
+ assert.equal((await api('/api/admin/jobs/'+createdUnknown.id+'/reconcile','POST',{})).state,'done');
+ assert(square.calls.slice(beforeDiscovery).every(p=>p==='/v2/locations'||p.startsWith('/v2/catalog/object/')||p==='/v2/catalog/list'||p==='/v2/inventory/counts/batch-retrieve'));
  const config=await (await req('/js/store-config.js')).text();assert(!config.includes('production'));assert(config.includes('sandbox-sq0idb-'));
  
  if(checkout==='0'){
   const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,serviceWorkers:'block'});
-  await context.route('**/*',async route=>{const r=route.request();if(new URL(r.url()).origin!==env.SITE_URL)return route.abort();const body=r.postDataBuffer();const response=await mf.dispatchFetch(r.url(),{method:r.method(),headers:{...r.headers(),'Cf-Access-Jwt-Assertion':token},...(body?{body}:{})});return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});});
+  await context.route('**/*',async route=>{const r=route.request();if(new URL(r.url()).pathname==='/__v53_reference'){let html=await readFile(new URL('../staging/.generated/site/products/lemonbalm.html',import.meta.url),'utf8');html=html.replaceAll('LEMON BALM','ブラウザ編集済み商品').replaceAll('乾燥レモンバーム','ブラウザ編集済み商品').replaceAll(' · 10g','');return route.fulfill({contentType:'text/html',body:html});}if(new URL(r.url()).origin!==env.SITE_URL)return route.abort();const body=r.postDataBuffer();const response=await mf.dispatchFetch(r.url(),{method:r.method(),headers:{...r.headers(),'Cf-Access-Jwt-Assertion':token},...(body?{body}:{})});return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});});
   const page=await context.newPage(),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
   const idle=()=>page.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
   await page.goto(env.SITE_URL+'/admin/');await page.getByLabel('管理トークン',{exact:true}).fill(env.VALIDATION_ADMIN_TOKEN);await page.getByRole('button',{name:'管理画面を開く'}).click();await page.locator('#app').waitFor({state:'visible'});await idle();
   await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
   await page.getByRole('button',{name:'変更済みの名前を編集',exact:true}).click();
   assert((await page.locator('#editorSyncStatus').textContent()).includes('要確認'));
+  await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
+  assert((await page.locator('#syncDiagnosticSummary').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticSummary').textContent()).includes('価格・通貨'));
   await page.getByLabel('商品名',{exact:true}).fill('保留中でも実機相当の編集');
   await page.getByLabel('表示順',{exact:true}).fill('7');
   const beforeBrowser=square.calls.length;
@@ -145,7 +158,21 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   await page.getByLabel('商品名',{exact:true}).fill('ブラウザ編集済み商品');
   await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
   await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
+  await page.getByRole('button',{name:'Squareへ同期（サイト公開は別）',exact:true}).click();await idle();
+  const browserProduct=(await api('/api/admin/products')).products.find(p=>p.slug==='browser-v53');const browserMap=await db.prepare('SELECT variation_id FROM mg_mappings WHERE variant_id=?').bind(browserProduct.draft.variants[0].id).first();assert(browserMap);square.counts.set(browserMap.variation_id,5);
   await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-top h1').waitFor();assert.equal(await page.locator('.v30-top h1').innerText(),'ブラウザ編集済み商品');
+  const geometry=()=>page.evaluate(()=>Object.fromEntries(['.v30-top','.v30-product-line','.v30-price','.v30-qty select','.v30-cart-button'].map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return [selector,{x:r.x,y:r.y,width:r.width,height:r.height}];})));
+  for(const viewport of [{width:360,height:640},{width:390,height:844},{width:768,height:1024},{width:1440,height:900}]){
+   await page.setViewportSize(viewport);await page.goto(env.SITE_URL+'/__v53_reference');await page.locator('.v30-cart-button').waitFor();const original=await geometry();
+   await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button:enabled').waitFor();const generated=await geometry();
+   for(const selector of Object.keys(original))for(const key of ['x','y','width','height'])assert(Math.abs(original[selector][key]-generated[selector][key])<2,`${viewport.width}: ${selector} ${key}: ${original[selector][key]} vs ${generated[selector][key]}`);
+   assert(generated['.v30-product-line'].y+generated['.v30-product-line'].height<=generated['.v30-qty select'].y,'name/price must not overlap quantity');
+   assert(generated['.v30-qty select'].x+generated['.v30-qty select'].width<generated['.v30-cart-button'].x,'quantity and cart hit targets must not overlap');
+  }
+  await page.setViewportSize({width:390,height:844});await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button:enabled').waitFor();
+  await page.locator('.v30-qty select').selectOption('2');await page.screenshot({path:'/tmp/v53-managed-product-mobile.png',fullPage:false});const button=page.locator('.v30-cart-button');const box=await button.boundingBox();await button.click({position:{x:box.width-12,y:box.height/2}});
+  assert.equal(await page.evaluate(()=>window.YasoyaCart.read()[0].quantity),2);assert.equal(await page.evaluate(()=>window.YasoyaCart.read()[0].id),browserProduct.draft.variants[0].id);
+  await page.screenshot({path:'/tmp/v53-managed-mobile.png',fullPage:false});
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
   await page.goto(env.SITE_URL+'/products.html');assert(await page.locator('.v35-all-card').filter({hasText:'ブラウザ編集済み商品'}).count());assert.deepEqual(errors,[]);
  }

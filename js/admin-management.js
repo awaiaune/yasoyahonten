@@ -133,9 +133,36 @@
     drawSyncStatus();
     if(current.source==='square-sandbox'&&current.capabilities?.sitePublish)$('stopProduct').closest('details').querySelector('.hint').textContent='サイト公開とSquare同期は別操作です。価格・販売設定を確認できない場合は前回公開値を維持して表示情報だけ公開します。販売停止すると一覧から非表示になり、サイトへ公開すると再開できます。';
     if(current.capabilities&&(current.source==='square-production'||current.capabilities.sitePublish)){const c=current.capabilities;$('saveProduct').disabled=!c.draft;$('imageFiles').disabled=!c.images;for(const id of ['publishProduct','stopProduct','archiveProduct'])$(id).disabled=!(c.catalog||c.sitePublish);$('publishProduct').textContent=c.sitePublish?'サイトへ公開（Square変更なし）':'Squareと同期して公開';$('linkProduct').disabled=!c.draft;$('linkProduct').textContent=current.source==='square-production'?'既存本番ID・SKUを照合':'既存Sandbox IDを関連付け';}else{$('imageFiles').disabled=false;$('linkProduct').textContent='既存Sandbox IDを関連付け';}
-    let sync=$('syncSquareProduct');if(!sync){sync=document.createElement('button');sync.id='syncSquareProduct';sync.type='button';sync.textContent='Squareへ同期（サイト公開は別）';$('publishProduct').after(sync);sync.onclick=()=>{if(confirm('Squareの商品情報を変更します。サイト公開は別操作です。同期しますか？'))work(()=>action('square-publish'),'editorMessage');};}sync.hidden=!current.capabilities?.sitePublish;sync.disabled=!current.capabilities?.catalog;
+    let sync=$('syncSquareProduct');if(!sync){sync=document.createElement('button');sync.id='syncSquareProduct';sync.type='button';sync.textContent='Squareへ同期（サイト公開は別）';$('publishProduct').after(sync);sync.onclick=()=>{if(confirm('Squareの商品情報を変更します。サイト公開は別操作です。同期しますか？'))work(()=>action('square-publish'),'editorMessage');};}sync.hidden=!current.capabilities?.sitePublish;sync.disabled=!current.capabilities?.catalog||Boolean(current.blockingJobs?.length);
+    if(current.source==='square-sandbox'&&current.capabilities?.sitePublish)syncDiagnostics();
     $('variantList').innerHTML = current.draft.variants.map((v,i) => `<fieldset data-id="${esc(v.id)}"><legend>バリエーション ${i+1}</legend><label>バリエーション名<input name="vname" maxlength="120" value="${esc(v.name)}" required placeholder="例：乾燥ハーブ 10g"></label><div class="form-grid"><label>価格（円）<input name="price" type="number" inputmode="numeric" min="1" max="10000000" value="${v.price}" required></label><label>内容量<input name="amount" maxlength="120" value="${esc(v.amount||'')}" placeholder="例：10g"></label></div><div class="form-grid"><label>購入上限<input name="max" type="number" inputmode="numeric" min="1" max="10" value="${v.maxQuantity??10}" required></label><label class="checkbox-label"><input name="active" type="checkbox" ${v.active!==false ? 'checked' : ''}>販売対象</label></div></fieldset>`).join('');
     drawImages(); message('editorMessage'); message('photoUploadMessage'); if ($('photoDiagnosticDetails')) $('photoDiagnosticDetails').hidden = true; if ($('productDiagnosticDetails')) { $('productDiagnosticDetails').hidden = true; $('productDiagnosticReport').value = ''; }
+  }
+  function syncDiagnostics(){
+    let panel=$('syncDiagnosticPanel');if(!panel){
+      panel=document.createElement('section');panel.id='syncDiagnosticPanel';
+      const button=document.createElement('button');button.type='button';button.textContent='同期状況を確認（読取のみ）';
+      const summary=document.createElement('p');summary.id='syncDiagnosticSummary';summary.setAttribute('role','status');
+      const report=document.createElement('pre');report.id='syncDiagnosticReport';report.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';
+      const actions=document.createElement('div');actions.id='syncDiagnosticActions';
+      panel.append(button,summary,report,actions);$('editorSyncStatus').after(panel);
+      button.onclick=()=>work(async()=>{
+        const result=await data('/api/admin/products/'+current.id+'/sync-check',{method:'POST',body:'{}'});
+        summary.textContent=!result.connection.ok?'Squareへの読み取り接続に失敗しました。下の原因・次の操作を確認してください。':!result.connection.locationFound||!result.connection.locationActive?'対象Sandbox Locationが存在しないか無効です。下の接続結果を確認してください。':result.jobs.length?'既存ジョブ・ロックが残っています。新規同期は開始していません。':result.variants.some(v=>!v.mapped||Object.values(v.checks||{}).includes(false))?'Square対応に未確認・不一致があります。下のchecksのfalseを確認してください。':'Square接続・対応情報を確認しました。';
+        const labels={sandbox:'Sandbox環境',location:'Location',itemId:'商品ID',variationId:'Variation ID',parent:'親子関係',skuPresent:'SKU',skuUnique:'SKU重複',notDeleted:'削除状態',name:'バリエーション名',price:'価格・通貨',tracking:'在庫追跡',sellable:'販売可能状態',present:'Location販売設定',catalogVersion:'Square更新バージョン'};
+        for(const job of result.jobs)summary.textContent+=' ／ '+(statusNames[job.state]||job.state)+'：'+(job.error||'記録されたエラーなし')+'。次：'+job.nextAction;
+        for(const variant of result.variants){const failed=Object.entries(variant.checks||{}).filter(([,ok])=>!ok).map(([key])=>labels[key]||key);if(failed.length)summary.textContent+=' ／ '+variant.variantId+'の不一致：'+failed.join('・');if(variant.nextAction)summary.textContent+=' ／ '+variant.nextAction;}
+        if(result.connection.ok&&!result.skuCheck?.complete)summary.textContent+=' ／ SKU重複の全件照合は未確認です。確認できるまで対応表を変更しないでください。';
+        if(result.discovery)summary.textContent+=' ／ '+result.discovery.reason;
+        report.textContent=JSON.stringify(result,null,2);actions.replaceChildren();
+        for(const job of result.jobs)if(['review','done'].includes(job.state)){
+          const reconcile=document.createElement('button');reconcile.type='button';reconcile.textContent='このジョブを読み取り照合：'+job.id;
+          reconcile.onclick=()=>work(async()=>{await data('/api/admin/jobs/'+job.id+'/reconcile',{method:'POST',body:'{}'});await loadProducts();current=structuredClone(products.find(p=>p.id===current.id));draw();message('editorMessage','照合が一致したため完了を記録し、ロックを解除しました。Squareへの再送・在庫更新はしていません。');},'editorMessage');actions.append(reconcile);
+        }
+      },'editorMessage');
+    }
+    panel.querySelector('button').disabled=!current.version;
+    $('syncDiagnosticSummary').textContent='商品ごとの接続・Square対応・保留ジョブを読み取り確認できます。';$('syncDiagnosticReport').textContent='';$('syncDiagnosticActions').replaceChildren();
   }
   function open(p) { if (busy) return; current = structuredClone(p); setDirty(false); $('imageFiles').value = ''; draw(); $('productEditor').showModal(); $('productEditor').scrollTop = 0; gallery.select(0,false); }
   function newProduct() { open({...(stagingCapabilities?{source:'square-sandbox',capabilities:stagingCapabilities}:{}),...(productionCapabilities?{source:'square-production',capabilities:productionCapabilities}:{}),id:crypto.randomUUID(),slug:'',version:0,status:'draft',draft:{name:'',description:'',alt:'',sortOrder:0,images:[],variants:[{id:crypto.randomUUID(),name:'',amount:'',price:980,maxQuantity:10,active:true}]}}); }

@@ -3,6 +3,7 @@ import {externalPolicy,assertSquareWrite} from '../external-policy.js';
 import { importLegacy } from './importer.js';
 import { CATALOG } from '../catalog.js';
 import {publishSite,independentPublication} from './site-publication.js';
+import {inspectSync} from './sync-diagnostics.js';
 import { Store } from './store.js';
 import { Square } from './square.js';
 import { Supervision } from './supervision.js';
@@ -75,6 +76,7 @@ export class Management {
   operation(input.operationId);const old=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[input.operationId]);if(old){const q=JSON.parse(old.payload_json);need(old.kind==='publish'&&old.resource_id===id&&q.expectedVersion===input.expectedVersion,'操作IDが別の内容に使われています。',409);return this.job(old.id);}
   const p=await this.s.product(id);need(p&&p.version===input.expectedVersion,'商品が更新されています。再読込してください。',409);
   if(production(this.env))for(const v of p.draft.variants)need(!CATALOG[v.id]||v.price===CATALOG[v.id].price,'既存公開サイトの価格切替は未実装です。価格変更を公開できません。',409);
+  if(this.env.RUNTIME_TIER==='staging'){const locks=await this.s.locked(p.draft.variants.map(v=>v.id));need(!locks.length,'既存の同期・在庫ロックがあります。新しい同期は開始していません。「同期状況を確認（読取のみ）」で実行中・再試行待ち・要確認を確認してください。',409);await this.square.assertWritableLocation();}
   const maps=await this.s.all('SELECT m.* FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[id]);
   for(const v of p.draft.variants)need(!CATALOG[v.id]||maps.some(m=>m.variant_id===v.id),'既存商品はSandbox IDを関連付けてから公開してください。',409);
   return this.queue('publish',id,{expectedVersion:p.version,revision:p.draft_revision,data:p.draft,maps,targetStatus:'published'},input.operationId,actor,p.draft.variants.map(v=>v.id));
@@ -117,7 +119,7 @@ export class Management {
   const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');if(j.state==='done'){if(this.env.RUNTIME_TIER==='staging'){const proof=j.result_json&&JSON.parse(j.result_json);need(j.kind==='stock'?proof?.applied===true:Array.isArray(proof?.mappings)&&proof.mappings.length>0,'成功証跡がないためロックを解除できません。',409);await this.s.batch([['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('authenticated-admin','completed_lock_released',j.resource_id,{job:id})]);}return this.job(id);}
   need(j.state==='review','通常の再試行を使ってください。',409);const p=JSON.parse(j.payload_json);let result;
   if(j.kind==='stock'){need(j.result_json,'在庫操作の成功証跡がありません。Square側履歴の手動確認が必要です。',409);const count=(await this.square.count([p.mapping.variation_id])).get(p.mapping.variation_id);need(count===p.target,'在庫が一致しません。上書きせず停止しました。',409);result=JSON.parse(j.result_json);}
-  else {const known=j.result_json?JSON.parse(j.result_json).mappings:p.maps;need(known?.length,'Square Item IDが不明です。自動照合できません。',409);const item=await this.square.object(known[0].item_id);const body=j.body_json?JSON.parse(j.body_json):null;const mappings=this.square.verifyCatalog(item,p.data,body?.batches[0].objects[0].item_data.image_ids,p.targetStatus,body?.batches[0].objects[0].item_data.variations);for(const old of known){const m=mappings.find(m=>m.variant_id===old.variant_id);need(m?.variation_id===old.variation_id&&(this.env.RUNTIME_TIER!=='staging'||m.item_id===old.item_id),'Square IDが一致しません。',409);}result={mappings};}
+  else {const known=j.result_json?JSON.parse(j.result_json).mappings:p.maps;const body=j.body_json?JSON.parse(j.body_json):null;need(known?.length||this.env.RUNTIME_TIER==='staging'&&body,'Square Item IDが不明です。自動照合できません。',409);const item=known?.length?await this.square.object(known[0].item_id):await this.square.findCreatedItem(body);const mappings=this.square.verifyCatalog(item,p.data,body?.batches[0].objects[0].item_data.image_ids,p.targetStatus,body?.batches[0].objects[0].item_data.variations);for(const old of known||[]){const m=mappings.find(m=>m.variant_id===old.variant_id);need(m?.variation_id===old.variation_id&&(this.env.RUNTIME_TIER!=='staging'||m.item_id===old.item_id),'Square IDが一致しません。',409);}result={mappings};}
   if(this.env.RUNTIME_TIER==='staging'){
    const updates=j.kind==='stock'?[
     ['UPDATE mg_inventory_operations SET after_quantity=?,state=? WHERE id=?',[p.target,'done',id]],
@@ -197,10 +199,10 @@ export class Management {
   if(path==='/api/admin/inventory'&&method==='GET')return {inventory:await this.inventory()};
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
   if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),orphanLocks:await this.s.all('SELECT l.variant_id AS variantId,l.job_id AS jobId FROM mg_locks l LEFT JOIN mg_jobs j ON j.id=l.job_id WHERE j.id IS NULL'),monitoring:await this.supervision.status()};
-  let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link|site))?$/);
+  let m=path.match(/^\/api\/admin\/products\/([a-z0-9-]+)(?:\/(publish|state|link|site|sync-check))?$/);
   if(m){const id=identifier(m[1]);if(method==='GET'&&!m[2]){const product=await this.s.product(id);need(product,'商品がありません。',404);return {product:await this.productView(product)};}
    if(method==='PUT'&&!m[2])return this.save(id,body,actor);
-   if(method==='POST'&&m[2])return m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
+   if(method==='POST'&&m[2])return m[2]==='sync-check'?inspectSync(this,id):m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
   }
   m=path.match(/^\/api\/admin\/inventory\/([a-z0-9-]+)$/);if(m&&method==='POST')return this.adjust(m[1],body,actor);
   m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile)$/);if(m&&method==='POST')return this[m[2]](operation(m[1]));
