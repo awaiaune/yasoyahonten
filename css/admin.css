@@ -90,3 +90,10 @@ input,textarea,select,button{scroll-margin-block:96px}
 #syncDiagnosticReport h4{margin:0 0 6px;font-size:13px}
 #syncDiagnosticReport p{margin:4px 0;font-size:13px;line-height:1.7}
 #syncDiagnosticReport details{margin-top:8px;font-size:12px}
+
+/* Diagnosis is a full-width form section, never a narrow status-row flex item. */
+#productEditor .editor-status{flex-wrap:wrap;min-width:0}
+#editorSyncStatus{display:block;flex:0 0 100%;min-width:0;overflow-wrap:anywhere}
+#productForm>#syncDiagnosticPanel{display:block;width:100%;min-width:0;box-sizing:border-box}
+#syncDiagnosticReport,#syncDiagnosticActions{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
+#syncDiagnosticPanel button{width:100%;box-sizing:border-box}

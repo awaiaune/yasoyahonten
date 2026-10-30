@@ -134,16 +134,23 @@ export class Management {
  }
  async adoptCurrent(id){
   need(this.env.RUNTIME_TIER==='staging','ステージング専用です。',403);
-  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j?.state==='review'&&j.kind==='publish','要確認の商品同期だけが対象です。',409);
+  let stage='read-proof';
+  try{
+  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);if(j?.state==='cancelled'&&JSON.parse(j.result_json||'{}').resolution==='version-fenced-current-state-adopted'){stage='read-result';return await this.job(id);}
+  need(j?.state==='review'&&j.kind==='publish','要確認の商品同期だけが対象です。',409);
   const proof=await catalogProof(this,j);need(proof.adoption?.available,proof.adoption?.reason||proof.message,409);
-  const payload=JSON.parse(j.payload_json);await this.assertNoPurchaseHold(payload.data.variants.map(v=>v.id));
-  await this.s.batch([...proof.adoptionMappings.map(m=>this.mappingInsert(m)),
+  const payload=JSON.parse(j.payload_json);stage='check-holds';await this.assertNoPurchaseHold(payload.data.variants.map(v=>v.id));
+  stage='commit';await this.s.batch([...proof.adoptionMappings.map(m=>this.mappingInsert(m)),
    ["UPDATE mg_jobs SET state='cancelled',result_json=?,last_error=?,updated_at=? WHERE id=?",[json({resolution:'version-fenced-current-state-adopted',versions:proof.versionInfo}),'成功扱いにせず、読取確認した現在値を採用して取消しました。',now(),id]],
    ['DELETE FROM mg_locks WHERE job_id=?',[id]],
    ["UPDATE mg_job_notifications SET state='cancelled' WHERE job_id=?",[id]],
    ['UPDATE mg_products SET version=version+1 WHERE id=?',[j.resource_id]],
    this.s.audit('authenticated-admin','job_cancelled_after_version_fence',j.resource_id,{job:id,squareWrite:false})]);
-  return this.job(id);
+  stage='read-result';return await this.job(id);
+  }catch(error){
+   if(error instanceof ManagementError){error.code='ADMIN_ADOPTION_REJECTED';error.actionStage=stage;throw error;}
+   const failure=new ManagementError(503,'旧同期取消の'+({'read-proof':'読み取り照合','check-holds':'購入保留確認',commit:'D1保存','read-result':'結果取得'}[stage])+'で処理結果を確認できません。ジョブ状態を読み取り確認してください。');failure.code='ADMIN_ADOPTION_FAILED';failure.actionStage=stage;throw failure;
+  }
  }
  async retry(id){
   if(!production(this.env))assertSquareWrite(this.env);const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');need(j.state!=='cancelled','取消済みの同期は再送できません。',409);need(j.state!=='review','競合・期限切れは自動再送できません。照合が必要です。',409);if(j.state!=='done')await this.run(id);await this.schedule();return this.job(id);}
@@ -220,6 +227,7 @@ export class Management {
    if(method==='POST'&&m[2])return m[2]==='sync-check'?inspectSync(this,id):m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
   }
   m=path.match(/^\/api\/admin\/inventory\/([a-z0-9-]+)$/);if(m&&method==='POST')return this.adjust(m[1],body,actor);
+  m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)$/);if(m&&method==='GET'){need(this.env.RUNTIME_TIER==='staging','ステージング専用です。',403);return {job:await this.job(operation(m[1]))};}
   m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile|adopt-current)$/);if(m&&method==='POST')return this[m[2]==='adopt-current'?'adoptCurrent':m[2]](operation(m[1]));
   need(false,'管理APIが見つかりません。',404);
  }

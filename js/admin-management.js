@@ -145,7 +145,7 @@
       const summary=document.createElement('p');summary.id='syncDiagnosticSummary';summary.setAttribute('role','status');
       const report=document.createElement('div');report.id='syncDiagnosticReport';
       const actions=document.createElement('div');actions.id='syncDiagnosticActions';
-      panel.append(button,summary,report,actions);$('editorSyncStatus').after(panel);
+      panel.append(button,summary,report,actions);$('editorProductStatus').closest('.editor-status').after(panel);
       button.onclick=()=>work(async()=>{
         const result=await data('/api/admin/products/'+current.id+'/sync-check',{method:'POST',body:'{}'});
         summary.textContent='読み取り診断を更新しました。Squareへの再送・在庫更新はしていません。';report.replaceChildren();actions.replaceChildren();
@@ -163,7 +163,19 @@
           if(proof){const failed=proof.checks.filter(c=>!c.ok).map(c=>c.label);if(failed.length){const note=document.createElement('p');note.textContent='不一致項目：'+failed.join('・');detail.append(note);}
            for(const version of proof.versionInfo){const line=document.createElement('p');line.textContent=version.type+'：送信時 '+(version.requested??'未記録')+' ／ ローカル '+(version.stored??'未記録')+' ／ Square現在 '+(version.current??'未確認');detail.append(line);}}
           jobsBox.append(detail);
-          const resolved=async(mode)=>{await data('/api/admin/jobs/'+job.id+'/'+mode,{method:'POST',body:'{}'});await loadProducts();current=structuredClone(products.find(p=>p.id===current.id));draw();message('editorMessage',mode==='adopt-current'?'旧同期を成功扱いにせず取り消し、確認済みの現在値を採用しました。下書き・公開内容・Square在庫は変更していません。':'保存済みリクエストとの内容一致を確認し、照合完了を記録しました。Squareへの再送・在庫更新はしていません。');};
+          const resolved=async(mode)=>{
+            let confirmed=false;
+            try{const outcome=await data('/api/admin/jobs/'+job.id+'/'+mode,{method:'POST',body:'{}'});if(outcome.state!==(mode==='adopt-current'?'cancelled':'done')||outcome.lockCount!==0)throw Object.assign(Error('APIの完了状態を確認できません。'),{code:'ADMIN_RECOVERY_UNCONFIRMED'});confirmed=true;}
+            catch(error){
+              // A lost response never authorizes replaying the mutation. Read only.
+              let state;try{state=(await data('/api/admin/jobs/'+job.id)).job;}catch{ /* Keep result unknown, never assume failure/success. */ }
+              confirmed=state?.state===(mode==='adopt-current'?'cancelled':'done')&&state.lockCount===0;
+              if(!confirmed){const phase=error.actionStage?' ／ 処理段階：'+error.actionStage:'';const status=error.status?'HTTP '+error.status:'HTTP応答未取得';throw Error((state?.state==='review'?'取消・完了は反映されていません（要確認・ロック'+state.lockCount+'件）。':state?'現在の状態：'+(statusNames[state.state]||state.state)+'・ロック'+state.lockCount+'件。':'操作結果は未確認です。')+' '+error.message+' ［'+status+'／'+(error.code||'ADMIN_RECOVERY_UNKNOWN')+phase+'］ 操作：POST /api/admin/jobs/'+job.id+'/'+mode+'。自動再送はしていません。');}
+            }
+            const done=mode==='adopt-current'?'旧同期の取消が完了しました。Squareへの再送・在庫更新はしていません。':'読み取り照合による同期完了を確認しました。Squareへの再送・在庫更新はしていません。';
+            try{await loadProducts();current=structuredClone(products.find(p=>p.id===current.id));draw();message('editorMessage',done);}
+            catch{message('editorMessage',done+' 画面の再取得だけに失敗しました。管理画面を再読み込みしてください。','success');}
+          };
           if(proof?.state==='matched'||job.state==='done'||job.kind==='stock'&&job.state==='review'&&job.hasSuccessEvidence){const b=document.createElement('button');b.type='button';b.textContent='一致を再確認して同期を完了';b.onclick=()=>work(()=>resolved('reconcile'),'editorMessage');actions.append(b);}
           else if(proof?.adoption?.available){const b=document.createElement('button');b.type='button';b.textContent='現在値を採用して旧同期を取り消す';b.onclick=()=>{if(confirm('旧同期は成功扱いにしません。旧リクエストが適用できないことをバージョンで再確認し、現在のSquare対応情報を採用します。下書き・公開内容・Square在庫は変更しません。続行しますか？'))work(()=>resolved('adopt-current'),'editorMessage');};actions.append(b);}
         }

@@ -38,10 +38,25 @@
         headers['X-Yasoya-API-Same-Origin'] = new URL(base + path,location.href).origin === location.origin ? '1' : '0';
       } catch { /* Missing diagnostics must not prevent a normal upload. */ }
     }
-    const response = await fetch(base + path, {...options, headers});
+    const recovery = /^\/api\/admin\/jobs\/[a-f0-9-]+(?:\/(?:adopt-current|reconcile))?$/.test(path);
+    if(recovery&&location.origin==='https://staging.awaiaune.com'&&new URL(base+path,location.href).origin!==location.origin){const error=Error('同期復旧APIの接続先が管理画面と異なります。送信を停止しました。管理画面を再読み込みしてください。');error.code='ADMIN_RECOVERY_ORIGIN';throw error;}
+    let response;
+    try {
+      response = await fetch(base + path, {...options, headers,...(recovery?{credentials:'same-origin',redirect:'manual',signal:options.signal||AbortSignal.timeout(20000)}:{})});
+    } catch (cause) {
+      if(!recovery)throw cause;
+      const error=Error((cause.name==='TimeoutError'||cause.name==='AbortError'?'管理APIの応答が時間内に届きませんでした。':'管理APIのHTTP応答を受信できませんでした（通信切断・Access認証・ブラウザによる遮断の可能性）。')+' 自動再送はしていません。');
+      error.code=cause.name==='TimeoutError'||cause.name==='AbortError'?'ADMIN_RECOVERY_TIMEOUT':'ADMIN_RECOVERY_NETWORK';error.requestMethod=options.method||'GET';error.requestPath=path;throw error;
+    }
+    if(recovery&&(response.type==='opaqueredirect'||response.status>=300&&response.status<400)){
+      const error=Error('Cloudflare Accessの認証画面への移動が必要です。管理画面を新しいタブで開いて再認証し、読み取り診断で状態を確認してください。');error.code='ADMIN_ACCESS_REDIRECT';throw error;
+    }
+
+    if(recovery&&response.ok&&!/json/i.test(response.headers.get('Content-Type')||'')){const error=Error('管理APIからJSON以外の応答が返されました。Access認証を確認して管理画面を開き直してください。');error.code='ADMIN_RECOVERY_NON_JSON';error.status=response.status;throw error;}
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
-      const error = Error(data.error?.message || '処理できませんでした。再試行してください。'); error.status = response.status;
+      const error = Error(data.error?.message || (recovery?'管理APIからエラー応答を受信しました。自動再送はしていません。':'処理できませんでした。再試行してください。')); error.status = response.status;
+      if(recovery){error.code=/^[A-Z0-9_]{1,80}$/.test(data.error?.code||'')?data.error.code:'ADMIN_RECOVERY_HTTP';error.actionStage=['read-proof','check-holds','commit','read-result'].includes(data.error?.stage)?data.error.stage:undefined;}
       if (local && productWrite) {
         const allowed = (value,list,fallback) => list.includes(value) ? value : fallback;
         const type = response.headers.get('Content-Type') || '';

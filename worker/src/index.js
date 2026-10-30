@@ -1207,7 +1207,7 @@ export class PurchaseCoordinator {
                 return Response.json(result, { status: result.attemptId && !result.ok ? 202 : 200 });
             } catch (error) {
                 const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 503;
-                return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)?error.code:undefined,message: status === 503 && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
+                return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError || error instanceof ManagementError)?error.code:undefined,stage:error instanceof ManagementError?error.actionStage:undefined,message: status === 503 && !(error instanceof ManagementError&&error.actionStage) && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
         },{catalog:!['/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
     }

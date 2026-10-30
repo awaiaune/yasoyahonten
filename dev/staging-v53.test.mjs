@@ -123,11 +123,12 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  assert(square.calls.slice(beforeDiscovery).every(p=>p==='/v2/locations'||p.startsWith('/v2/catalog/object/')||p==='/v2/catalog/list'||p==='/v2/inventory/counts/batch-retrieve'));
  const config=await (await req('/js/store-config.js')).text();assert(!config.includes('production'));assert(config.includes('sandbox-sq0idb-'));
  
+ let browserRecovery,recoveryFault=null,recoveryPosts=0,recoveryGets=0,refreshFailure=false;
  if(checkout==='0'){
   const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,serviceWorkers:'block'});
-  await context.route('**/*',async route=>{const r=route.request();if(new URL(r.url()).pathname==='/__v53_reference'){let html=await readFile(new URL('../staging/.generated/site/products/lemonbalm.html',import.meta.url),'utf8');html=html.replaceAll('LEMON BALM','ブラウザ編集済み商品').replaceAll('乾燥レモンバーム','ブラウザ編集済み商品').replaceAll(' · 10g','');return route.fulfill({contentType:'text/html',body:html});}if(new URL(r.url()).origin!==env.SITE_URL)return route.abort();const body=r.postDataBuffer();const response=await mf.dispatchFetch(r.url(),{method:r.method(),headers:{...r.headers(),'Cf-Access-Jwt-Assertion':token},...(body?{body}:{})});return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});});
-  const page=await context.newPage(),errors=[];page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
+  await context.route('**/*',async route=>{const r=route.request();const u=new URL(r.url());if(u.pathname==='/api/admin/jobs/'+unresolved.id)recoveryGets++;if(r.method()==='GET'&&u.pathname==='/api/admin/products'&&refreshFailure){refreshFailure=false;return route.abort('failed');}if(r.method()==='POST'&&u.pathname.endsWith('/adopt-current')){recoveryPosts++;assert(r.headers().authorization);assert.equal(u.origin,env.SITE_URL);if(recoveryFault==='before')return route.abort('failed');if(recoveryFault==='redirect')return route.fulfill({status:302,headers:{Location:'https://'+env.ACCESS_TEAM_DOMAIN+'/cdn-cgi/access/login'}});if(recoveryFault==='http')return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{message:'旧同期取消のD1保存で処理結果を確認できません。',code:'ADMIN_ADOPTION_FAILED',stage:'commit'}})});if(recoveryFault==='after'){const response=await mf.dispatchFetch(r.url(),{method:r.method(),headers:{...r.headers(),'Cf-Access-Jwt-Assertion':token},body:r.postDataBuffer()});assert.equal(response.status,200);await response.text();refreshFailure=true;return route.abort('failed');}}if(new URL(r.url()).pathname==='/__v53_reference'){let html=await readFile(new URL('../staging/.generated/site/products/lemonbalm.html',import.meta.url),'utf8');html=html.replaceAll('LEMON BALM','ブラウザ編集済み商品').replaceAll('乾燥レモンバーム','ブラウザ編集済み商品').replaceAll(' · 10g','');return route.fulfill({contentType:'text/html',body:html});}if(new URL(r.url()).origin!==env.SITE_URL)return route.abort();const body=r.postDataBuffer();const response=await mf.dispatchFetch(r.url(),{method:r.method(),headers:{...r.headers(),'Cf-Access-Jwt-Assertion':token},...(body?{body}:{})});return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:Buffer.from(await response.arrayBuffer())});});
+  const page=await context.newPage(),errors=[];browserRecovery={page};page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
   const idle=()=>page.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
   await page.goto(env.SITE_URL+'/admin/');await page.getByLabel('管理トークン',{exact:true}).fill(env.VALIDATION_ADMIN_TOKEN);await page.getByRole('button',{name:'管理画面を開く'}).click();await page.locator('#app').waitFor({state:'visible'});await idle();
   await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
@@ -135,7 +136,8 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   assert((await page.locator('#editorSyncStatus').textContent()).includes('要確認'));
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
   assert((await page.locator('#syncDiagnosticReport').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('価格・通貨'));
-  assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','在庫','ジョブ','次の操作']);assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
+  assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','在庫','ジョブ','次の操作']);
+  const diagnosticBox=await page.locator('#syncDiagnosticPanel').boundingBox(),formBox=await page.locator('#productForm').boundingBox();assert(diagnosticBox.width>=formBox.width-40);assert(await page.locator('#syncDiagnosticPanel').evaluate(e=>e.parentElement.id==='productForm'));assert(await page.locator('#syncDiagnosticReport').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length===1));assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
   await page.getByLabel('商品名',{exact:true}).fill('保留中でも実機相当の編集');
   await page.getByLabel('表示順',{exact:true}).fill('7');
   const beforeBrowser=square.calls.length;
@@ -200,8 +202,29 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  const sentItem=pendingBody.batches[0].objects[0],existingItem=square.objects.get(sentItem.id);
  existingItem.version+=100;for(const variation of existingItem.item_data.variations){variation.version+=100;square.objects.set(variation.id,variation);}
  const beforeAdopt=square.calls.length,stockBeforeAdopt=JSON.stringify([...square.counts]);
- const cancelled=await api('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{});assert.equal(cancelled.state,'cancelled');assert.equal(cancelled.lockCount,0);
- assert(square.calls.slice(beforeAdopt).every(p=>p.startsWith('/v2/catalog/object/')));assert.equal(JSON.stringify([...square.counts]),stockBeforeAdopt);
+ const mappingBeforeFailure=await db.prepare('SELECT * FROM mg_mappings WHERE variant_id=?').bind('v53-test-10g').first();
+ await db.prepare("CREATE TRIGGER reject_test_cancel BEFORE UPDATE ON mg_jobs WHEN NEW.state='cancelled' BEGIN SELECT RAISE(ABORT,'private database detail'); END").run();
+ const failedCommit=await req('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{});assert.equal(failedCommit.status,503);const failedData=await failedCommit.json();assert.equal(failedData.error.code,'ADMIN_ADOPTION_FAILED');assert.equal(failedData.error.stage,'commit');assert(!JSON.stringify(failedData).includes('private database detail'));assert.equal((await api('/api/admin/jobs/'+unresolved.id)).job.lockCount,1);
+ assert.deepEqual(await db.prepare('SELECT * FROM mg_mappings WHERE variant_id=?').bind('v53-test-10g').first(),mappingBeforeFailure,'failed D1 batch must not partially update mappings');
+ await db.prepare('DROP TRIGGER reject_test_cancel').run();
+ if(browserRecovery){
+  const {page}=browserRecovery,idle=()=>page.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
+  await page.goto(env.SITE_URL+'/admin/');await page.locator('#app').waitFor({state:'visible'});await idle();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();await page.getByRole('button',{name:'保留中でも実機相当の編集を編集',exact:true}).click();
+  await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
+  for(const [fault,expected] of [['before','ADMIN_RECOVERY_NETWORK'],['redirect','ADMIN_ACCESS_REDIRECT'],['http','処理段階：commit']]){
+   recoveryFault=fault;const postCount=recoveryPosts,getCount=recoveryGets;
+   await page.getByRole('button',{name:'現在値を採用して旧同期を取り消す',exact:true}).click();await idle();
+   const message=await page.locator('#editorMessage').textContent();assert(message.includes(expected),message);assert(!message.includes('Failed to fetch'));assert(message.includes('自動再送はしていません'));assert.equal(recoveryPosts,postCount+1);assert.equal(recoveryGets,getCount+1);
+   const status=await api('/api/admin/jobs/'+unresolved.id);assert.equal(status.job.state,'review');assert.equal(status.job.lockCount,1);
+  }
+  // Server commits, response is lost: GET confirms cancellation without a POST retry.
+  recoveryFault='after';const postsBefore=recoveryPosts;
+  await page.getByRole('button',{name:'現在値を採用して旧同期を取り消す',exact:true}).click();await idle();
+  assert((await page.locator('#editorMessage').textContent()).includes('取消が完了'));assert((await page.locator('#editorMessage').textContent()).includes('再取得だけに失敗'));assert.equal(recoveryPosts,postsBefore+1);recoveryFault=null;
+ }
+ const cancelled=checkout==='0'?(await api('/api/admin/jobs/'+unresolved.id)).job:await api('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{});assert.equal(cancelled.state,'cancelled');assert.equal(cancelled.lockCount,0);
+ const noMoreSquare=square.calls.length;assert.equal((await api('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{})).state,'cancelled');assert.equal(square.calls.length,noMoreSquare,'already cancelled recovery is idempotent and never reaches Square');
+ assert(square.calls.slice(beforeAdopt).every(p=>p.startsWith('/v2/catalog/object/')||p==='/v2/catalog/list'||p==='/v2/locations'||p==='/v2/inventory/counts/batch-retrieve'));assert.equal(JSON.stringify([...square.counts]),stockBeforeAdopt);
  assert.equal((await req('/api/admin/jobs/'+unresolved.id+'/retry','POST',{})).status,409);
  assert.equal((await api('/api/catalog')).products.find(p=>p.id===name).variants[0].price,980,'adoption must not change the public price');
 assert(!calls.includes('connect.squareup.com'));assert.equal((await api('/api/admin/orders')).orders.length,checkout==='1'?1:0);
