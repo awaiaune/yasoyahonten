@@ -11,7 +11,7 @@ for(const file of ['index.html','products.html','checkout.html','project.html','
  let text;try{text=await readFile(new URL(file,out),'utf8');}catch{continue;}
  text=text.replace(/<head\b[^>]*>/i,'$&<script src="/js/store-config.js"></script><meta name="robots" content="noindex,nofollow,noarchive">')
   .replaceAll('https://web.squarecdn.com','https://sandbox.web.squarecdn.com');
- if(file==='checkout.html')text=text.replace(/src=["'](?:\.\.\/)?js\/checkout\.js(?:\?[^"']*)?["']/,'src="/js/checkout-v1.js"').replace('</form>','<button type="button" id="checkPaymentStatus">処理状況を確認</button><button type="button" id="refreshCheckout">購入画面を更新</button></form>');
+ if(file==='checkout.html')text=text.replace('Square Web Payments SDK / Production','Square Web Payments SDK / Sandbox').replace('<script src="https://sandbox.web.squarecdn.com/v1/square.js"></script>','<script async src="https://sandbox.web.squarecdn.com/v1/square.js" onerror="window.YASOYA_SQUARE_SDK_LOAD_FAILED=true"></script>').replace('<div id="card-container"></div>','<p id="cardInitializationStatus" role="status" aria-live="polite">カード入力フォームの準備を開始しています…</p><div id="card-container"></div>').replace(/src=["'](?:\.\.\/)?js\/checkout\.js(?:\?[^"']*)?["']/,'src="/js/checkout-v1.js" onerror="document.getElementById(\'cardInitializationStatus\').textContent=\'購入画面のスクリプトを読み込めません。通信・CSPを確認し再読み込みしてください。\'"').replace('</form>','<button type="button" id="checkPaymentStatus">処理状況を確認</button><button type="button" id="refreshCheckout">購入画面を更新</button></form>');
  await writeFile(new URL(file,out),text);
 }
 for(const file of ['shop-gallery-v33.js','shop-gallery-v34.js','shop-image-tap-v46.js']){

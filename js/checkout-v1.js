@@ -3,6 +3,23 @@
 
     const config = window.YASOYA_STORE_CONFIG;
     let card;
+    const sandboxPage=config?.environment==='sandbox'&&config?.workerBaseUrl===location.origin;
+    let cardStage='準備',cardViolation=null;
+    function cardFeedback(text,state='loading'){const el=document.getElementById('cardInitializationStatus');if(el){el.textContent=text;if(el.dataset)el.dataset.state=state;}}
+    document.addEventListener('securitypolicyviolation',event=>{
+        if(!sandboxPage)return;
+        let host;try{host=new URL(event.blockedURI).hostname;}catch{return;}
+        if((host==='sandbox.web.squarecdn.com'||host.endsWith('.squareupsandbox.com'))&&['script-src-elem','script-src','style-src-elem','style-src','frame-src','connect-src','font-src'].includes(event.effectiveDirective))cardViolation=event.effectiveDirective;
+    });
+    function cardFailure(code,message){const error=new Error(message+' ［'+code+'／'+cardStage+'］');error.code=code;return error;}
+    async function boundedCard(task){let timer;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(cardFailure('CARD_INIT_TIMEOUT','カード入力フォームの'+cardStage+'が時間内に完了しませんでした。通信・認証・CSPを確認して画面を再読み込みしてください。')),12000);})]);}finally{clearTimeout(timer);}}
+    async function waitSquare(){
+        if(sandboxPage&&[...document.scripts].some(script=>script.src==='https://web.squarecdn.com/v1/square.js'))throw cardFailure('CARD_SDK_ENVIRONMENT','Sandbox画面で本番SDKを検出したためカード初期化を停止しました。');
+        if(window.Square?.payments)return;
+        const sdk=[...document.scripts].find(script=>script.src==='https://sandbox.web.squarecdn.com/v1/square.js');
+        if(!sandboxPage||!sdk||window.YASOYA_SQUARE_SDK_LOAD_FAILED)throw cardFailure('CARD_SDK_LOAD_FAILED','Square Sandbox SDKを読み込めませんでした。通信またはCSPによる遮断を確認してください。');
+        await new Promise((resolve,reject)=>{let timer;const cleanup=()=>{clearTimeout(timer);sdk.removeEventListener('load',loaded);sdk.removeEventListener('error',failed);};const loaded=()=>{cleanup();window.Square?.payments?resolve():reject(cardFailure('CARD_SDK_UNAVAILABLE','Sandbox SDKの読み込み後に決済機能を確認できません。'));};const failed=()=>{cleanup();reject(cardFailure('CARD_SDK_LOAD_FAILED','Sandbox SDKの取得に失敗しました。通信またはCSPを確認してください。'));};sdk.addEventListener('load',loaded);sdk.addEventListener('error',failed);timer=setTimeout(()=>{cleanup();reject(cardFailure('CARD_SDK_TIMEOUT','Sandbox SDKの読み込みがタイムアウトしました。通信・CSPを確認して再読み込みしてください。'));},12000);});
+    }
     let serverQuote;
     let submitting = false;
     let completed = false;
@@ -160,17 +177,27 @@
     }
 
     async function initializeSquare() {
-        if (!window.Square) {
-            throw new Error("Squareの決済画面を読み込めませんでした。");
+        if(!sandboxPage){if(!window.Square)throw new Error('Squareの決済画面を読み込めませんでした。');const payments=window.Square.payments(config.squareApplicationId,config.squareLocationId);const attached=await payments.card();await attached.attach('#card-container');card=attached;return;}
+        let candidate;
+        try{
+            cardStage='SDK読み込み';cardFeedback('Square Sandboxのカード入力フォームを読み込んでいます…');
+            if(sandboxPage&&(!config.squareApplicationId?.startsWith('sandbox-sq0idb-')||!config.squareLocationId||config.squareLocationId==='LQ693S4H2NBZ8'))throw cardFailure('CARD_SANDBOX_CONFIG','Sandbox用Application ID・Location IDを確認できません。');
+            await waitSquare();
+            cardStage='決済クライアント初期化';
+            const payments=window.Square.payments(config.squareApplicationId,config.squareLocationId);
+            cardStage='カードフォーム生成';cardFeedback('カード入力フォームを生成しています…');
+            candidate=await boundedCard(payments.card());
+            cardStage='カードフォーム表示';cardFeedback('カード入力フォームを表示しています…');
+            await boundedCard(candidate.attach('#card-container'));
+            if(sandboxPage&&!document.querySelector('#card-container iframe'))throw cardFailure('CARD_FORM_EMPTY','カードフォームを配置しましたが入力用iframeを確認できません。CSP・ブラウザの遮断を確認してください。');
+            card=candidate;cardFeedback('Sandboxテスト用カード情報を入力してください。','ready');
+        }catch(error){
+            card=undefined;try{candidate?.destroy?.()?.catch?.(()=>{});}catch{}
+            if(cardViolation)throw cardFailure('CARD_CSP_BLOCKED','CSPの'+cardViolation+'によりSquare Sandboxの表示が遮断されました。');
+            if(typeof error?.code==='string'&&error.code.startsWith('CARD_'))throw error;
+            const reasons={InvalidApplicationIdError:'Sandbox Application IDを確認してください。',InvalidLocationIdError:'Sandbox Location IDとApplication IDの組合せを確認してください。',PaymentMethodUnsupportedError:'このLocationでカード決済を利用できません。',BrowserNotSupportedError:'対応ブラウザで開き直してください。',SdkNotSupportedInsecureContextError:'HTTPSのステージングURLから開き直してください。',ElementNotFoundError:'カード入力欄を確認できません。画面を再読み込みしてください。'};
+            throw cardFailure('CARD_INITIALIZATION_FAILED',cardStage+'に失敗しました。'+(reasons[error.name]||'Sandbox Application ID・Location IDの組合せ、通信・CSPを確認してください。'));
         }
-
-        const payments = window.Square.payments(
-            config.squareApplicationId,
-            config.squareLocationId
-        );
-
-        card = await payments.card();
-        await card.attach("#card-container");
     }
 
     async function submitPayment(event) {
@@ -239,10 +266,11 @@
 
     document.addEventListener("DOMContentLoaded", async () => {
         const status = document.getElementById("paymentStatus");
+        cardFeedback('購入設定・在庫を確認しています…');
         document.getElementById("paymentButton").disabled=true;
 
         if (!config?.workerBaseUrl || !config?.squareApplicationId || !config?.squareLocationId) {
-            status.textContent = "決済設定を読み込めませんでした。";
+            status.textContent = "決済設定を読み込めませんでした。";cardFeedback("決済設定を読み込めませんでした。Access認証後に画面を再読み込みしてください。",'error');
             document.getElementById("paymentButton").disabled = true;
             return;
         }
@@ -252,15 +280,15 @@
         try {
             const previous = await existingResult();
             if (previous) { complete(previous); return; }
-            if(!(await refreshCapabilities()).checkoutEnabled)return;
-            await loadQuote();
+            if(!(await refreshCapabilities()).checkoutEnabled){cardFeedback('購入受付が停止中のためカードフォームは初期化していません。','paused');return;}
+            cardStage='商品・在庫確認';await loadQuote();
             await initializeSquare();
             document
                 .getElementById("paymentForm")
                 .addEventListener("submit", submitPayment);
             buttonState();
         } catch (error) {
-
+            cardFeedback(typeof error?.code==='string'&&error.code.startsWith('CARD_')?error.message:cardStage+'を完了できず、カード入力を開始していません。'+(error.status?' HTTP '+error.status:' 通信・Cloudflare Access認証を確認して再読み込みしてください。'),'error');
             if (error.status === 409) {
                 showInventoryError(error.message);
             } else {

@@ -277,3 +277,6 @@
 .checkout-inventory-alert a { display: inline-block; margin-top: 8px; color: inherit; text-underline-offset: 4px; }
 .checkout-summary-line.is-inventory-error { color: #8a3328; }
 .checkout-summary-inventory-note { display: block; margin-top: 3px; font-size: 0.68rem; }
+
+#cardInitializationStatus{font-size:.8rem;line-height:1.6;overflow-wrap:anywhere}
+#cardInitializationStatus[data-state="error"]{color:#9b2626}
