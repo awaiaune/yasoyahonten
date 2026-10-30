@@ -34,6 +34,12 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  const shop=await (await req('/products.html')).text();assert(shop.includes('v33-scene'));assert(shop.includes('v53 新商品'));assert(shop.includes('shop-refinement-v53.css'));assert(!shop.includes('products/lemonbalm.html'));
  const detail=await (await req('/products/v53-test.html')).text();assert(detail.includes('v30-gallery'));assert(detail.includes('&lt;script&gt;unsafe'));assert(detail.includes('data-add-to-cart'));assert(detail.includes('/api/media/'+image.id));assert.equal((await req('/api/media/'+image.id)).status,200);assert(!detail.includes('<script>unsafe'));
  const inventory=(await api('/api/admin/inventory')).inventory[0];await api('/api/admin/inventory/'+inventory.id,'POST',{operationId:crypto.randomUUID(),kind:'count',quantity:3,reason:'Sandbox試験',expectedQuantity:inventory.quantity,observedAt:inventory.observedAt});assert.equal((await api('/api/admin/inventory')).inventory[0].quantity,3);
+ // A stock read must not adopt an independently changed catalog version.
+ const mapping=await db.prepare('SELECT * FROM mg_mappings WHERE variant_id=?').bind('v53-test-10g').first();
+ const remote=square.objects.get(mapping.variation_id),originalVersion=remote.version;remote.version++;
+ const conflict=await req('/api/v1/quote','POST',{items:[{id:'v53-test-10g',quantity:1}]});assert.equal(conflict.status,409);assert.match((await conflict.json()).error.message,/Variationバージョン/);
+ const diagnostic=await api('/api/admin/products/'+name+'/sync-check','POST',{});assert.equal(diagnostic.variants[0].checkout.mismatches[0].key,'version');assert.equal(diagnostic.variants[0].checkout.mismatches[0].saved,originalVersion);assert.equal((await db.prepare('SELECT variation_version FROM mg_mappings WHERE variant_id=?').bind('v53-test-10g').first()).variation_version,originalVersion);
+ remote.version=originalVersion; // Restore only this offline test double, never remote data.
  const pay=await req('/api/v1/payments','POST',{contractVersion:1,attemptId:crypto.randomUUID(),sourceId:'offline-card',contact:{...contact,email:env.STAGING_ADMIN_EMAIL},items:[{id:'v53-test-10g',quantity:1}]});assert.equal(pay.status,checkout==='1'?200:503);if(checkout==='1'){assert.equal((await pay.json()).ok,true);assert.equal((await api('/api/admin/inventory')).inventory[0].quantity,2);}
  // Regression: two registered products survive a blocked Square job. Presentation
  // changes publish without any Square calls; commercial edits keep their guards.
@@ -136,7 +142,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   assert((await page.locator('#editorSyncStatus').textContent()).includes('要確認'));
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
   assert((await page.locator('#syncDiagnosticReport').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('価格・通貨'));
-  assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','在庫','ジョブ','次の操作']);
+  assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','購入時照合 1','直近の処理','在庫','ジョブ','次の操作']);
   const diagnosticBox=await page.locator('#syncDiagnosticPanel').boundingBox(),formBox=await page.locator('#productForm').boundingBox();assert(diagnosticBox.width>=formBox.width-40);assert(await page.locator('#syncDiagnosticPanel').evaluate(e=>e.parentElement.id==='productForm'));assert(await page.locator('#syncDiagnosticReport').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length===1));assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
   await page.getByLabel('商品名',{exact:true}).fill('保留中でも実機相当の編集');
   await page.getByLabel('表示順',{exact:true}).fill('7');
