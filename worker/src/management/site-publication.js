@@ -1,3 +1,4 @@
+import {retiredProduct,removeFeaturedStatements} from './storefront-selection.js';
 import {production,productionGrant} from '../production-policy.js';
 import {CATALOG} from '../catalog.js';
 import {need,operation,digest,json,now,ManagementError} from './domain.js';
@@ -17,6 +18,7 @@ export async function publishSite(manager,id,input,actor){
  const status=input.status||'published';need(['published','stopped','archived'].includes(status),'公開状態が不正です。');
  const fp=await digest(['site-publication',id,input]);const previous=await manager.command(input.operationId,fp);if(previous)return previous;
  const p=await manager.s.product(id);need(p&&p.version===input.expectedVersion,'商品が更新されています。再読込してください。',409);
+ if(status==='published')need(!retiredProduct(manager.env,p)&&!(await manager.s.retiredProductIds()).has(id),'この商品は販売終了です。再公開できません。',409);
  if(manager.env.RUNTIME_TIER==='staging')return publishStagingSite(manager,p,input,actor,fp,status);
  await manager.s.assertUnlocked(p.draft.variants.map(v=>v.id));
  if(status==='published'){
@@ -67,6 +69,7 @@ async function publishStagingSite(manager,p,input,actor,fp,status){
   revision=(await manager.s.one('SELECT MAX(revision) AS revision FROM mg_revisions WHERE product_id=?',[p.id])).revision+1;
   statements.push(['INSERT INTO mg_revisions VALUES(?,?,?,?)',[p.id,revision,json(data),now()]]);
  }
+ if(status!=='published')statements.push(...await removeFeaturedStatements(manager.s,p.id,actor));
  const result={ok:true,state:'done',siteOnly:true,status,warnings};
  statements.push(
   ['UPDATE mg_products SET published_revision=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?',[status==='published'?revision:p.published_revision,status,p.draft.sortOrder,now(),p.id]],

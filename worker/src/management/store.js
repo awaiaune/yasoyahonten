@@ -1,3 +1,4 @@
+import {retiredProduct,retirementEnabled} from './storefront-selection.js';
 import {production} from '../production-policy.js';
 import {productionDatabase} from '../production-policy.js';
 import {CATALOG} from '../catalog.js';
@@ -12,10 +13,17 @@ export class Store {
  audit(actor,action,id,detail){return ['INSERT INTO mg_audit VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),actor,action,id,JSON.stringify(detail),now()]];}
  async product(id){const p=await this.one('SELECT * FROM mg_products WHERE id=?',[id]);if(!p)return null;const r=await this.one('SELECT data_json FROM mg_revisions WHERE product_id=? AND revision=?',[id,p.draft_revision]);return {...p,draft:JSON.parse(r.data_json)};}
  async products(){const rows=await this.all('SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.draft_revision ORDER BY p.sort_order,p.id');return rows.map(p=>{const {data_json,...row}=p;return {...row,draft:JSON.parse(data_json)};});}
+ async retiredProductIds(){
+  if(!retirementEnabled(this.env))return new Set();
+  const rows=await this.all("SELECT p.id,p.slug,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id WHERE r.revision=p.published_revision OR EXISTS(SELECT 1 FROM mg_audit a WHERE a.resource_id=p.id AND a.action IN ('site_published','release_published') AND json_extract(a.detail_json,'$.revision')=r.revision)");
+  return new Set(rows.filter(p=>retiredProduct(this.env,{id:p.id,slug:p.slug,...JSON.parse(p.data_json)})).map(p=>p.id));
+ }
+ async retiredVariantIds(){const ids=await this.retiredProductIds();return [...new Set(['goldenrod-leaf-10g','goldenrod-leaf-stem-20g',...(await this.products()).filter(p=>ids.has(p.id)).flatMap(p=>p.draft.variants.map(v=>v.id))])];}
  async publicProducts(){
   const rows=await this.all("SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.published_revision WHERE p.status IN ('published','stopped') ORDER BY p.sort_order,p.id");
   const mappings=production(this.env)||this.env.RUNTIME_TIER==='staging'?await this.all('SELECT variant_id FROM mg_mappings'):null;
-  return rows.map(p=>({id:p.id,slug:p.slug,status:p.status,revision:p.published_revision,...JSON.parse(p.data_json),...(mappings?{checkoutVariantIds:JSON.parse(p.data_json).variants.filter(v=>mappings.some(m=>m.variant_id===v.id)).map(v=>v.id)}:{})}));
+  const retired=await this.retiredProductIds();
+  return rows.filter(p=>!retired.has(p.id)).map(p=>({id:p.id,slug:p.slug,status:p.status,revision:p.published_revision,...JSON.parse(p.data_json),...(mappings?{checkoutVariantIds:JSON.parse(p.data_json).variants.filter(v=>mappings.some(m=>m.variant_id===v.id)).map(v=>v.id)}:{})}));
  }
  async catalog(){
   const products=await this.publicProducts(),maps=await this.all('SELECT * FROM mg_mappings');const byId=new Map(maps.map(m=>[m.variant_id,m]));const result={};
@@ -30,6 +38,7 @@ export async function loadCatalog(env){
  const store=new Store(env),catalog=await store.catalog();
  if(production(env)){
   env.MANAGED_CATALOG={...CATALOG,...catalog};
+  if(retirementEnabled(env))for(const id of ['goldenrod-leaf-10g','goldenrod-leaf-stem-20g'])env.MANAGED_CATALOG[id]={...env.MANAGED_CATALOG[id],active:false};
   for(const p of await store.products())if(p.status==='archived')for(const v of p.draft.variants)if(env.MANAGED_CATALOG[v.id])env.MANAGED_CATALOG[v.id]={...env.MANAGED_CATALOG[v.id],active:false};
  }else env.MANAGED_CATALOG=catalog;
  return env.MANAGED_CATALOG;

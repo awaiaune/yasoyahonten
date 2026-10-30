@@ -1,3 +1,4 @@
+import {Store} from '../worker/src/management/store.js';
 import application,{PurchaseCoordinator} from '../worker/src/index.js';
 import {assertAccess,AccessDenied} from '../validation/access.js';
 import {assertStagingDatabase,StagingSetupError} from './safety.js';
@@ -13,7 +14,7 @@ export default {async fetch(request,env,ctx){
   await assertStagingDatabase(env);phase='access';await assertAccess(request,env);phase='application';
   const url=new URL(request.url);if(url.origin!==env.SITE_URL)return new Response('Host rejected',{status:403,headers});
   let response;
-  if(url.pathname==='/js/store-config.js')response=new Response('window.YASOYA_STORE_CONFIG=Object.freeze('+JSON.stringify({environment:'sandbox',squareApplicationId:env.SQUARE_SANDBOX_APPLICATION_ID,squareLocationId:env.SQUARE_LOCATION_ID,workerBaseUrl:url.origin,currency:'JPY'})+');',{headers:{'Content-Type':'application/javascript'}});
+  if(url.pathname==='/js/store-config.js')response=new Response('window.YASOYA_STORE_CONFIG=Object.freeze('+JSON.stringify({environment:'sandbox',squareApplicationId:env.SQUARE_SANDBOX_APPLICATION_ID,squareLocationId:env.SQUARE_LOCATION_ID,workerBaseUrl:url.origin,currency:'JPY'})+');window.YASOYA_RETIRED_VARIANT_IDS='+JSON.stringify(await new Store(env).retiredVariantIds())+';',{headers:{'Content-Type':'application/javascript'}});
   else if(url.pathname.startsWith('/api/')){
    if(request.method==='POST'&&/^\/api\/(?:v1\/)?payments$/.test(url.pathname)){
     const body=await request.clone().json();if(body.contact?.email!==env.STAGING_ADMIN_EMAIL)return new Response('Use the approved test recipient',{status:400,headers});

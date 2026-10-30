@@ -30,6 +30,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  const name='v53-test';await api('/api/admin/products/'+name,'PUT',{operationId:crypto.randomUUID(),expectedVersion:0,slug:name,name:'v53 新商品',description:'テスト説明 <script>unsafe</script>',sortOrder:0,images:[image.id],variants:[{id:'v53-test-10g',name:'通常',amount:'10g',price:980,maxQuantity:10,active:true}]});
  assert.equal((await api('/api/admin/products/'+name+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:1})).state,'done');
  assert.equal((await api('/api/admin/products/'+name+'/site','POST',{operationId:crypto.randomUUID(),expectedVersion:2,status:'published'})).siteOnly,true);
+ await api('/api/admin/storefront/featured','POST',{expectedVersion:null,productIds:[name],operationId:crypto.randomUUID()});
  const home=await req('/');assert.match(home.headers.get('X-Robots-Tag'),/noindex/);assert((await home.text()).includes('/products/v53-test.html'));
  const shop=await (await req('/products.html')).text();assert(shop.includes('v33-scene'));assert(shop.includes('v53 新商品'));assert(shop.includes('shop-refinement-v53.css'));assert(!shop.includes('products/lemonbalm.html'));
  const detail=await (await req('/products/v53-test.html')).text();assert(detail.includes('v30-gallery'));assert(detail.includes('&lt;script&gt;unsafe'));assert(detail.includes('data-add-to-cart'));assert(detail.includes('/api/media/'+image.id));assert.equal((await req('/api/media/'+image.id)).status,200);assert(!detail.includes('<script>unsafe'));

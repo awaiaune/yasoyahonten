@@ -1,3 +1,4 @@
+import {featuredProducts} from '../worker/src/management/storefront-selection.js';
 import {Store} from '../worker/src/management/store.js';
 import {escape} from '../worker/src/management/storefront.js';
 const href=p=>'/products/'+p.slug+'.html';
@@ -7,8 +8,9 @@ const json=x=>JSON.stringify(x).replaceAll('<','\\u003c');
 export async function renderV53(request,env){
  const u=new URL(request.url),match=u.pathname.match(/^\/products\/([a-z0-9-]+)\.html$/);
  if(!match&&!['/','/index.html','/products.html'].includes(u.pathname))return null;
+ const store=new Store(env),featured=match||u.pathname==='/products.html'?[]:await featuredProducts(store);
  const allProducts=await new Store(env).publicProducts(),products=allProducts.filter(p=>p.status==='published'),p=match?allProducts.find(p=>p.slug===match[1]):null;
- if(match&&!p)return new Response('商品がありません。',{status:404});
+ if(match&&!p){const retired=await store.retiredProductIds(),old=(await store.products()).find(n=>n.slug===match[1]&&retired.has(n.id));return new Response(old?'この商品は販売を終了しました。':'商品がありません。',{status:old?410:404});}
  const template=new URL(request.url);if(match)template.pathname='/products/lemonbalm.html';
  const asset=await env.ASSETS.fetch(new Request(template));if(asset.status!==200)return asset;
  let r=new HTMLRewriter();
@@ -34,11 +36,13 @@ export async function renderV53(request,env){
  }else{
   const scenes=products.map((p,i)=>`<div class="v33-scene ${i===0?'is-active':''}" aria-hidden="${i!==0}" data-product-href="${href(p)}">${img(p)}<div class="v33-scene-shade"></div><div class="v33-scene-label"><span class="v33-kicker">BOTANICALS</span><h1>${escape(p.name)}</h1><p>${p.status==='stopped'?'販売停止':'¥'+Math.min(...p.variants.map(v=>v.price))}</p></div></div>`).join('');
   r=r.on('.v33-images',{element:e=>e.setInnerContent(scenes||'<p>公開中の商品はありません。</p>',{html:true})})
-   .on('script[type="application/ld+json"]',{element:e=>e.setInnerContent(json({'@context':'https://schema.org','@type':'ItemList',itemListElement:products.map((p,i)=>({'@type':'ListItem',position:i+1,url:u.origin+href(p),name:p.name}))}),{html:true})})
+   .on('script[type="application/ld+json"]',{element:e=>e.setInnerContent(json({'@context':'https://schema.org','@type':'ItemList',itemListElement:(u.pathname==='/products.html'?products:featured).map((p,i)=>({'@type':'ListItem',position:i+1,url:u.origin+href(p),name:p.name}))}),{html:true})})
    .on('.v33-rail',{element:e=>e.setInnerContent(products.map((p,i)=>`<button class="v33-tile ${i===0?'is-active':''}" type="button" role="tab" data-index="${i}" aria-selected="${i===0}"><span>${escape(p.name)}</span></button>`).join(''),{html:true})})
    .on('.v34-view',{element:e=>{if(products[0])e.setAttribute('href',href(products[0]));else e.remove();}})
    .on('.v35-all-grid',{element:e=>e.setInnerContent(products.map(p=>`<a class="v35-all-card" href="${href(p)}"><div class="v35-all-image">${img(p)}</div><span class="v35-all-en">${escape(p.name)}</span><span class="v35-all-jp">${escape(p.description.slice(0,80))}</span><span class="v35-all-link">VIEW BOTANICAL ↗</span></a>`).join(''),{html:true})})
-   .on('#botanicalTrack',{element:e=>e.setInnerContent(products.map(p=>`<article class="v19-slide">${img(p)}<div class="v19-copy"><span class="v21-eyebrow">BOTANICALS</span><h2>${escape(p.name)}</h2></div><a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
+   .on('#botanicals',{element:e=>{if(!featured.length)e.remove();}})
+   .on('.v19-progress',{element:e=>e.setInnerContent(featured.map((_,i)=>`<span class="${i===0?'active':''}"></span>`).join(''),{html:true})})
+   .on('#botanicalTrack',{element:e=>e.setInnerContent(featured.map(p=>`<article class="v19-slide" aria-label="${escape(p.name)}">${img(p)}<div class="v19-copy"><span class="v21-eyebrow">BOTANICALS</span><h2>${escape(p.name)}</h2><span class="v21-detail">THE PLANT · NATURAL FORM</span></div><a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
  }
  r=r.on('meta[property="og:url"]',{element:e=>e.setAttribute('content',u.href)})
   .on('link[rel="canonical"]',{element:e=>e.setAttribute('href',u.href)})

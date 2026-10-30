@@ -1,3 +1,4 @@
+import {retiredProduct} from './storefront-selection.js';
 import {need,now,operation} from './domain.js';
 import {catalogProof} from './catalog-proof.js';
 // These statements are committed atomically with mappings, done state and locks.
@@ -11,6 +12,7 @@ export function releaseStatements(manager,job,payload){
 export async function release(manager,id,input,actor){
  need(manager.env.RUNTIME_TIER==='staging','ステージング専用です。',403);
  operation(input.operationId);
+ const product=await manager.s.product(id);need(product,'商品がありません。',404);need(!retiredProduct(manager.env,product)&&!(await manager.s.retiredProductIds()).has(id),'この商品は販売終了です。Square ID・履歴を維持し、再公開しません。',409);
  const existing=await manager.s.one('SELECT * FROM mg_jobs WHERE id=?',[input.operationId]);
  if(existing){need(existing.kind==='publish'&&existing.resource_id===id&&JSON.parse(existing.payload_json).releaseSite&&JSON.parse(existing.payload_json).expectedVersion===input.expectedVersion,'操作IDが別の処理に使われています。',409);return resumeRelease(manager,existing);}
  const p=await manager.s.product(id);need(p,'商品がありません。',404);

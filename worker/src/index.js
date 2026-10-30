@@ -49,7 +49,7 @@ export default {
             if(production(env)&&url.pathname.startsWith('/api/admin/')){await assertProductionAdmin(request,env);productionGrant(env,'read');}
             if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
             if (managementEnabled(env)) {
-                if(!production(env)||/^\/api\/(admin\/(products|inventory|jobs|audit|images)(\/|$)|media\/)/.test(url.pathname))await managementGuard(env);
+                if(!production(env)||/^\/api\/(admin\/(products|inventory|jobs|audit|images|storefront)(\/|$)|media\/)/.test(url.pathname))await managementGuard(env);
                 if (url.pathname.startsWith('/api/admin/images')) {
                     await assertAdmin(request, env);
                     if(origin && request.method!=='GET') assertAllowedOrigin(origin,allowedOrigins);
@@ -58,7 +58,7 @@ export default {
                     throw new ManagementError(405,'Method not allowed');
                 }
                 if (request.method==='GET' && /^\/api\/media\/[a-f0-9]{64}$/.test(url.pathname)) return await serveImage(url.pathname.split('/').pop(),env);
-                if (/^\/api\/admin\/(products|inventory|jobs|audit)(\/|$)/.test(url.pathname)) {
+                if (/^\/api\/admin\/(products|inventory|jobs|audit|storefront)(\/|$)/.test(url.pathname)) {
                     await assertAdmin(request, env);
                     if(origin && request.method!=='GET') assertAllowedOrigin(origin,allowedOrigins);
                     if (!['GET','PUT','POST'].includes(request.method)) throw new ManagementError(405,'Method not allowed');
@@ -69,7 +69,7 @@ export default {
                 }
                 if(catalogEnabled(env))await loadCatalog(env);
                 if(catalogEnabled(env)&&request.method==='GET' && !url.pathname.startsWith('/api/')) {const page=await renderPage(request,env);if(page)return page;}
-                if(catalogEnabled(env)&&request.method==='GET'&&url.pathname==='/api/catalog') return corsJson({products:await new ManagementStore(env).publicProducts()},200,origin,allowedOrigins);
+                if(catalogEnabled(env)&&request.method==='GET'&&url.pathname==='/api/catalog') return corsJson({products:await new ManagementStore(env).publicProducts(),...(env.RUNTIME_TIER==='staging'?{retiredVariantIds:await new ManagementStore(env).retiredVariantIds()}:{})},200,origin,allowedOrigins);
                 if(catalogEnabled(env)&&request.method==='POST'&&['/api/inventory','/api/quote'].includes(url.pathname)) {
                     assertAllowedOrigin(origin,allowedOrigins);const body=await readJson(request);
                     const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');

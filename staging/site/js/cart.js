@@ -10,6 +10,9 @@
         maximumFractionDigits: 0
     });
 
+    const retiredIds=new Set(window.YASOYA_RETIRED_VARIANT_IDS||[]);
+    if(retiredIds.size){try{const before=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');if(Array.isArray(before))localStorage.setItem(STORAGE_KEY,JSON.stringify(before.filter(item=>!retiredIds.has(String(item?.id||'')))));}catch{}}
+
     function normalizeItem(item) {
         if (!item || typeof item !== "object") return null;
 
@@ -21,6 +24,7 @@
             Math.max(1, Number.parseInt(item.quantity, 10) || 1)
         );
 
+        if (retiredIds.has(id))return null;
         if (!id || !name || !Number.isInteger(price) || price < 0) return null;
 
         return { id, name, price, quantity };
