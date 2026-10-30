@@ -82,3 +82,11 @@ input,textarea,select,button{scroll-margin-block:96px}
 .upload-zone{position:relative;display:grid;place-items:center;min-height:56px;padding:16px;overflow:hidden}
 .upload-zone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;margin:0;padding:0;cursor:pointer}
 .upload-zone:focus-within,.gallery-track:focus-visible{outline:3px solid #79966e;outline-offset:3px}
+
+/* Compact, credential-free staging sync diagnosis. */
+#syncDiagnosticPanel{margin:16px 0;overflow-wrap:anywhere}
+#syncDiagnosticPanel button{max-width:100%;white-space:normal;margin:8px 0}
+#syncDiagnosticReport section{padding:10px 0;border-bottom:1px solid var(--line)}
+#syncDiagnosticReport h4{margin:0 0 6px;font-size:13px}
+#syncDiagnosticReport p{margin:4px 0;font-size:13px;line-height:1.7}
+#syncDiagnosticReport details{margin-top:8px;font-size:12px}

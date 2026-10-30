@@ -4,7 +4,7 @@
   UI.applyBrand();
   const {$,esc,money,date,data,write,message,notify} = A;
   const screens = ['homePanel','ordersPanel','productsPanel','inventoryPanel'];
-  const statusNames = {draft:'下書き',published:'公開中',stopped:'販売停止',archived:'アーカイブ',queued:'待機',retry:'再試行待ち',running:'同期中',review:'要確認',done:'完了'};
+  const statusNames = {draft:'下書き',published:'公開中',stopped:'販売停止',archived:'アーカイブ',queued:'待機',retry:'再試行待ち',running:'同期中',review:'要確認',done:'完了',cancelled:'照合して取消'};
   let stagingCapabilities=null;
   let products = [], current = null, busy = false, dirty = false, activePanel = 'homePanel', inventoryRows = [], stockEdit = null, homeGeneration = 0;
   let productionCapabilities=null;
@@ -122,7 +122,7 @@
   }
   function drawSyncStatus(){
     let status=$('editorSyncStatus');if(!status){status=document.createElement('span');status.id='editorSyncStatus';status.className='muted';$('editorProductStatus').after(status);}
-    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':current.source==='square-production'?'Square Production（本番）':'取得元未確認')+' ／ '+(current.accessMode==='PRODUCTION_READ_ONLY'?'本番・Square書込停止 ／ ':current.accessMode==='PRODUCTION_MANAGEMENT'?'本番管理 ／ ':current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':current.accessMode==='SANDBOX_MANAGEMENT'?'Sandbox管理書込 ／ 購入停止 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',linked:'既存ID照合済み',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
+    status.textContent=(current.source==='local-mock'?'ローカル代替データ':current.source==='square-sandbox'?'Square Sandbox':current.source==='square-production'?'Square Production（本番）':'取得元未確認')+' ／ '+(current.accessMode==='PRODUCTION_READ_ONLY'?'本番・Square書込停止 ／ ':current.accessMode==='PRODUCTION_MANAGEMENT'?'本番管理 ／ ':current.accessMode==='READ_ONLY'?'読み取り専用 ／ ':current.accessMode==='SANDBOX_MANAGEMENT'?'Sandbox管理書込 ／ 購入停止 ／ ':'')+'同期状態：'+({done:'前回同期完了',queued:'同期待ち',running:'同期中',retry:'再試行待ち',review:'要確認',cancelled:'旧同期を取消済み',linked:'既存ID照合済み',unlinked:'未連携'}[current.syncState]||'未連携')+(current.version&&current.draft_revision!==current.published_revision?' ／ 未反映の下書きあり':'');
     if(current.siteWarnings?.length)status.textContent+=' ／ '+current.siteWarnings.join(' ／ ');
     if(current.blockingJobs?.length)status.textContent+=' ／ 保留中：'+current.blockingJobs.map(j=>`${({stock:'在庫変更',publish:'Square商品同期',state:'Square販売状態'}[j.kind]||'不明な処理')}・${statusNames[j.state]||j.state||'ジョブ情報なし'}・${j.error||'結果確認待ち'}（${j.id||'識別子なし'}）`).join(' ／ ')+'。詳細・照合は「同期」画面で確認できます。表示情報のみの編集・公開は可能です。';
   }
@@ -143,22 +143,32 @@
       panel=document.createElement('section');panel.id='syncDiagnosticPanel';
       const button=document.createElement('button');button.type='button';button.textContent='同期状況を確認（読取のみ）';
       const summary=document.createElement('p');summary.id='syncDiagnosticSummary';summary.setAttribute('role','status');
-      const report=document.createElement('pre');report.id='syncDiagnosticReport';report.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';
+      const report=document.createElement('div');report.id='syncDiagnosticReport';
       const actions=document.createElement('div');actions.id='syncDiagnosticActions';
       panel.append(button,summary,report,actions);$('editorSyncStatus').after(panel);
       button.onclick=()=>work(async()=>{
         const result=await data('/api/admin/products/'+current.id+'/sync-check',{method:'POST',body:'{}'});
-        summary.textContent=!result.connection.ok?'Squareへの読み取り接続に失敗しました。下の原因・次の操作を確認してください。':!result.connection.locationFound||!result.connection.locationActive?'対象Sandbox Locationが存在しないか無効です。下の接続結果を確認してください。':result.jobs.length?'既存ジョブ・ロックが残っています。新規同期は開始していません。':result.variants.some(v=>!v.mapped||Object.values(v.checks||{}).includes(false))?'Square対応に未確認・不一致があります。下のchecksのfalseを確認してください。':'Square接続・対応情報を確認しました。';
-        const labels={sandbox:'Sandbox環境',location:'Location',itemId:'商品ID',variationId:'Variation ID',parent:'親子関係',skuPresent:'SKU',skuUnique:'SKU重複',notDeleted:'削除状態',name:'バリエーション名',price:'価格・通貨',tracking:'在庫追跡',sellable:'販売可能状態',present:'Location販売設定',catalogVersion:'Square更新バージョン'};
-        for(const job of result.jobs)summary.textContent+=' ／ '+(statusNames[job.state]||job.state)+'：'+(job.error||'記録されたエラーなし')+'。次：'+job.nextAction;
-        for(const variant of result.variants){const failed=Object.entries(variant.checks||{}).filter(([,ok])=>!ok).map(([key])=>labels[key]||key);if(failed.length)summary.textContent+=' ／ '+variant.variantId+'の不一致：'+failed.join('・');if(variant.nextAction)summary.textContent+=' ／ '+variant.nextAction;}
-        if(result.connection.ok&&!result.skuCheck?.complete)summary.textContent+=' ／ SKU重複の全件照合は未確認です。確認できるまで対応表を変更しないでください。';
-        if(result.discovery)summary.textContent+=' ／ '+result.discovery.reason;
-        report.textContent=JSON.stringify(result,null,2);actions.replaceChildren();
-        for(const job of result.jobs)if(['review','done'].includes(job.state)){
-          const reconcile=document.createElement('button');reconcile.type='button';reconcile.textContent='このジョブを読み取り照合：'+job.id;
-          reconcile.onclick=()=>work(async()=>{await data('/api/admin/jobs/'+job.id+'/reconcile',{method:'POST',body:'{}'});await loadProducts();current=structuredClone(products.find(p=>p.id===current.id));draw();message('editorMessage','照合が一致したため完了を記録し、ロックを解除しました。Squareへの再送・在庫更新はしていません。');},'editorMessage');actions.append(reconcile);
+        summary.textContent='読み取り診断を更新しました。Squareへの再送・在庫更新はしていません。';report.replaceChildren();actions.replaceChildren();
+        const section=(title,text)=>{const box=document.createElement('section'),heading=document.createElement('h4'),body=document.createElement('p');heading.textContent=title;body.textContent=text;box.append(heading,body);report.append(box);return box;};
+        section('接続',result.connection.ok?(result.connection.locationFound&&result.connection.locationActive?'Sandbox接続成功・Location有効':'Sandbox接続成功・Locationは要確認'):'接続失敗：'+(result.connection.httpStatus||'状態未確認')+' '+(result.connection.squareCode||'')+'。'+(result.connection.nextAction||''));
+        const labels={sandbox:'Sandbox環境',location:'Location',itemId:'商品ID',variationId:'Variation ID',parent:'親子関係',skuPresent:'SKU',skuUnique:'SKU重複',notDeleted:'削除状態',name:'バリエーション名',price:'価格・通貨',tracking:'在庫追跡',sellable:'販売可能状態',present:'Location販売設定'};
+        const productLines=result.variants.map(v=>{const failed=Object.entries(v.checks||{}).filter(([key,ok])=>key!=='catalogVersion'&&ok===false).map(([key])=>labels[key]||key);return (failed.length?'要確認：'+failed.join('・'):v.checks?'商品ID・SKU・価格・在庫追跡を確認':'商品対応は未確認')+(v.versions?'。'+v.versions.reason:'');});
+        section('商品',(productLines.join(' ／ ')||'未確認')+(result.connection.ok&&!result.skuCheck?.complete?'。SKU重複の全件確認は未完了です。':''));
+        section('在庫',Array.isArray(result.inventory)?result.inventory.length?result.inventory.map((v,i)=>'バリエーション'+(i+1)+'：'+(v.quantity===null?'未確認':v.quantity+'点')).join(' ／ '):'未確認（Square対応未登録）':'未確認。0点として扱いません。');
+        const jobsBox=section('ジョブ',result.jobs.length?result.jobs.map(j=>(statusNames[j.state]||j.state)+'・ロック'+j.lockCount+'件').join(' ／ '):'保留ジョブなし');
+        for(const job of result.jobs){
+          const proof=job.proof;
+          const detail=document.createElement('details'),heading=document.createElement('summary'),text=document.createElement('p');heading.textContent='照合結果'+(proof?.state==='matched'?'：一致':proof?.state==='mismatch'?'：不一致':'：未確認');
+          text.textContent=proof?.message||job.error||job.nextAction;detail.append(heading,text);
+          if(proof){const failed=proof.checks.filter(c=>!c.ok).map(c=>c.label);if(failed.length){const note=document.createElement('p');note.textContent='不一致項目：'+failed.join('・');detail.append(note);}
+           for(const version of proof.versionInfo){const line=document.createElement('p');line.textContent=version.type+'：送信時 '+(version.requested??'未記録')+' ／ ローカル '+(version.stored??'未記録')+' ／ Square現在 '+(version.current??'未確認');detail.append(line);}}
+          jobsBox.append(detail);
+          const resolved=async(mode)=>{await data('/api/admin/jobs/'+job.id+'/'+mode,{method:'POST',body:'{}'});await loadProducts();current=structuredClone(products.find(p=>p.id===current.id));draw();message('editorMessage',mode==='adopt-current'?'旧同期を成功扱いにせず取り消し、確認済みの現在値を採用しました。下書き・公開内容・Square在庫は変更していません。':'保存済みリクエストとの内容一致を確認し、照合完了を記録しました。Squareへの再送・在庫更新はしていません。');};
+          if(proof?.state==='matched'||job.state==='done'||job.kind==='stock'&&job.state==='review'&&job.hasSuccessEvidence){const b=document.createElement('button');b.type='button';b.textContent='一致を再確認して同期を完了';b.onclick=()=>work(()=>resolved('reconcile'),'editorMessage');actions.append(b);}
+          else if(proof?.adoption?.available){const b=document.createElement('button');b.type='button';b.textContent='現在値を採用して旧同期を取り消す';b.onclick=()=>{if(confirm('旧同期は成功扱いにしません。旧リクエストが適用できないことをバージョンで再確認し、現在のSquare対応情報を採用します。下書き・公開内容・Square在庫は変更しません。続行しますか？'))work(()=>resolved('adopt-current'),'editorMessage');};actions.append(b);}
         }
+        section('次の操作',result.jobs.some(j=>j.proof?.state==='matched')?'保存済みリクエストと一致しています。「一致を再確認して同期を完了」を押してください。':result.jobs.some(j=>j.proof?.adoption?.available)?'内容が異なりますが旧リクエストの再適用は防止されています。成功扱いにせず現在値を採用し、旧同期を取り消せます。':result.jobs.length?'成功を証明できないためロックを保持しています。「ジョブ」の照合結果で不一致を確認し、読み取り診断を再実行してください。新規同期・再送は行わないでください。':result.connection.ok?'保留はありません。商品情報の確認後に通常の同期を利用できます。':result.connection.nextAction||'接続結果を確認してください。');
+
       },'editorMessage');
     }
     panel.querySelector('button').disabled=!current.version;

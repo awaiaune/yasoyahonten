@@ -116,7 +116,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  // verify the immutable request, then persist mappings without another upsert.
  let secondProduct=(await api('/api/admin/products/'+second)).product;square.loseAfter='/v2/catalog/batch-upsert';
  const createdUnknown=await api('/api/admin/products/'+second+'/publish','POST',{expectedVersion:secondProduct.version,operationId:crypto.randomUUID()});assert.equal(createdUnknown.state,'retry');
- await db.prepare("UPDATE mg_jobs SET state='review' WHERE id=?").bind(createdUnknown.id).run();
+ // Read-only proof may finish a retry as well; never resend the saved body.
  const beforeDiscovery=square.calls.length;const discovered=await api('/api/admin/products/'+second+'/sync-check','POST',{});
  assert.equal(discovered.variants[0].discovered,true);assert(discovered.variants[0].sku);
  assert.equal((await api('/api/admin/jobs/'+createdUnknown.id+'/reconcile','POST',{})).state,'done');
@@ -134,7 +134,8 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   await page.getByRole('button',{name:'変更済みの名前を編集',exact:true}).click();
   assert((await page.locator('#editorSyncStatus').textContent()).includes('要確認'));
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
-  assert((await page.locator('#syncDiagnosticSummary').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticSummary').textContent()).includes('価格・通貨'));
+  assert((await page.locator('#syncDiagnosticReport').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('価格・通貨'));
+  assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','在庫','ジョブ','次の操作']);assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
   await page.getByLabel('商品名',{exact:true}).fill('保留中でも実機相当の編集');
   await page.getByLabel('表示順',{exact:true}).fill('7');
   const beforeBrowser=square.calls.length;
@@ -159,7 +160,23 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
   await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
   await page.getByRole('button',{name:'Squareへ同期（サイト公開は別）',exact:true}).click();await idle();
-  const browserProduct=(await api('/api/admin/products')).products.find(p=>p.slug==='browser-v53');const browserMap=await db.prepare('SELECT variation_id FROM mg_mappings WHERE variant_id=?').bind(browserProduct.draft.variants[0].id).first();assert(browserMap);square.counts.set(browserMap.variation_id,5);
+  const browserProduct=(await api('/api/admin/products')).products.find(p=>p.slug==='browser-v53');
+  // Exact real-world shape: review + saved request + no success response,
+  // one lock and stale locally recorded versions. Recover from the compact UI.
+  const browserJob=(await db.prepare("SELECT id,body_json FROM mg_jobs WHERE resource_id=? ORDER BY rowid DESC LIMIT 1").bind(browserProduct.id).first());
+  await db.prepare("UPDATE mg_jobs SET state='review',result_json=NULL WHERE id=?").bind(browserJob.id).run();
+  await db.prepare('INSERT INTO mg_locks VALUES(?,?)').bind(browserProduct.draft.variants[0].id,browserJob.id).run();
+  await db.prepare('UPDATE mg_mappings SET item_version=item_version-1,variation_version=variation_version-1 WHERE variant_id=?').bind(browserProduct.draft.variants[0].id).run();
+  await page.locator('#closeEditor').click();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
+  await page.getByRole('button',{name:'ブラウザ編集済み商品を編集',exact:true}).click();
+  const beforeBrowserRecovery=square.calls.length;
+  await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
+  assert((await page.locator('#syncDiagnosticReport').textContent()).includes('保存済みリクエストと現在の商品状態が一致'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('0点'));
+  await page.getByRole('button',{name:'一致を再確認して同期を完了',exact:true}).click();await idle();
+  const recoveredBrowserJob=(await api('/api/admin/jobs')).jobs.find(j=>j.id===browserJob.id);assert.equal(recoveredBrowserJob.state,'done');assert.equal(recoveredBrowserJob.lockCount,0);
+  assert(square.calls.slice(beforeBrowserRecovery).every(path=>path==='/v2/locations'||path==='/v2/catalog/list'||path.startsWith('/v2/catalog/object/')||path==='/v2/inventory/counts/batch-retrieve'));
+  assert.equal((await db.prepare('SELECT body_json FROM mg_jobs WHERE id=?').bind(browserJob.id).first()).body_json,browserJob.body_json);
+  const browserMap=await db.prepare('SELECT variation_id FROM mg_mappings WHERE variant_id=?').bind(browserProduct.draft.variants[0].id).first();assert(browserMap);square.counts.set(browserMap.variation_id,5);
   await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-top h1').waitFor();assert.equal(await page.locator('.v30-top h1').innerText(),'ブラウザ編集済み商品');
   const geometry=()=>page.evaluate(()=>Object.fromEntries(['.v30-top','.v30-product-line','.v30-price','.v30-qty select','.v30-cart-button'].map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return [selector,{x:r.x,y:r.y,width:r.width,height:r.height}];})));
   for(const viewport of [{width:360,height:640},{width:390,height:844},{width:768,height:1024},{width:1440,height:900}]){
@@ -176,5 +193,16 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
   await page.goto(env.SITE_URL+'/products.html');assert(await page.locator('.v35-all-card').filter({hasText:'ブラウザ編集済み商品'}).count());assert.deepEqual(errors,[]);
  }
+// An unknown/unchanged version never permits cancellation. Strictly newer
+// versions on all exact existing IDs fence the old write; cancellation is local.
+ assert.equal((await req('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{})).status,409);
+ const pendingBody=JSON.parse((await db.prepare('SELECT body_json FROM mg_jobs WHERE id=?').bind(unresolved.id).first()).body_json);
+ const sentItem=pendingBody.batches[0].objects[0],existingItem=square.objects.get(sentItem.id);
+ existingItem.version+=100;for(const variation of existingItem.item_data.variations){variation.version+=100;square.objects.set(variation.id,variation);}
+ const beforeAdopt=square.calls.length,stockBeforeAdopt=JSON.stringify([...square.counts]);
+ const cancelled=await api('/api/admin/jobs/'+unresolved.id+'/adopt-current','POST',{});assert.equal(cancelled.state,'cancelled');assert.equal(cancelled.lockCount,0);
+ assert(square.calls.slice(beforeAdopt).every(p=>p.startsWith('/v2/catalog/object/')));assert.equal(JSON.stringify([...square.counts]),stockBeforeAdopt);
+ assert.equal((await req('/api/admin/jobs/'+unresolved.id+'/retry','POST',{})).status,409);
+ assert.equal((await api('/api/catalog')).products.find(p=>p.id===name).variants[0].price,980,'adoption must not change the public price');
 assert(!calls.includes('connect.squareup.com'));assert.equal((await api('/api/admin/orders')).orders.length,checkout==='1'?1:0);
 });

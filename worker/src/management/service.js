@@ -3,6 +3,7 @@ import {externalPolicy,assertSquareWrite} from '../external-policy.js';
 import { importLegacy } from './importer.js';
 import { CATALOG } from '../catalog.js';
 import {publishSite,independentPublication} from './site-publication.js';
+import {catalogProof} from './catalog-proof.js';
 import {inspectSync} from './sync-diagnostics.js';
 import { Store } from './store.js';
 import { Square } from './square.js';
@@ -117,8 +118,9 @@ export class Management {
  async reconcile(id){
   if(!production(this.env)&&this.env.RUNTIME_TIER!=='staging')assertSquareWrite(this.env);
   const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');if(j.state==='done'){if(this.env.RUNTIME_TIER==='staging'){const proof=j.result_json&&JSON.parse(j.result_json);need(j.kind==='stock'?proof?.applied===true:Array.isArray(proof?.mappings)&&proof.mappings.length>0,'成功証跡がないためロックを解除できません。',409);await this.s.batch([['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('authenticated-admin','completed_lock_released',j.resource_id,{job:id})]);}return this.job(id);}
-  need(j.state==='review','通常の再試行を使ってください。',409);const p=JSON.parse(j.payload_json);let result;
+  need(j.state==='review'||this.env.RUNTIME_TIER==='staging'&&j.kind!=='stock'&&['queued','running','retry'].includes(j.state),'読み取り照合できる状態ではありません。再送せず状態を確認してください。',409);const p=JSON.parse(j.payload_json);let result;
   if(j.kind==='stock'){need(j.result_json,'在庫操作の成功証跡がありません。Square側履歴の手動確認が必要です。',409);const count=(await this.square.count([p.mapping.variation_id])).get(p.mapping.variation_id);need(count===p.target,'在庫が一致しません。上書きせず停止しました。',409);result=JSON.parse(j.result_json);}
+  else if(this.env.RUNTIME_TIER==='staging'){const proof=await catalogProof(this,j);need(proof.state==='matched',proof.message+' '+proof.checks.filter(c=>!c.ok).map(c=>c.label).join('・'),409);result={mappings:proof.mappings,evidence:{type:'saved-request-current-state-match',checks:proof.checks,versions:proof.versionInfo,checkedAt:now()}};}
   else {const known=j.result_json?JSON.parse(j.result_json).mappings:p.maps;const body=j.body_json?JSON.parse(j.body_json):null;need(known?.length||this.env.RUNTIME_TIER==='staging'&&body,'Square Item IDが不明です。自動照合できません。',409);const item=known?.length?await this.square.object(known[0].item_id):await this.square.findCreatedItem(body);const mappings=this.square.verifyCatalog(item,p.data,body?.batches[0].objects[0].item_data.image_ids,p.targetStatus,body?.batches[0].objects[0].item_data.variations);for(const old of known||[]){const m=mappings.find(m=>m.variant_id===old.variant_id);need(m?.variation_id===old.variation_id&&(this.env.RUNTIME_TIER!=='staging'||m.item_id===old.item_id),'Square IDが一致しません。',409);}result={mappings};}
   if(this.env.RUNTIME_TIER==='staging'){
    const updates=j.kind==='stock'?[
@@ -130,11 +132,24 @@ export class Management {
   }
   await this.s.run("UPDATE mg_jobs SET result_json=?,state='queued' WHERE id=?",[json(result),id]);await this.run(id);await this.schedule();return this.job(id);
  }
+ async adoptCurrent(id){
+  need(this.env.RUNTIME_TIER==='staging','ステージング専用です。',403);
+  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j?.state==='review'&&j.kind==='publish','要確認の商品同期だけが対象です。',409);
+  const proof=await catalogProof(this,j);need(proof.adoption?.available,proof.adoption?.reason||proof.message,409);
+  const payload=JSON.parse(j.payload_json);await this.assertNoPurchaseHold(payload.data.variants.map(v=>v.id));
+  await this.s.batch([...proof.adoptionMappings.map(m=>this.mappingInsert(m)),
+   ["UPDATE mg_jobs SET state='cancelled',result_json=?,last_error=?,updated_at=? WHERE id=?",[json({resolution:'version-fenced-current-state-adopted',versions:proof.versionInfo}),'成功扱いにせず、読取確認した現在値を採用して取消しました。',now(),id]],
+   ['DELETE FROM mg_locks WHERE job_id=?',[id]],
+   ["UPDATE mg_job_notifications SET state='cancelled' WHERE job_id=?",[id]],
+   ['UPDATE mg_products SET version=version+1 WHERE id=?',[j.resource_id]],
+   this.s.audit('authenticated-admin','job_cancelled_after_version_fence',j.resource_id,{job:id,squareWrite:false})]);
+  return this.job(id);
+ }
  async retry(id){
-  if(!production(this.env))assertSquareWrite(this.env);const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');need(j.state!=='review','競合・期限切れは自動再送できません。照合が必要です。',409);if(j.state!=='done')await this.run(id);await this.schedule();return this.job(id);}
+  if(!production(this.env))assertSquareWrite(this.env);const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');need(j.state!=='cancelled','取消済みの同期は再送できません。',409);need(j.state!=='review','競合・期限切れは自動再送できません。照合が必要です。',409);if(j.state!=='done')await this.run(id);await this.schedule();return this.job(id);}
  async run(id){
   if(externalPolicy(this.env).readOnly)return;
-  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);if(!j||['done','review'].includes(j.state))return;
+  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);if(!j||['done','review','cancelled'].includes(j.state))return;
   if(production(this.env)&&!productionPolicy(this.env)[j.kind==='stock'?'inventory':'catalog'])return;
   if(!await this.schedule())return;
   const p=JSON.parse(j.payload_json);try{
@@ -205,7 +220,7 @@ export class Management {
    if(method==='POST'&&m[2])return m[2]==='sync-check'?inspectSync(this,id):m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
   }
   m=path.match(/^\/api\/admin\/inventory\/([a-z0-9-]+)$/);if(m&&method==='POST')return this.adjust(m[1],body,actor);
-  m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile)$/);if(m&&method==='POST')return this[m[2]](operation(m[1]));
+  m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile|adopt-current)$/);if(m&&method==='POST')return this[m[2]==='adopt-current'?'adoptCurrent':m[2]](operation(m[1]));
   need(false,'管理APIが見つかりません。',404);
  }
 }

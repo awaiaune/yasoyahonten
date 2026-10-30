@@ -118,7 +118,7 @@ export class Square {
  }
  verifyCatalog(item,expected,imageIds,status='published',sent=[]){
   need(item?.item_data?.variations?.length===expected.variants.length,'Square応答の確認が必要です。',409);
-  need(item.item_data.name===expected.name&&item.item_data.description===squareDescription(expected),'Square商品情報が一致しません。',409);if(imageIds)need(JSON.stringify(item.item_data.image_ids||[])===JSON.stringify(imageIds),'Square画像が一致しません。',409);squareId(item.id,this.env);
+  need(item.item_data.name===expected.name&&(item.item_data.description||'')===squareDescription(expected),'Square商品情報が一致しません。',409);if(imageIds)need(JSON.stringify(item.item_data.image_ids||[])===JSON.stringify(imageIds),'Square画像が一致しません。',409);squareId(item.id,this.env);
   const present=o=>(o.present_at_all_locations||o.present_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID))&&!o.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID);
   need(status==='published'?present(item)&&!item.item_data.is_archived:!present(item)&&Boolean(item.item_data.is_archived)===(status==='archived'),'Square販売状態が一致しません。',409);
   const maps=expected.variants.map((v,index)=>{
