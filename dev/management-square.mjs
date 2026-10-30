@@ -20,7 +20,7 @@ export class ManagementSquare {
    for(const v of item.item_data.variations){const prev=existing.find(o=>o.id===v.id);if(prev&&v.version!==prev.version)return Response.json({errors:[{code:'VERSION_MISMATCH'}]},{status:409});}
    if(item.id.startsWith('#'))item.id='TESTITEM'+String(++this.version).padStart(12,'0');
    item.version=++this.version;
-   for(const v of item.item_data.variations){if(v.id.startsWith('#'))v.id='TESTVAR'+String(++this.version).padStart(12,'0');v.version=item.version;v.item_variation_data.item_id=item.id;this.objects.set(v.id,v);}
+   for(const v of item.item_data.variations){if(v.id.startsWith('#'))v.id='TESTVAR'+String(++this.version).padStart(12,'0');v.version=this.keepVariationVersion&&existing.find(old=>old.id===v.id)?.version||item.version;v.item_variation_data.item_id=item.id;this.objects.set(v.id,v);}
    this.objects.set(item.id,item);result={objects:[item]};
   }else if(path.startsWith('/v2/catalog/object/')){const object=this.objects.get(path.split('/').pop());return Response.json({object},{status:object?200:404});}
   else if(path==='/v2/inventory/counts/batch-retrieve'){result={counts:body.catalog_object_ids.map(id=>({catalog_object_id:id,location_id:body.location_ids[0],state:'IN_STOCK',quantity:String(this.counts.get(id)||0)}))};}

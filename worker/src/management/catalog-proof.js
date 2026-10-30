@@ -26,7 +26,10 @@ export async function catalogProof(manager,job){
    versionInfo.push({type:'Variation',stored:old?.variation_version??null,requested:desired.version??null,current:current?.version??null});
   }
   check('バージョンの有効性',versionInfo.every(v=>Number.isSafeInteger(v.current)&&v.current>0&&(v.requested===null||Number.isSafeInteger(v.requested)&&v.current>=v.requested)));
-  check('送信後のバージョン更新',versionInfo.every(v=>v.requested===null||v.current>v.requested));
+  // A unified release proves the requested current state, including no-op updates.
+  // Square need not advance an unchanged Variation when only Item copy changes.
+  const alignedRelease=payload.releaseSite===true&&job.kind==='publish';
+  check(alignedRelease?'公開要求バージョンとの整合':'送信後のバージョン更新',versionInfo.every(v=>v.requested===null||v.current>v.requested||alignedRelease&&v.current===v.requested));
   // Reuse the strict price/SKU/location/image/sales checks used after upsert.
   try{
    mappings=manager.square.verifyCatalog(item,payload.data,sent.item_data.image_ids,payload.targetStatus,sent.item_data.variations);

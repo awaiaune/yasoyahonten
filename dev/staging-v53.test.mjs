@@ -141,34 +141,37 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
   await page.getByRole('button',{name:'変更済みの名前を編集',exact:true}).click();
   assert((await page.locator('#editorSyncStatus').textContent()).includes('要確認'));
+  if(!await page.locator('#syncDiagnosticPanel').evaluate(e=>e.closest('details')?.open))await page.getByText('公開状況・復旧・詳細診断',{exact:true}).click();
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
   assert((await page.locator('#syncDiagnosticReport').textContent()).includes('要確認'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('価格・通貨'));
   assert.deepEqual(await page.locator('#syncDiagnosticReport h4').allTextContents(),['接続','商品','購入時照合 1','直近の処理','在庫','ジョブ','次の操作']);
-  const diagnosticBox=await page.locator('#syncDiagnosticPanel').boundingBox(),formBox=await page.locator('#productForm').boundingBox();assert(diagnosticBox.width>=formBox.width-40);assert(await page.locator('#syncDiagnosticPanel').evaluate(e=>e.parentElement.id==='productForm'));assert(await page.locator('#syncDiagnosticReport').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length===1));assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
+  const diagnosticBox=await page.locator('#syncDiagnosticPanel').boundingBox(),formBox=await page.locator('#productForm').boundingBox();assert(diagnosticBox.width>=formBox.width-40);assert(await page.locator('#syncDiagnosticPanel').evaluate(e=>e.closest('.release-diagnostics').parentElement.id==='productForm'));assert(await page.locator('#syncDiagnosticReport').evaluate(e=>getComputedStyle(e).gridTemplateColumns.split(' ').length===1));assert.equal(await page.locator('#syncDiagnosticPanel pre').count(),0);
   await page.getByLabel('商品名',{exact:true}).fill('保留中でも実機相当の編集');
   await page.getByLabel('表示順',{exact:true}).fill('7');
   const beforeBrowser=square.calls.length;
   await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
-  await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
-  assert((await page.locator('#editorMessage').textContent()).includes('前回公開値を維持'));
+  await page.getByRole('button',{name:'公開する',exact:true}).click();await idle();
+  assert((await page.locator('#editorMessage').textContent()).includes('保留中')); // Legacy uncertain jobs must not be overwritten.
   assert.equal(square.calls.length,beforeBrowser);
-  assert((await (await req('/products/'+name+'.html')).text()).includes('保留中でも実機相当の編集'));
+  assert(!(await (await req('/products/'+name+'.html')).text()).includes('保留中でも実機相当の編集')); // Draft save does not change the live page.
   await page.getByText('販売状態・連携設定',{exact:true}).click();
   await page.locator('#stopProduct').click();await idle();
   assert(!(await (await req('/products.html')).text()).includes('/products/'+name+'.html'));
   assert.match(await (await req('/products/'+name+'.html')).text(),/disabled data-site-disabled="true"/);
-  await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
-  assert((await (await req('/products.html')).text()).includes('/products/'+name+'.html'));
+  await page.getByRole('button',{name:'公開する',exact:true}).click();await idle();
+  assert(!(await (await req('/products.html')).text()).includes('/products/'+name+'.html'));
+  // Exercise the retained legacy site-only API separately from the new UI.
+  const resume=await api('/api/admin/products/'+name);await api('/api/admin/products/'+name+'/site','POST',{expectedVersion:resume.product.version,status:'published',operationId:crypto.randomUUID()});
   await page.locator('#closeEditor').click();
   await page.getByRole('button',{name:'＋ 商品登録',exact:true}).click();await page.getByLabel('商品名',{exact:true}).fill('ブラウザ追加商品');await page.getByLabel('URL識別子',{exact:true}).fill('browser-v53');await page.locator('[name=vname]').fill('通常');
   await page.locator('#imageFiles').setInputFiles({name:'staging.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});await idle();
-  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
+  await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();await page.getByRole('button',{name:'公開する',exact:true}).click();await idle();
   // Edit an already published product through the actual admin form, preserving
   // the other registered products and the uploaded image.
   await page.getByLabel('商品名',{exact:true}).fill('ブラウザ編集済み商品');
   await page.getByRole('button',{name:'下書き保存',exact:true}).click();await idle();
-  await page.getByRole('button',{name:'サイトへ公開（Square変更なし）',exact:true}).click();await idle();
-  await page.getByRole('button',{name:'Squareへ同期（サイト公開は別）',exact:true}).click();await idle();
+  await page.getByRole('button',{name:'公開する',exact:true}).click();await idle();
+  assert(await page.locator('#syncSquareProduct').isHidden());
   const browserProduct=(await api('/api/admin/products')).products.find(p=>p.slug==='browser-v53');
   // Exact real-world shape: review + saved request + no success response,
   // one lock and stale locally recorded versions. Recover from the compact UI.
@@ -179,6 +182,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   await page.locator('#closeEditor').click();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();
   await page.getByRole('button',{name:'ブラウザ編集済み商品を編集',exact:true}).click();
   const beforeBrowserRecovery=square.calls.length;
+  if(!await page.locator('#syncDiagnosticPanel').evaluate(e=>e.closest('details')?.open))await page.getByText('公開状況・復旧・詳細診断',{exact:true}).click();
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
   assert((await page.locator('#syncDiagnosticReport').textContent()).includes('保存済みリクエストと現在の商品状態が一致'));assert((await page.locator('#syncDiagnosticReport').textContent()).includes('0点'));
   await page.getByRole('button',{name:'一致を再確認して同期を完了',exact:true}).click();await idle();
@@ -217,6 +221,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  if(browserRecovery){
   const {page}=browserRecovery,idle=()=>page.waitForFunction(()=>!document.querySelector('#app [aria-busy="true"]'));
   await page.goto(env.SITE_URL+'/admin/');await page.locator('#app').waitFor({state:'visible'});await idle();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();await page.getByRole('button',{name:'保留中でも実機相当の編集を編集',exact:true}).click();
+  if(!await page.locator('#syncDiagnosticPanel').evaluate(e=>e.closest('details')?.open))await page.getByText('公開状況・復旧・詳細診断',{exact:true}).click();
   await page.getByRole('button',{name:'同期状況を確認（読取のみ）',exact:true}).click();await idle();
   for(const [fault,expected] of [['before','ADMIN_RECOVERY_NETWORK'],['redirect','ADMIN_ACCESS_REDIRECT'],['http','処理段階：commit']]){
    recoveryFault=fault;const postCount=recoveryPosts,getCount=recoveryGets;

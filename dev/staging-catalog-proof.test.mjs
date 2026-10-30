@@ -38,3 +38,7 @@ test('saved request identity is required and production cannot run staging proof
  const f=fixture(),body=JSON.parse(f.job.body_json);body.idempotency_key='wrong';f.job.body_json=JSON.stringify(body);assert.equal((await catalogProof(f.manager,f.job)).state,'unavailable');assert.equal(f.reads.length,0);
  await assert.rejects(catalogProof({env:{RUNTIME_TIER:'production'}},f.job),{status:403});
 });
+
+test('unified release can prove exact no-op content without requiring every version to advance',async()=>{
+ const f=fixture(),payload=JSON.parse(f.job.payload_json);payload.releaseSite=true;f.job.payload_json=JSON.stringify(payload);f.item.version=10;f.item.item_data.variations[0].version=10;assert.equal((await catalogProof(f.manager,f.job)).state,'matched');f.item.item_data.variations[0].item_variation_data.price_money.amount=1200;assert.equal((await catalogProof(f.manager,f.job)).state,'mismatch');
+});

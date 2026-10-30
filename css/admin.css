@@ -97,3 +97,5 @@ input,textarea,select,button{scroll-margin-block:96px}
 #productForm>#syncDiagnosticPanel{display:block;width:100%;min-width:0;box-sizing:border-box}
 #syncDiagnosticReport,#syncDiagnosticActions{display:grid;grid-template-columns:minmax(0,1fr);min-width:0}
 #syncDiagnosticPanel button{width:100%;box-sizing:border-box}
+
+#productForm>.release-diagnostics{display:block;width:100%;min-width:0;grid-column:1/-1}

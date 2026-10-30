@@ -38,7 +38,7 @@
         headers['X-Yasoya-API-Same-Origin'] = new URL(base + path,location.href).origin === location.origin ? '1' : '0';
       } catch { /* Missing diagnostics must not prevent a normal upload. */ }
     }
-    const recovery = /^\/api\/admin\/jobs\/[a-f0-9-]+(?:\/(?:adopt-current|reconcile))?$/.test(path);
+    const recovery = /^\/api\/admin\/jobs\/[a-f0-9-]+(?:\/(?:adopt-current|reconcile))?$/.test(path)||/^\/api\/admin\/products\/[a-z0-9-]+\/release$/.test(path);
     if(recovery&&location.origin==='https://staging.awaiaune.com'&&new URL(base+path,location.href).origin!==location.origin){const error=Error('同期復旧APIの接続先が管理画面と異なります。送信を停止しました。管理画面を再読み込みしてください。');error.code='ADMIN_RECOVERY_ORIGIN';throw error;}
     let response;
     try {
