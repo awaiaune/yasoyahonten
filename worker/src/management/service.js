@@ -1,4 +1,4 @@
-import {salesCatalogCheck} from './sales-catalog-check.js';
+import {inspectSalesCatalog} from './sales-version-proof.js';
 import {production,productionGrant,productionPolicy} from '../production-policy.js';
 import {externalPolicy,assertSquareWrite} from '../external-policy.js';
 import { importLegacy } from './importer.js';
@@ -56,7 +56,7 @@ export class Management {
  mappingInsert(m){if(production(this.env)){need(typeof m.sku==='string'&&m.sku.length>0,'実照合したSKUが必要です。',409);return ['INSERT INTO mg_mappings(variant_id,environment,location_id,item_id,variation_id,item_version,variation_version,sku,instance_id,verified_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_version=excluded.item_version,variation_version=excluded.variation_version,verified_at=excluded.verified_at WHERE item_id=excluded.item_id AND variation_id=excluded.variation_id AND sku=excluded.sku',[m.variant_id,'production',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version,m.sku,this.env.PRODUCTION_INSTANCE_ID,now()]];}return ['INSERT INTO mg_mappings VALUES(?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_id=excluded.item_id,variation_id=excluded.variation_id,item_version=excluded.item_version,variation_version=excluded.variation_version',[m.variant_id,'sandbox',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version]];}
  async assertSalesCatalog(quote){
   for(const v of quote.items){if(production(this.env)&&!(await this.s.publicProducts()).some(p=>p.variants.some(n=>n.id===v.id)))continue;const mapping=await this.s.one('SELECT * FROM mg_mappings WHERE variant_id=?',[v.id]);need(mapping,'Square対応がありません。',409);const object=await this.square.object(mapping.variation_id),data=object?.item_variation_data;
-   if(this.env.RUNTIME_TIER==='staging'){const check=salesCatalogCheck(this.env,mapping,object,v);need(check.ok,'Square照合不一致：'+check.mismatches.map(m=>m.label+(m.key==='version'?'（D1 '+m.saved+' ／ Square '+m.current+'）':'')).join('・')+'。管理画面の「同期状況を確認（読取のみ）」で確認してください。再送や在庫上書きはしていません。',409);continue;}
+   if(this.env.RUNTIME_TIER==='staging'){const check=await inspectSalesCatalog(this,mapping,object,v);need(check.ok,'Square照合不一致：'+check.mismatches.map(m=>m.label+(m.key==='version'?'（D1 '+m.saved+' ／ Square '+m.current+'）':'')).join('・')+'。管理画面の「同期状況を確認（読取のみ）」で確認してください。再送や在庫上書きはしていません。',409);continue;}
    need(data&&Number(data.price_money?.amount)===v.unitPrice&&data.price_money.currency==='JPY'&&data.name===v.name&&object.version===mapping.variation_version&&data.track_inventory===true&&!object.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID),'Squareの商品が外部から変更されています。再同期するまで購入できません。',409);
   }
  }

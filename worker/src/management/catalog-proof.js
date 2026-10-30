@@ -10,6 +10,7 @@ export async function catalogProof(manager,job){
   need(body.idempotency_key===job.id&&body.batches.length===1&&body.batches[0].objects.length===1&&sent?.type==='ITEM','保存済みリクエストの証跡が不完全です。',409);
   const known=job.result_json?JSON.parse(job.result_json).mappings:payload.maps;
   const item=known?.length?await manager.square.object(known[0].item_id):sent.id.startsWith('#')?await manager.square.findCreatedItem(body):await manager.square.object(sent.id);
+  check('Item種別',item?.type==='ITEM');
   check('削除状態',!item?.is_deleted&&(item?.item_data?.variations||[]).every(v=>!v.is_deleted));
   check('商品ID',sent.id.startsWith('#')||item?.id===sent.id);
   check('商品名',item?.item_data?.name===sent.item_data.name);
