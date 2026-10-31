@@ -4,6 +4,7 @@
 
 ## 確定済み（再確認不要）
 
+- Cloudflare Account ID: `fcf37e462257810df77e8fbc0e7f4317`（ユーザーがDashboardで確認した値。CodexからのAPI照合は未実施）。
 - GitHub Pages: main/root、独自ドメイン yasoyahonten.awaiaune.com。
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
 - Workers Builds: mainで有効、Preview Builds無効、Root=worker、Deploy=`npx wrangler deploy`。
@@ -33,7 +34,9 @@
 
 ## まだ必要な非秘密情報（同じ画面の既知項目は不要）
 
-- Cloudflare Account ID。既存workers.dev URL・完全Version IDは上記のユーザー提示値を採用済みで、再確認は不要。
+- Account ID・既存workers.dev URL・完全Version IDは上記のユーザー提示値を採用済みで、再確認は不要。
+- コード照合済み: 準備ブランチとローカル保存済みorigin/mainの`worker/wrangler.jsonc`は、D1名`yasoya-orders`・binding `ORDERS_DB`・ID `442fa9fd-25d3-4c01-bcc3-04be7b420cf5`、DO binding `PURCHASE_COORDINATOR`・class `PurchaseCoordinator`で一致。新しい公開entrypointも同じclassを再exportする。これは稼働設定の取得結果ではない。
+- namespace ID `6802cc5abc6d440285ec19c9e7c82103`は移行入力/検証コードの期待値。Wranglerの既存DO bindingは同Workerのclassを指定し、namespace IDを直接指定していない。コードの一致だけで実namespace一致とは判定しない。
 - D1のOverviewでIDが設定案 `442fa9fd-25d3-4c01-bcc3-04be7b420cf5` と一致するかだけ確認。
 - 購入WorkerのBindings/DO namespace詳細で既存namespace ID・正確なclassを確認。設定案は `6802cc5abc6d440285ec19c9e7c82103` / `PurchaseCoordinator`。今回の画面情報だけでは実ID/class全文は未確認。一致しなければ止めて設定を修正し、新namespaceを作らない。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
