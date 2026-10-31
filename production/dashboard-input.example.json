@@ -2,7 +2,7 @@
   "accountId": "REPLACE_WITH_ACCOUNT_ID",
   "workerName": "yasoya-honten-payments",
   "activeVersionId": "4ddbd925-2967-4d93-b553-ff4ea4d685a5",
-  "legacyApiOrigin": "https://yasoya-honten-payments.REPLACE.workers.dev",
+  "legacyApiOrigin": "https://yasoya-honten-payments.tatsurou3523.workers.dev",
   "databaseName": "yasoya-orders",
   "databaseId": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
   "doNamespaceId": "6802cc5abc6d440285ec19c9e7c82103",

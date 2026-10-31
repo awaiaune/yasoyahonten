@@ -7,7 +7,7 @@
 - GitHub Pages: main/root、独自ドメイン yasoyahonten.awaiaune.com。
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
 - Workers Builds: mainで有効、Preview Builds無効、Root=worker、Deploy=`npx wrangler deploy`。
-- 購入Worker: yasoya-honten-payments、workers.devで公開、Custom Domains/Routesなし、Worker全体のAccessなし。
+- 購入Worker: yasoya-honten-payments、既存API origin=`https://yasoya-honten-payments.tatsurou3523.workers.dev`（ユーザー確認済み）。Custom Domains/Routesなし、Worker全体のAccessなし。新サイト切替後もこのAPI originを維持する。
 - D1 binding ORDERS_DB → yasoya-orders、DO binding PURCHASE_COORDINATOR → 既存クラス。orders存在・テスト注文2件・Time Travel利用可。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
 - ユーザー確認済みProduction Application ID: `sq0idp-JYrGicMfKr-ILhZeLS9Xsw`。Locationは上記の本番ID。
@@ -33,7 +33,7 @@
 
 ## まだ必要な非秘密情報（同じ画面の既知項目は不要）
 
-- Cloudflare Account ID、購入Workerの実際のworkers.dev URL。完全Version IDは上記のユーザー提示値を採用済み。
+- Cloudflare Account ID。既存workers.dev URL・完全Version IDは上記のユーザー提示値を採用済みで、再確認は不要。
 - D1のOverviewでIDが設定案 `442fa9fd-25d3-4c01-bcc3-04be7b420cf5` と一致するかだけ確認。
 - 購入WorkerのBindings/DO namespace詳細で既存namespace ID・正確なclassを確認。設定案は `6802cc5abc6d440285ec19c9e7c82103` / `PurchaseCoordinator`。今回の画面情報だけでは実ID/class全文は未確認。一致しなければ止めて設定を修正し、新namespaceを作らない。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
