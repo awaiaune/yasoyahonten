@@ -1,60 +1,76 @@
-# 最終切替手順（未実行・最終承認待ち）
+# 最終切替手順（2026-10-31更新・未実行・承認待ち）
 
-注文2件はユーザーのテスト注文。完全保全は移行の必須条件ではないが、初回はそのまま残す。D1初期化/注文削除/Square削除は行わない。
-保護方式は承認済みの「切替直前のTime Travel復元時点記録＋追加型移行」。SQL export/隔離復元は任意の追加保護で、Codexの認証修復待ちを本番作業の必須経路にしない。
+本番準備ブランチ `production/v53-port-20261031`、基準 `1cc621d`。注文2件はテスト注文だが初回は残す。ordersの削除・初期化はしない。保護は切替直前のTime Travel時点記録＋追加型SQL。バックアップexportは任意であり、Codex認証の再試験は行わない。
 
-## スマートフォンで一度に集める情報
+## 確定済み（再確認不要）
 
-Cloudflare Dashboardを同じアカウントで開く。Secret値・署名鍵・顧客データは共有しない。
+- GitHub Pages: main/root、独自ドメイン yasoyahonten.awaiaune.com。
+- DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
+- Workers Builds: mainで有効、Preview Builds無効、Root=worker、Deploy=`npx wrangler deploy`。
+- 購入Worker: yasoya-honten-payments、workers.devで公開、Custom Domains/Routesなし、Worker全体のAccessなし。
+- D1 binding ORDERS_DB → yasoya-orders、DO binding PURCHASE_COORDINATOR → 既存クラス。orders存在・テスト注文2件・Time Travel利用可。
+- RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
+- Secrets SQUARE_ACCESS_TOKEN / ADMIN_TOKEN とResend設定は存在。値を取得・転記しない。
+- MANAGEMENT_ENABLED=0、購入/管理フラグはOFF。本番管理Access・本番画像R2は未確認で、既存ステージング/validationを流用しない。
 
-| 場所 | 確認/記録するもの | 合格条件 |
+## 未設定項目と必要な操作（今は実行しない）
+
+| 項目 | 採用案・操作場所 | 設定内容 |
 |---|---|---|
-| アカウントホーム | Account ID | 登録済みアカウントと一致 |
-| Workers & Pages → yasoya-honten-payments → Deployments | 稼働中の完全Version ID、配分、Git SHA | 切戻し先を全文で保存。古い4ddbd925…を現況と決めつけない |
-| 同Worker → Settings → Domains & Routes | 既存workers.dev API URL、公開ルート | 旧API URLはPRODUCTION_LEGACY_API_ORIGINとして残す |
-| 同Worker → Bindings | ORDERS_DB、PURCHASE_COORDINATOR、class | D1=442fa9fd-25d3-4c01-bcc3-04be7b420cf5、DO namespace=6802cc5abc6d440285ec19c9e7c82103、PurchaseCoordinator。新namespaceを作らない |
-| 同Worker → Settings → Build | Production branch、Root、Build/Deploy command、Preview設定 | main。現在値だけを記録。変更は承認後。実作業前にDisable builds=ON、Preview builds=OFFとし、準備ブランチでも起動しないようにする |
-| D1 → yasoya-orders | ID、orders列定義、Time Travel | 既知のordersのみ/2件は再調査不要。直前の復元対象日時(表示タイムゾーンも記録しUTCへ統一)・bookmark(表示される場合)・保持期限を記録。Restoreは押さない |
-| R2 | Production用の非公開画像bucket | Staging bucketを流用しない。既存があればその名前、なければ作成案yasoya-honten-product-imagesを承認対象にする |
-| Zero Trust → Access → Applications | admin.awaiaune.comのTeam Domain、AUD、許可メール | 管理画面のみ保護。公開サイトや公開購入APIを認証保護しない。stagingのAUDは流用しない |
-| Worker → Variables and Secrets | 既存3Secret名と管理用Secret名 | SQUARE_ACCESS_TOKEN / ADMIN_TOKEN / RESEND_API_KEYを保持。PRODUCTION_MANAGEMENT_SQUARE_TOKENを追加する場合も値はSecret設定だけ。チャット/コードに貼らない |
-| Square Developer Dashboard → Production | App ID・Location | sq0idp-で始まる本番App ID、Location LQ693S4H2NBZ8。Sandbox App/Tokenは不使用 |
-| DNS/ルート | yasoyahonten.awaiaune.comの現在値と切替先 | 現在はGitHub Pages。Worker route利用かcustom domainへのDNS変更かを実設定から確定し、旧値も保存 |
+| 本番画像R2 | R2 Object Storage → Create bucket | `yasoya-honten-product-images`、公開アクセス無効。購入Workerのbinding=`PRODUCT_IMAGES`。設定ファイルの名前は作成案で、実在確認を意味しない |
+| 管理用Access | Zero Trust → Access → Applications → Add application → Self-hosted | 名前=`yasoya-honten-admin`、ホスト=`admin.awaiaune.com`、全パス、Allowは承認管理者のメールのみ。Bypass/Everyoneは使わない。ホストの既存用途があれば作成前に停止 |
+| 管理用Worker | Workers & Pages → 新規Worker | `yasoya-honten-admin`、Service binding `PAYMENTS_SERVICE` → `yasoya-honten-payments`。workers.dev/Preview URL無効。公開時にCustom Domain=`admin.awaiaune.com`。先に上のAccessを用意する |
+| Access環境変数 | 両Worker → Settings → Variables and Secrets | `PRODUCTION_ADMIN_ORIGIN=https://admin.awaiaune.com`、`PRODUCTION_ACCESS_TEAM_DOMAIN`=本番AccessのTeam Domain、`PRODUCTION_ACCESS_AUDIENCE`=新アプリAUD、`PRODUCTION_ADMIN_EMAIL`=許可メール。ステージングAUDは使わない |
+| Square App ID | Square Developer Dashboard → 対象アプリ → Production → Credentials | `sq0idp-`で始まるApplication IDを購入Workerの`SQUARE_PRODUCTION_APPLICATION_ID`へ。Locationは既知のLQ693S4H2NBZ8を維持。App IDはSecretではない |
+| 管理用Square Secret | 購入Worker → Settings → Variables and Secrets → Secret | コードは`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`を参照する。未登録ならProduction管理用トークンを安全なSecret入力で登録。既存`SQUARE_ACCESS_TOKEN`は上書きしない。値はチャット/コード/ログへ出さない |
+| 公開ドメイン | 購入Worker → Settings → Domains & Routes → Custom Domain | 最後に`yasoyahonten.awaiaune.com`を割当てる。既存CNAMEが競合する場合だけDNS画面で既知CNAMEを削除して直ちに追加。Worker用DNSはCloudflareに管理させ、手動CNAME先を推測しない。Accessはこのホスト/購入APIへ適用しない |
 
-SquareのApp ID/LocationはCloudflareだけでは確認が完結しないので、同じ確認作業でSquareのProduction画面も開く。
-GitHub Pagesは別途Repository → Settings → Pagesのmain/(root)自動公開を確認する。main更新で静的サイトも公開されるため、旧checkout/root HTMLの先行切替を避ける。
-DO migration tagはmainの宣言v1-purchase-coordinatorを維持。画面で実履歴が確認できなければ「実履歴未確認」と記録し、再初期化/新class/migrationを追加しない。
+管理WorkerはAccess JWTを検証し、購入Workerも管理APIで同じ署名/AUD/メールを再検証する。さらに既存ADMIN_TOKENでログインする。公開ホストやworkers.devからの管理API直アクセスは拒否。購入APIにはAccessログインを要求しない。
 
-## Codex側の準備
+初期の商品画像は既存レモンバーム/よもぎの静的写真を使える。ステージングR2の6オブジェクトやSandbox商品DBを丸ごと移さない。追加画像は本番管理画面から個別アップロードし、非公開R2からWorker経由で配信する。既存Square画像IDはローカル画像未登録を理由に削除しない。
 
-1. 確認値を `production/dashboard-input.example.json` の形式でローカルのproduction/dashboard.local.jsonに入力（Secret値なし、Git対象外）。
-2. `node production/prepare-v53.mjs` → `node production/prepare-release.mjs production/dashboard.local.json`。
-3. production/release配下にbootstrap.jsonc、ready.jsonc、additive.sql、コメントなしConsole用all.sql/分割SQL、manifest.jsonを生成する。instance UUIDは再実行でも同じmanifestのものを再利用する。
-4. Access Team/AUD/許可メールは生成configへ埋め込まずDashboard varsに設定し、keep_varsで保持。Secretも設定ファイルに入れない。
-5. mainへ反映するPRは公開用root HTML/旧checkoutを新デザインへ先行更新しない差分に整理する。旧checkoutの変更は、main版に停止告知とproduction/pause-checkout.jsの読込だけを加えたmaintenance-checkout.htmlに限定する。この準備ブランチ全体をそのままmainにmergeしない。
+## まだ必要な非秘密情報（同じ画面の既知項目は不要）
 
-## 承認後の実行順序
+- Cloudflare Account ID、購入Workerの実際のworkers.dev URL、Deploymentsの現在の**完全Version ID**（切戻し先）。以前の短縮IDを現況と決めつけない。
+- D1のOverviewでIDが設定案 `442fa9fd-25d3-4c01-bcc3-04be7b420cf5` と一致するかだけ確認。
+- 購入WorkerのBindings/DO namespace詳細で既存namespace ID・正確なclassを確認。設定案は `6802cc5abc6d440285ec19c9e7c82103` / `PurchaseCoordinator`。今回の画面情報だけでは実ID/class全文は未確認。一致しなければ止めて設定を修正し、新namespaceを作らない。
+- migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
+- Production App ID、新AccessのTeam Domain/AUD/許可メール。Secret値は不要。
 
-1. **切替前記録**: 完全Worker Version、旧DNS/ルート、Time Travel利用可を確認。復元対象時点そのものは新規受付OFF後・SQL適用直前に記録する。Restoreは実行しない。Build停止/Preview停止を確認。
-2. **新規購入停止**: 本番PRODUCTION_CHECKOUT_ENABLED=0を確認し、生成したmaintenance-checkout.htmlを旧checkout.htmlへ適用し、旧画面でも停止を明示。停止スクリプトは新規送信だけを抑止し、既存の状態確認ボタンを妨げない。新しい注文は503で拒否。受付済みの状態照会は旧API URLで継続できる。既に完了した決済の記録/在庫処理を消さない。未確定時は同じattemptIdで照会し、再決済しない。
-3. **追加SQL**: ここでTime Travelの直前時点を記録し、対象DBを確認した同じD1 Consoleで、コメントなしconsole/all.sqlを適用。全文貼付に問題があれば番号順の短いSQLを使用する。ordersは触らず管理テーブル/Production markerだけ追加。再実行で衝突した場合は停止し、DROP/初期化しない。
-4. **準備バックエンド**: 既存Buildsでbootstrapを一度だけ明示的に実行。Root directory=workerを維持する場合、Build command=`node ../production/prepare-v53.mjs`、Deploy command=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。確認値を反映して生成したproduction/releaseの非秘密config/SQLを、本番反映用PRのレビュー対象に含める。未確認値のまま生成・反映しない。自動ビルド再有効化だけで既存commitのBuildが始まるとは仮定しない。
-5. **管理公開/関連付け**: Access保護済みadmin Workerを公開しサービスbindingを既存購入Workerへ。4商品をsave→linkの読取照合で関連付け、継続2商品だけsite公開、終了2商品はD1 archived。Square Item/Variation/SKU・在庫は作り直さない。掲載順1=レモンバーム、2=よもぎ、3=空欄を設定。
-6. **新サイト準備**: ready profileを明示的に公開する。管理Catalog/在庫機能はこの承認範囲に含めるか、最終承認時に明確にする。購入受付は0のまま。公開ルートを切替える前に管理閲覧/画像/公開/既存ID/終了商品の拒否を確認する。
-7. **公開ルート切替**: 確認済みDNS/Worker routeを新サイトへ切替。旧API originは残す。ホーム/SHOP/既存URL・カード画面の停止表示・旧カート終了商品の排除を確認。
-8. **別承認で再開**: Productionの実カードテスト・一般購入受付再開は今回の準備と分ける。承認後1回のテストで1決済/1注文/在庫1減を確認。返金は自動実行しない。
+## 設定ファイル・追加SQL
 
-## 購入受付OFFの影響と切戻し
+1. `production/v53.candidate.jsonc` は既存購入Worker向けの**未完成テンプレート**。REPLACEや未作成リソース名を含む間はデプロイしない。
+2. 上の実値をGit対象外の `production/dashboard.local.json` に入力する。形式は `dashboard-input.example.json`。Preview無効は反映済み、Workers Buildsは現況どおり有効として記録済み。R2/Access作成済みなどの真偽値を先にtrueにしない。
+3. オフラインで `node production/prepare-v53.mjs`、`node production/prepare-admin.mjs`、`node production/prepare-release.mjs production/dashboard.local.json` を実行。
+4. `production/release/` にbootstrap/ready/admin設定、additive.sql、Console用all.sql/番号順分割SQL、manifest、旧checkout停止版が生成される。同じmanifestのinstance UUIDは再生成でも維持する。SQLは `worker/migrations-production/0001_management.sql` → `0002_management_supervision.sql` → Production専用marker挿入。orders更新/削除や在庫初期化は含まない。既存管理テーブルがあれば再適用せず差分確認。
+5. 生成した管理設定のCustom Domainも手動追加とし、設定の初回デプロイではDNSを変えない。Access変数は両WorkerのDashboardに設定し`keep_vars=true`で保持。Secretは一切設定ファイルへ含めない。Resendのメール変数も候補設定から除外し、現行Dashboard値を保持する。
+6. 非秘密の生成設定/SQLのみをレビューPR対象にする。**この準備ブランチ全体をmainにmergeしない。** Pagesを壊さないようroot HTML/旧checkout/公開用JSを先行でv53へ置換しない。必要なWorker・production・依存コードとv53原本の`staging/site/`、`staging/prepare.mjs`、共有管理JS/CSSも選別し、旧checkout変更は停止スクリプト読込だけに限定する。
 
-- 新規購入は完了できない。旧画面のカード入力済みで未送信の場合も新規決済は拒否する。
-- 既存決済の状態照会は旧API originを保持して受ける。受付停止は返金・注文削除・在庫巻戻しを意味しない。
-- 切戻しは受付OFFのまま、記録したWorker完全Versionと対応する旧ルート/画面を戻す。追加D1テーブルは原則残し、DO namespace/class/Object名は変更しない。
-- Time Travel復元は別の本番変更。新規注文や管理データまで戻るため、自動・無条件で実行しない。テスト2件が不要でも他データの無条件初期化はしない。
+### 正式な主要フラグ名（コード照合済み）
 
-## 未確認の間の判定
+- 常時停止: `PRODUCTION_CHECKOUT_ENABLED=0`（再開は別承認）。
+- bootstrap: `MANAGEMENT_ENABLED=1`、`PRODUCTION_MANAGEMENT_SCHEMA_READY=1`、`PRODUCTION_MANAGEMENT_READ_ENABLED=1`、`PRODUCTION_MANAGEMENT_DRAFT_ENABLED=1`、`PRODUCTION_MANAGEMENT_IMAGES_ENABLED=1`。`PRODUCTION_MANAGEMENT_CATALOG_ENABLED=0`、`PRODUCTION_MANAGEMENT_INVENTORY_ENABLED=0`、`MANAGEMENT_STOCK_WRITES=disabled`。
+- ready: 上に加え`PRODUCTION_STOREFRONT_ENABLED=1`、`PRODUCTION_STOREFRONT_PUBLISH_ENABLED=1`、`PRODUCTION_MANAGED_CHECKOUT_ENABLED=1`、`PRODUCTION_UNIFIED_PUBLISH_ENABLED=1`、`STOREFRONT_FEATURED_ENABLED=1`、`STOREFRONT_RETIRE_GOLDENROD=1`。Catalog/Inventoryの許可設定は生成コードに明記し最終レビュー対象とする。managed checkout有効と新規決済受付ONは別設定。
 
-コード/SQL準備はできても、確認値にREPLACE・不一致・未承認があれば実デプロイ不可。Codex認証失敗は既存Builds/Console経路を使うため単独の阻害要因にはしない。上記の確認値とTime Travel直前記録を揃えた後、実行対象を確定して最終承認を求める。
+## 承認後の具体的な実行順序
 
-## 今回の検証
+1. **自動反映を止める**: 購入Worker → Settings → BuildsでDisable builds=ON（Previewは既にOFFのまま）。main更新前に行う。GitHub Pagesにはこの停止は効かないため、上記の選別PRと旧画面保護が必須。新管理Workerもmain自動反映に任せず承認したコミットを明示的に公開する。
+2. **準備リソースと受付停止**: 上の本番専用R2・Access・管理Worker・変数/Secretを設定。購入Workerの`PRODUCTION_CHECKOUT_ENABLED=0`を維持し、旧checkoutへ停止表示を適用する。受付済み決済の状態照会/復旧は旧API originで維持し、未確定決済を再送しない。
+3. **D1追加**: D1 yasoya-ordersのTime Travelで直前日時（タイムゾーン付き）/bookmarkが表示されれば記録。Restoreは押さない。同DBのConsoleにレビュー済み追加SQLを番号順で適用する。エラー時は停止し、DROPや全初期化で解決しない。
+4. **準備バックエンド公開**: 選別PRを承認後mainへ反映。Root=worker、Build command=`node ../production/prepare-v53.mjs`、Deploy command=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。意図したSHAに対し明示的にBuildを1回起動する。再有効化だけで過去コミットが起動するとは仮定しない。keep_varsは非秘密変数を保持するが、configに明記したフラグはconfig値が優先する。既存Secretは再登録/上書きしない。
+5. **管理画面公開**: 管理WorkerのビルドはRoot=workerなら `node ../production/prepare-admin.mjs`、Deployは `npx wrangler@4.155.0 deploy --config ../production/release/admin.jsonc`。Access保護を用意したadmin.awaiaune.comをこのWorkerのCustom Domainに追加する。ログイン/閲覧を確認。
+6. **商品関連付け**: `existing-products.json`の4商品のID/SKUを読取照合してD1へ関連付け。継続2商品は980円/JPY/既存Item・Variation・SKUを維持しサイト公開、終了2商品はD1 archived。Squareの商品削除/在庫上書きはしない。トップ掲載は1=レモンバーム、2=よもぎ、3=空欄。初期取込にSquareへの更新は不要。
+7. **新サイト有効化**: ready設定で同Workerを公開。購入受付0は維持。readyは管理Catalog/Inventory書込み権限も有効にするため、その権限有効化も最終承認に含める（実際のSquare更新は別途内容確認して行う）。公開内容・既存商品リンク・終了商品の直URL/旧カート拒否を確認後、公開ホストをCustom Domainへ切替。現在のDNS onlyのまま通常Worker Routeを追加する方式は採用しない。動的トップ/SHOP/商品詳細はWorker+D1から配信し、商品追加時のGit pushは不要。
+8. **購入は別承認**: 実カードテスト/一般購入受付再開は別承認。承認後に購入フラグを1へ変更し、980円商品1点（送料は画面の現行ルール込み）を1回だけ決済。1決済/1注文/在庫1減を確認する。結果不明なら同じattemptIdで状態照会し、別注文として再決済しない。返金は自動で行わない。
 
-回帰・設定準備・ブラウザ126件成功（失敗0）。125件の通し検証に加え、旧画面の停止告知/送信抑止/状態照会維持1件を検証。全てオフライン代替API・ダミーDBであり、実Cloudflare設定値の確認や実決済成功を意味しない。現時点ではDashboard入力が未受領のため、production/releaseの実配備用configは生成していない。
+公開後の自動反映は、固定Wrangler/本番設定を指定したBuild commandを保持し、承認した時点で再有効化する。Pages設定は移行中残すが、DNS切替後の正規ホストはWorker配信になる。main更新からPagesへのビルドが起きても正規ホストの動的商品には使わない。
+
+## 購入停止の影響・切戻し
+
+- 旧画面でカードを入力済みでも、新規送信は受け付けない。受付済み決済の状態確認・記録・在庫反映は止めない。停止は返金や注文削除を意味しない。
+- 不具合時は購入OFFを維持し、Workerを記録した完全Versionへ戻す。公開Custom Domainを解除して旧`CNAME awaiaune.github.io`/DNS onlyへ戻し、対応する旧Pages画面を使う。新管理画面は閉じる。Workerと画面を別々の世代で購入再開しない。
+- 追加D1テーブルと既存DO namespace/class/Object名は保持。Time Travel復元は新規管理データ等も巻き戻すため自動実行しない。Square変更・実決済はWorkerのVersion切戻しでは戻らず、個別照合が必要。この切替では商品の再作成/在庫上書きを行わない。
+
+## 判定
+
+既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、本番専用R2/Accessは未作成なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。

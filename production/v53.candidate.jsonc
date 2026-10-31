@@ -8,9 +8,6 @@
     "SQUARE_LOCATION_ID": "LQ693S4H2NBZ8",
     "SQUARE_API_VERSION": "2026-07-15",
     "ALLOWED_ORIGINS": "https://yasoyahonten.awaiaune.com",
-    "RESEND_FROM_EMAIL": "八草屋本店 <order@send.awaiaune.com>",
-    "ORDER_NOTIFICATION_EMAIL": "yasoyahonten@gmail.com",
-    "REPLY_TO_EMAIL": "contact@awaiaune.com",
     "SITE_URL": "https://yasoyahonten.awaiaune.com",
     "RUNTIME_TIER": "production",
     "PRODUCTION_WORKER_NAME": "yasoya-honten-payments",
@@ -73,8 +70,9 @@
   "r2_buckets": [
     {
       "binding": "PRODUCT_IMAGES",
-      "bucket_name": "REPLACE_WITH_VERIFIED_PRODUCTION_BUCKET"
+      "bucket_name": "yasoya-honten-product-images"
     }
   ],
-  "account_id": "REPLACE_WITH_VERIFIED_PRODUCTION_ACCOUNT_ID"
+  "account_id": "REPLACE_WITH_VERIFIED_PRODUCTION_ACCOUNT_ID",
+  "preview_urls": false
 }

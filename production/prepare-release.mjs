@@ -29,10 +29,15 @@ export async function releaseArtifacts(d,instanceId){
  Object.assign(base.vars,{PRODUCTION_INSTANCE_ID:instanceId,PRODUCTION_LEGACY_API_ORIGIN:d.legacyApiOrigin,SQUARE_PRODUCTION_APPLICATION_ID:d.squareApplicationId,PRODUCTION_ADMIN_ORIGIN:d.adminOrigin,MANAGEMENT_ENABLED:'1',PRODUCTION_MANAGEMENT_SCHEMA_READY:'1',PRODUCTION_MANAGEMENT_READ_ENABLED:'1',PRODUCTION_MANAGEMENT_DRAFT_ENABLED:'1',PRODUCTION_MANAGEMENT_IMAGES_ENABLED:'1',PRODUCTION_STOREFRONT_PUBLISH_ENABLED:'1',STOREFRONT_FEATURED_ENABLED:'1',STOREFRONT_RETIRE_GOLDENROD:'1'});
  // These reviewed values live in Dashboard vars and are preserved by keep_vars.
  for(const key of ['PRODUCTION_ACCESS_TEAM_DOMAIN','PRODUCTION_ACCESS_AUDIENCE','PRODUCTION_ADMIN_EMAIL'])delete base.vars[key];
+ // Domains are a separate approved Dashboard cutover, never a bootstrap side effect.
+ const admin=JSON.parse(await readFile(new URL('admin.example.jsonc',import.meta.url),'utf8'));
+ admin.account_id=d.accountId;admin.main='../admin-worker.js';admin.assets.directory='../.generated/admin';
+ delete admin.routes;
+ admin.vars={PRODUCTION_ADMIN_ORIGIN:d.adminOrigin};
  const bootstrap=structuredClone(base),ready=structuredClone(base);
  Object.assign(ready.vars,{PRODUCTION_STOREFRONT_ENABLED:'1',PRODUCTION_MANAGED_CHECKOUT_ENABLED:'1',PRODUCTION_UNIFIED_PUBLISH_ENABLED:'1',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'1',PRODUCTION_CATALOG_CUTOVER_APPROVAL:'verified-storefront-and-pricing-v1',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1',MANAGEMENT_STOCK_WRITES:'single-writer',PRODUCTION_INVENTORY_WRITER_APPROVAL:'shared-purchase-do-single-writer-v1'});
  // Checkout stays OFF in both. Reopening is a separate, explicit approval.
- return {bootstrap,ready,sql:await migrationBundle(instanceId),manifest:{state:'REVIEW_ONLY_NOT_DEPLOYED',worker:d.workerName,databaseId:d.databaseId,doNamespaceId:d.doNamespaceId,rollbackVersionId:d.activeVersionId,instanceId,protection:'Time Travel checkpoint + additive-only migration; no orders deletion',checkoutEnabled:false,timeTravelCheckpoint:null,needsFinalApproval:true,beforeExecutionRequired:[...(!d.workersBuildsDisabled?['Disable Workers Builds']:[]),...(!d.previewBuildsDisabled?['Disable Preview Builds']:[]),'Record immediate pre-cutover Time Travel point']}};
+ return {bootstrap,ready,admin,sql:await migrationBundle(instanceId),manifest:{state:'REVIEW_ONLY_NOT_DEPLOYED',worker:d.workerName,databaseId:d.databaseId,doNamespaceId:d.doNamespaceId,rollbackVersionId:d.activeVersionId,instanceId,protection:'Time Travel checkpoint + additive-only migration; no orders deletion',checkoutEnabled:false,domainCutover:{mode:'MANUAL_DASHBOARD_AFTER_READY',publicHost:'yasoyahonten.awaiaune.com',publicWorker:d.workerName,oldDns:{type:'CNAME',target:'awaiaune.github.io',proxied:false},adminHost:new URL(d.adminOrigin).hostname,adminWorker:admin.name,preserveLegacyApiOrigin:d.legacyApiOrigin},timeTravelCheckpoint:null,needsFinalApproval:true,beforeExecutionRequired:[...(!d.workersBuildsDisabled?['Disable Workers Builds']:[]),...(!d.previewBuildsDisabled?['Disable Preview Builds']:[]),'Record immediate pre-cutover Time Travel point']}};
 }
 if(process.argv[1]===new URL(import.meta.url).pathname){
  const path=process.argv[2];need(path,'Usage: node production/prepare-release.mjs production/dashboard.local.json');
@@ -41,7 +46,7 @@ if(process.argv[1]===new URL(import.meta.url).pathname){
  const result=await releaseArtifacts(d,instanceId);
  const oldHtml=execFileSync('git',['show','origin/main:checkout.html'],{cwd:new URL('../',import.meta.url),encoding:'utf8'});
  await writeFile(new URL('maintenance-checkout.html',out),maintenanceCheckout(oldHtml));
- for(const k of ['bootstrap','ready','manifest'])await writeFile(new URL(k+(k==='manifest'?'.json':'.jsonc'),out),JSON.stringify(result[k],null,2)+'\n');
+ for(const k of ['bootstrap','ready','admin','manifest'])await writeFile(new URL(k+(k==='manifest'?'.json':'.jsonc'),out),JSON.stringify(result[k],null,2)+'\n');
  await writeFile(new URL('additive.sql',out),result.sql);
  const statements=result.sql.replace(/^--.*$/mg,'').split(';').map(s=>s.trim()).filter(Boolean);await mkdir(new URL('console/',out),{recursive:true});
  await writeFile(new URL('console/all.sql',out),statements.join(';\n')+';\n');
