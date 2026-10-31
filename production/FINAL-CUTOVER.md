@@ -10,6 +10,8 @@
 - 購入Worker: yasoya-honten-payments、workers.devで公開、Custom Domains/Routesなし、Worker全体のAccessなし。
 - D1 binding ORDERS_DB → yasoya-orders、DO binding PURCHASE_COORDINATOR → 既存クラス。orders存在・テスト注文2件・Time Travel利用可。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
+- ユーザー確認済みProduction Application ID: `sq0idp-JYrGicMfKr-ILhZeLS9Xsw`。Locationは上記の本番ID。
+- ユーザー提示の既存Worker完全Version ID（切戻し候補）: `4ddbd925-2967-4d93-b553-ff4ea4d685a5`。切替直前に別Versionへ変わっていれば記録を更新する。
 - Secrets SQUARE_ACCESS_TOKEN / ADMIN_TOKEN とResend設定は存在。値を取得・転記しない。
 - MANAGEMENT_ENABLED=0、購入/管理フラグはOFF。本番管理Access・本番画像R2は未確認で、既存ステージング/validationを流用しない。
 
@@ -21,7 +23,7 @@
 | 管理用Access | Zero Trust → Access → Applications → Add application → Self-hosted | 名前=`yasoya-honten-admin`、ホスト=`admin.awaiaune.com`、全パス、Allowは承認管理者のメールのみ。Bypass/Everyoneは使わない。ホストの既存用途があれば作成前に停止 |
 | 管理用Worker | Workers & Pages → 新規Worker | `yasoya-honten-admin`、Service binding `PAYMENTS_SERVICE` → `yasoya-honten-payments`。workers.dev/Preview URL無効。公開時にCustom Domain=`admin.awaiaune.com`。先に上のAccessを用意する |
 | Access環境変数 | 両Worker → Settings → Variables and Secrets | `PRODUCTION_ADMIN_ORIGIN=https://admin.awaiaune.com`、`PRODUCTION_ACCESS_TEAM_DOMAIN`=本番AccessのTeam Domain、`PRODUCTION_ACCESS_AUDIENCE`=新アプリAUD、`PRODUCTION_ADMIN_EMAIL`=許可メール。ステージングAUDは使わない |
-| Square App ID | Square Developer Dashboard → 対象アプリ → Production → Credentials | `sq0idp-`で始まるApplication IDを購入Workerの`SQUARE_PRODUCTION_APPLICATION_ID`へ。Locationは既知のLQ693S4H2NBZ8を維持。App IDはSecretではない |
+| Square App ID（確認済み） | 購入Worker → Settings → Variables and Secrets | 上記の確認済みApp IDを`SQUARE_PRODUCTION_APPLICATION_ID`へ設定。LocationはLQ693S4H2NBZ8を維持。App IDはSecretではない |
 | 管理用Square Secret | 購入Worker → Settings → Variables and Secrets → Secret | コードは`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`を参照する。未登録ならProduction管理用トークンを安全なSecret入力で登録。既存`SQUARE_ACCESS_TOKEN`は上書きしない。値はチャット/コード/ログへ出さない |
 | 公開ドメイン | 購入Worker → Settings → Domains & Routes → Custom Domain | 最後に`yasoyahonten.awaiaune.com`を割当てる。既存CNAMEが競合する場合だけDNS画面で既知CNAMEを削除して直ちに追加。Worker用DNSはCloudflareに管理させ、手動CNAME先を推測しない。Accessはこのホスト/購入APIへ適用しない |
 
@@ -31,11 +33,11 @@
 
 ## まだ必要な非秘密情報（同じ画面の既知項目は不要）
 
-- Cloudflare Account ID、購入Workerの実際のworkers.dev URL、Deploymentsの現在の**完全Version ID**（切戻し先）。以前の短縮IDを現況と決めつけない。
+- Cloudflare Account ID、購入Workerの実際のworkers.dev URL。完全Version IDは上記のユーザー提示値を採用済み。
 - D1のOverviewでIDが設定案 `442fa9fd-25d3-4c01-bcc3-04be7b420cf5` と一致するかだけ確認。
 - 購入WorkerのBindings/DO namespace詳細で既存namespace ID・正確なclassを確認。設定案は `6802cc5abc6d440285ec19c9e7c82103` / `PurchaseCoordinator`。今回の画面情報だけでは実ID/class全文は未確認。一致しなければ止めて設定を修正し、新namespaceを作らない。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
-- Production App ID、新AccessのTeam Domain/AUD/許可メール。Secret値は不要。
+- 新AccessのTeam Domain/AUD/許可メール。Production App ID・Locationの再確認は不要。Secret値は不要。
 
 ## 設定ファイル・追加SQL
 
