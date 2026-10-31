@@ -5,12 +5,6 @@
   "compatibility_date": "2026-08-04",
   "workers_dev": false,
   "preview_urls": false,
-  "routes": [
-    {
-      "pattern": "admin.awaiaune.com",
-      "custom_domain": true
-    }
-  ],
   "assets": {
     "directory": "./.generated/admin",
     "binding": "ASSETS",
@@ -25,8 +19,7 @@
   "vars": {
     "PRODUCTION_ADMIN_ORIGIN": "https://admin.awaiaune.com",
     "PRODUCTION_ACCESS_TEAM_DOMAIN": "white-hill-a411.cloudflareaccess.com",
-    "PRODUCTION_ACCESS_AUDIENCE": "83b65f5860ed7658d558dd620138208905240339a95e4ef9053fd2cddbfedd79",
-    "PRODUCTION_ADMIN_EMAIL": "REPLACE_WITH_ADMIN_EMAIL"
+    "PRODUCTION_ACCESS_AUDIENCE": "83b65f5860ed7658d558dd620138208905240339a95e4ef9053fd2cddbfedd79"
   },
   "keep_vars": true
 }

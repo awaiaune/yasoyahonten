@@ -14,7 +14,7 @@ production-policy は Sandbox policy と別の本番境界。環境・本番Work
 
 管理UIは新設案 yasoya-honten-admin / admin.awaiaune.com。未作成・ホスト未承認。Access署名・issuer・AUD・管理者email・期限・OriginをUI入口と既存購入バックエンドの両方で検証し、Bearer管理者認証も維持。PAYMENTS_SERVICEは既存 yasoya-honten-payments へのService Binding。購入API・公開サイトにAccessを強制しない。UI用WorkerにSquareキーを渡さない。workers.dev/Preview無効、AssetsはWorker先行。
 
-本番用R2名 yasoya-honten-product-images は提案であり存在未確認。画像はproduction/配下に保存する。コードやサンプルにはSecret値を置かない。既存のSQUARE_ACCESS_TOKEN/RESEND_API_KEY/ADMIN_TOKENは購入・通知用として維持。管理外部通信には別Secret PRODUCTION_MANAGEMENT_SQUARE_TOKENを使用し、Catalog/Inventoryの最小権限を推奨。値を読んで移し替えない。
+本番用R2名 yasoya-honten-product-images は提案であり存在未確認。画像はproduction/配下に保存する。コードやサンプルにはSecret値を置かない。既存のSQUARE_ACCESS_TOKEN/RESEND_API_KEY/ADMIN_TOKENは購入・通知用として維持。管理外部通信は任意の別Secret PRODUCTION_MANAGEMENT_SQUARE_TOKENを優先し、未登録なら既存SQUARE_ACCESS_TOKENをサーバー側で再利用する。追加登録は必須ではない。Catalog/Inventory権限の有無は本番受入時に確認し、権限不足なら再送せず停止する。値を読んで移し替えない。
 
 ## 商品・在庫
 

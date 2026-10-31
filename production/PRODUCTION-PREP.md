@@ -68,7 +68,7 @@ Time Travel切替直前記録・設定確定と明示承認まではデプロイ
 - 商品公開権限の承認値: PRODUCTION_CATALOG_CUTOVER_APPROVAL=verified-storefront-and-pricing-v1。candidateはNOT_APPROVED。
 - 在庫管理は別に PRODUCTION_MANAGEMENT_INVENTORY_ENABLED=1 / MANAGEMENT_STOCK_WRITES=single-writer / PRODUCTION_INVENTORY_WRITER_APPROVAL=shared-purchase-do-single-writer-v1 が必要。candidateはOFF/disabled/NOT_APPROVED。
 - 新規決済受付 PRODUCTION_CHECKOUT_ENABLED は、Time Travel記録と切替・受入承認まで0を維持。管理公開や在庫権限とは分離。
-- 管理用Square Secret名はPRODUCTION_MANAGEMENT_SQUARE_TOKEN、購入用は既存SQUARE_ACCESS_TOKEN。実トークン値は設定ファイルに書かない。管理Accessと既存ADMIN_TOKENも継続。
+- 管理用Square SecretはPRODUCTION_MANAGEMENT_SQUARE_TOKENがあれば優先し、未登録なら購入用の既存SQUARE_ACCESS_TOKENをサーバー側で再利用する。追加Secretは必須ではない。実トークンのCatalog/Inventory権限は本番受入時に別途確認する。実トークン値は設定ファイルに書かない。管理Accessと既存ADMIN_TOKENも継続。
 
 既存画像の保護: 初回関連付けでD1/R2写真が未登録でも、レモンバーム/よもぎは既存の同名静的写真を表示する。D1画像0件の既存商品公開ではSquare既存image_idsを保持し、初期移行で空配列による上書きをしない。写真を全て削除する操作はこの保護と区別して別途設計する。
 

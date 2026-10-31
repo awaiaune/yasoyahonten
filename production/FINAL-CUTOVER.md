@@ -26,7 +26,7 @@
 | 管理用Worker | Workers & Pages → 新規Worker | `yasoya-honten-admin`、Service binding `PAYMENTS_SERVICE` → `yasoya-honten-payments`。workers.dev/Preview URL無効。公開時にCustom Domain=`admin.awaiaune.com`。先に上のAccessを用意する |
 | Access環境変数 | 両Worker → Settings → Variables and Secrets | `PRODUCTION_ADMIN_ORIGIN=https://admin.awaiaune.com`、`PRODUCTION_ACCESS_TEAM_DOMAIN`=本番AccessのTeam Domain、`PRODUCTION_ACCESS_AUDIENCE`=新アプリAUD、`PRODUCTION_ADMIN_EMAIL`=許可メール。ステージングAUDは使わない |
 | Square App ID（確認済み） | 購入Worker → Settings → Variables and Secrets | 上記の確認済みApp IDを`SQUARE_PRODUCTION_APPLICATION_ID`へ設定。LocationはLQ693S4H2NBZ8を維持。App IDはSecretではない |
-| 管理用Square Secret | 購入Worker → Settings → Variables and Secrets → Secret | コードは`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`を参照する。未登録ならProduction管理用トークンを安全なSecret入力で登録。既存`SQUARE_ACCESS_TOKEN`は上書きしない。値はチャット/コード/ログへ出さない |
+| 管理用Square Secret（追加不要） | 購入Workerの既存Secretをサーバー内で再利用 | `PRODUCTION_MANAGEMENT_SQUARE_TOKEN`は未登録とユーザー確認済み。存在すれば優先し、なければ`SQUARE_ACCESS_TOKEN`を利用。新Secretの登録は必須にしない。実トークンのCatalog/Inventory権限は実通信していないため未確認。権限不足なら操作は失敗として停止し、別トークンへの再送は行わない |
 | 公開ドメイン | 購入Worker → Settings → Domains & Routes → Custom Domain | 最後に`yasoyahonten.awaiaune.com`を割当てる。既存CNAMEが競合する場合だけDNS画面で既知CNAMEを削除して直ちに追加。Worker用DNSはCloudflareに管理させ、手動CNAME先を推測しない。Accessはこのホスト/購入APIへ適用しない |
 
 準備の順番は次のとおり。現段階ではCodexから実行しない。
@@ -34,7 +34,7 @@
 1. 本番R2はユーザー確認済みとして扱い、再作成しない。既存購入Workerへのbinding反映は承認した本番デプロイ時にまとめる。
 2. 管理専用AccessのTeam Domain・AUD・許可メール・全パス保護は確認済みとして扱い、再確認しない。公開サイト・既存APIホストを対象にしない。
 3. 管理Workerは名前・Service binding・Build/Deploy設定を準備する。新規作成画面がDeployを要求する場合はまだ実行せず、その直前で止める。workers.dev/Previewは無効、Custom Domain追加はAccess準備後の承認済み公開時に行う。
-4. 購入WorkerのSecret一覧で`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`の有無を名前だけ確認。不足分は安全なSecret入力で登録する準備をし、Save and deploy等で稼働Versionが変わる操作は最終承認後にまとめる。既存Secretの表示・転記・上書きはしない。
+4. 新しいSquare Secret登録は不要。既存`SQUARE_ACCESS_TOKEN`を購入Worker内の管理通信にも利用する。管理Worker・ブラウザへコピーしない。権限はAccess＋ADMIN_TOKEN＋管理権限フラグで引き続き制限する。既存Secretの表示・転記・上書きはしない。
 
 管理WorkerはAccess JWTを検証し、購入Workerも管理APIで同じ署名/AUD/メールを再検証する。さらに既存ADMIN_TOKENでログインする。公開ホストやworkers.devからの管理API直アクセスは拒否。購入APIにはAccessログインを要求しない。
 
@@ -48,8 +48,8 @@
 - D1実Database ID・DO実namespace/class/接続Workerはユーザー確認済み。同じ照合を繰り返さず、次は未準備リソースへ進む。
 - DOのnamespace名・ID・class・Bound Workerは上記の確認済み値を採用し、同じ画面の再確認は不要。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
-- Access情報はユーザー確認済み。メール実値は本番反映時に管理者が既存ポリシーと同値を入力し、チャットへの再提示は求めない。リポジトリのメールplaceholderは個人情報を推測で埋めないために残す。
-- `PRODUCTION_MANAGEMENT_SQUARE_TOKEN`はコード上の必要Secret名であり、既存記録には登録完了の証拠がない（登録済み確認があるのは`SQUARE_ACCESS_TOKEN`/`ADMIN_TOKEN`/Resend）。未登録と断定せず、Secret名の一覧だけを確認する。CodexからSecret値/一覧APIを新たに取得しない。
+- Access情報はユーザー確認済み。メール実値は本番反映時に管理者が既存ポリシーと同値を入力し、チャットへの再提示は求めない。メールはバージョン管理する設定から省き、`keep_vars`で保持する。新規管理Workerでは公開前に既存Accessポリシーと同じメールをDashboardで設定する。
+- 管理用Square Secretの追加は必須条件から除外済み。既存Secretの実権限は未確認であり、管理機能受入時の読取照合で権限エラーなら停止する。Catalog/Inventoryへの実書込みテストは別途操作内容を承認してから行う。
 
 ## 設定ファイル・追加SQL
 
@@ -57,7 +57,7 @@
 2. 上の実値をGit対象外の `production/dashboard.local.json` に入力する。形式は `dashboard-input.example.json`。Preview無効は反映済み、Workers Buildsは現況どおり有効として記録済み。R2/Access作成済みなどの真偽値を先にtrueにしない。
 3. オフラインで `node production/prepare-v53.mjs`、`node production/prepare-admin.mjs`、`node production/prepare-release.mjs production/dashboard.local.json` を実行。
 4. `production/release/` にbootstrap/ready/admin設定、additive.sql、Console用all.sql/番号順分割SQL、manifest、旧checkout停止版が生成される。同じmanifestのinstance UUIDは再生成でも維持する。SQLは `worker/migrations-production/0001_management.sql` → `0002_management_supervision.sql` → Production専用marker挿入。orders更新/削除や在庫初期化は含まない。既存管理テーブルがあれば再適用せず差分確認。
-5. 生成した管理設定のCustom Domainも手動追加とし、設定の初回デプロイではDNSを変えない。Access変数は両WorkerのDashboardに設定し`keep_vars=true`で保持。Secretは一切設定ファイルへ含めない。Resendのメール変数も候補設定から除外し、現行Dashboard値を保持する。
+5. 生成した管理設定のCustom Domainも手動追加とし、設定の初回デプロイではDNSを変えない。Team Domain/AUDは両Workerの生成設定に含め、許可メールだけDashboardで設定し`keep_vars=true`で保持。Secretは一切設定ファイルへ含めない。Resendのメール変数も候補設定から除外し、現行Dashboard値を保持する。
 6. 非秘密の生成設定/SQLのみをレビューPR対象にする。**この準備ブランチ全体をmainにmergeしない。** Pagesを壊さないようroot HTML/旧checkout/公開用JSを先行でv53へ置換しない。必要なWorker・production・依存コードとv53原本の`staging/site/`、`staging/prepare.mjs`、共有管理JS/CSSも選別し、旧checkout変更は停止スクリプト読込だけに限定する。
 
 ### 正式な主要フラグ名（コード照合済み）
@@ -87,6 +87,8 @@
 
 ## 判定
 
-既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、管理Workerの準備・管理用Square Secretの登録状況・本番へのAccess環境変数反映が未完了なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。
+既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、管理Workerの準備・本番への許可メール設定反映が未完了なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。
 
 2026-11-01追加検証: `dev/production-access-config.test.mjs` 10件＋設定生成11件、計21件成功・失敗0。確認済みTeam Domain/AUDを使い、ローカル生成RSA鍵・模擬メール/証明書でJWTを検証。正常JWT、不正Issuer/AUD/メール/有効期限/署名/alg、メールヘッダー偽装、署名が有効でもworkers.dev/Preview経由拒否を確認。外部通信なし。実メールのポリシー照合や本番環境変数への反映を実施したという意味ではない。
+
+2026-11-01既存Secret再利用: `PRODUCTION_MANAGEMENT_SQUARE_TOKEN`未登録をユーザー確認。サーバー側で既存`SQUARE_ACCESS_TOKEN`を利用し、専用Secretがある構成も維持。管理Worker/ブラウザへの転記なし。Production回帰・認証・設定生成・Secret非露出59件成功、続くメール未収集での設定生成1件も成功（同時に既存設定生成11件を再確認、計60種類）。模擬Squareで画像/商品同期/在庫/購入の回帰を確認し、401/403で再送せず停止。実トークン権限・本番Squareの受入は未実施。管理Worker設定にREPLACEはなく、許可メールだけDashboard設定必須。Asset梱包成功。main push/本番操作なし。

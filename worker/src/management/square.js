@@ -5,7 +5,7 @@ const squareDescription=d=>d.description+(d.variants.some(v=>v.amount)?'\n\n'+d.
 export class Square {
  constructor(env){this.env=env;}
  baseUrl(){return production(this.env)?'https://connect.squareup.com':'https://connect.squareupsandbox.com';}
- token(){return production(this.env)?this.env.PRODUCTION_MANAGEMENT_SQUARE_TOKEN:['sandbox-validation','staging'].includes(this.env.RUNTIME_TIER)?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;}
+ token(){return production(this.env)?(this.env.PRODUCTION_MANAGEMENT_SQUARE_TOKEN||this.env.SQUARE_ACCESS_TOKEN):['sandbox-validation','staging'].includes(this.env.RUNTIME_TIER)?this.env.SQUARE_SANDBOX_ACCESS_TOKEN:this.env.SQUARE_ACCESS_TOKEN;}
  async verified(id){const row=await this.env.ORDERS_DB.prepare('SELECT * FROM mg_mappings WHERE variation_id=?').bind(id).first();need(row?.environment==='production'&&row.location_id===this.env.SQUARE_LOCATION_ID&&row.instance_id===this.env.PRODUCTION_INSTANCE_ID&&typeof row.sku==='string'&&row.sku.length>0&&row.verified_at,'実照合済みの本番対応表が必要です。',409);return row;}
  async request(path,method='GET',body){
   await guard(this.env);
@@ -23,7 +23,7 @@ export class Square {
   }
   if(path==='/v2/catalog/batch-upsert'){this.assertExistingBody(body);if(production(this.env))for(const item of body.batches.flatMap(b=>b.objects))for(const v of item.item_data.variations){if(v.id.startsWith('#'))continue;const old=await this.verified(v.id);need(old.item_id===item.id&&old.sku===v.item_variation_data.sku&&v.item_variation_data.item_id===item.id,'既存の本番Item・Variation・SKUを変更できません。',409);}}
   const token=this.token();
-  need(token,'Sandboxキーが未設定です。',503);
+  need(token,'Square認証Secretが未設定です。',503);
   const options={method,redirect:'manual',signal:AbortSignal.timeout(8000),headers:{Authorization:'Bearer '+token,'Content-Type':'application/json','Square-Version':'2026-07-15'},...(body?{body:JSON.stringify(body)}:{})};
   const r=this.env.LOCAL_SQUARE?await this.env.LOCAL_SQUARE.fetch(new Request(url,options)):await fetch(url,options);
   const data=await r.json().catch(()=>({}));
@@ -136,7 +136,7 @@ export class Square {
   if(production(this.env))productionSquareRequest(this.env,this.baseUrl()+'/v2/catalog/images','POST','management');else assertSquareRequest(this.env,this.baseUrl()+'/v2/catalog/images','POST');
   if(production(this.env)||externalPolicy(this.env).managementOnly)await this.assertWritableLocation();
   const form=new FormData();form.set('request',JSON.stringify({idempotency_key:key,image:{type:'IMAGE',id:'#'+imageId,image_data:{name:imageId,caption:'商品画像'}}}));form.set('file',new Blob([bytes],{type:mime}),'product.'+(mime==='image/png'?'png':mime==='image/webp'?'webp':'jpg'));
-  const token=this.token();need(token,'Sandboxキーが必要です。',503);
+  const token=this.token();need(token,'Square認証Secretが未設定です。',503);
   const r=await (this.env.LOCAL_SQUARE?this.env.LOCAL_SQUARE.fetch(new Request(this.baseUrl()+'/v2/catalog/images',{method:'POST',headers:{Authorization:'Bearer '+token,'Square-Version':'2026-07-15'},body:form})):fetch(this.baseUrl()+'/v2/catalog/images',{method:'POST',redirect:'manual',signal:AbortSignal.timeout(8000),headers:{Authorization:'Bearer '+token,'Square-Version':'2026-07-15'},body:form}));
   const data=await r.json().catch(()=>({}));if(!r.ok)throw new ManagementError(r.status>=500||r.status===429?503:422,'Square画像同期に失敗しました。');squareId(data.image?.id,this.env);return data.image.id;
  }
