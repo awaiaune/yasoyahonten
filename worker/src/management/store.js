@@ -15,10 +15,10 @@ export class Store {
  async products(){const rows=await this.all('SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.draft_revision ORDER BY p.sort_order,p.id');return rows.map(p=>{const {data_json,...row}=p;return {...row,draft:JSON.parse(data_json)};});}
  async retiredProductIds(){
   if(!retirementEnabled(this.env))return new Set();
-  const rows=await this.all("SELECT p.id,p.slug,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id WHERE r.revision=p.published_revision OR EXISTS(SELECT 1 FROM mg_audit a WHERE a.resource_id=p.id AND a.action IN ('site_published','release_published') AND json_extract(a.detail_json,'$.revision')=r.revision)");
+  const rows=await this.all("SELECT p.id,p.slug,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id WHERE r.revision=p.published_revision OR (r.revision=p.draft_revision AND p.status='archived') OR EXISTS(SELECT 1 FROM mg_audit a WHERE a.resource_id=p.id AND a.action IN ('site_published','release_published') AND json_extract(a.detail_json,'$.revision')=r.revision)");
   return new Set(rows.filter(p=>retiredProduct(this.env,{id:p.id,slug:p.slug,...JSON.parse(p.data_json)})).map(p=>p.id));
  }
- async retiredVariantIds(){const ids=await this.retiredProductIds();return [...new Set(['goldenrod-leaf-10g','goldenrod-leaf-stem-20g',...(await this.products()).filter(p=>ids.has(p.id)).flatMap(p=>p.draft.variants.map(v=>v.id))])];}
+ async retiredVariantIds(){if(!retirementEnabled(this.env))return [];const ids=await this.retiredProductIds();return [...new Set(['goldenrod-leaf-10g','goldenrod-leaf-stem-20g',...(await this.products()).filter(p=>ids.has(p.id)).flatMap(p=>p.draft.variants.map(v=>v.id))])];}
  async publicProducts(){
   const rows=await this.all("SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.published_revision WHERE p.status IN ('published','stopped') ORDER BY p.sort_order,p.id");
   const mappings=production(this.env)||this.env.RUNTIME_TIER==='staging'?await this.all('SELECT variant_id FROM mg_mappings'):null;

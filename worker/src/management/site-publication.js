@@ -37,6 +37,7 @@ export async function publishSite(manager,id,input,actor){
  }
  const result={ok:true,state:'done',siteOnly:true,status};
  await manager.s.batch([
+  ...(status!=='published'?await removeFeaturedStatements(manager.s,id,actor):[]),
   ['UPDATE mg_products SET published_revision=?,status=?,sort_order=?,version=version+1,updated_at=? WHERE id=?',[status==='published'?p.draft_revision:p.published_revision,status,p.draft.sortOrder,now(),id]],
   ['INSERT INTO mg_commands VALUES(?,?,?)',[input.operationId,fp,json(result)]],
   manager.s.audit(actor,'site_'+status,id,{revision:p.draft_revision,squareWrite:false})

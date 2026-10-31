@@ -1,17 +1,19 @@
+import {integratedPublication,integratedGrant} from './integrated-policy.js';
+import {production} from '../production-policy.js';
 import {retiredProduct} from './storefront-selection.js';
 import {need,now,operation} from './domain.js';
 import {catalogProof} from './catalog-proof.js';
 // These statements are committed atomically with mappings, done state and locks.
 export function releaseStatements(manager,job,payload){
- if(manager.env.RUNTIME_TIER!=='staging'||!payload.releaseSite)return [];
+ if(!integratedPublication(manager.env)||!payload.releaseSite)return [];
  return [
   ["UPDATE mg_products SET published_revision=?,status=CASE WHEN status IN ('stopped','archived') AND version>? THEN status ELSE 'published' END,sort_order=?,version=version+1,updated_at=? WHERE id=?",[payload.revision,payload.expectedVersion,payload.data.sortOrder,now(),job.resource_id]],
   manager.s.audit('authenticated-admin','release_published',job.resource_id,{job:job.id,revision:payload.revision})
  ];
 }
 export async function release(manager,id,input,actor){
- need(manager.env.RUNTIME_TIER==='staging','ステージング専用です。',403);
- operation(input.operationId);
+ need(integratedPublication(manager.env),'統合公開は無効です。',403);
+ integratedGrant(manager.env);operation(input.operationId);
  const product=await manager.s.product(id);need(product,'商品がありません。',404);need(!retiredProduct(manager.env,product)&&!(await manager.s.retiredProductIds()).has(id),'この商品は販売終了です。Square ID・履歴を維持し、再公開しません。',409);
  const existing=await manager.s.one('SELECT * FROM mg_jobs WHERE id=?',[input.operationId]);
  if(existing){need(existing.kind==='publish'&&existing.resource_id===id&&JSON.parse(existing.payload_json).releaseSite&&JSON.parse(existing.payload_json).expectedVersion===input.expectedVersion,'操作IDが別の処理に使われています。',409);return resumeRelease(manager,existing);}
@@ -52,7 +54,7 @@ export async function prepareReleaseMappings(manager,maps){
    need(saved.batches[0].objects[0].item_data.variations[index]?.item_variation_data?.sku===m.sku,'既存SKUが変更されています。自動採用せず停止しました。',409);
   }
   await manager.square.assertUniqueSku(v.id,m.sku);
-  result.push({...m,item_version:item.version,variation_version:v.version});
+  result.push({...m,item_version:item.version,variation_version:v.version,item_image_ids:item.item_data.image_ids||[]});
  }
  return result;
 }

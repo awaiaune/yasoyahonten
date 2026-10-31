@@ -1,0 +1,62 @@
+{
+  "source": "Production Catalog GET 2026-10-30T22:10:31Z; reverify read-only before import",
+  "locationId": "LQ693S4H2NBZ8",
+  "products": [
+    {
+      "id": "lemonbalm",
+      "slug": "lemonbalm",
+      "variantId": "lemonbalm-10g",
+      "itemId": "UZOOEE2GWR6QQIYNZESTIIKN",
+      "variationId": "RRTIT6N4QLIYPUW633WDBG36",
+      "sku": "315102D",
+      "name": "乾燥レモンバーム　10g",
+      "variationName": "通常",
+      "price": 980,
+      "currency": "JPY",
+      "retired": false,
+      "amount": "10g"
+    },
+    {
+      "id": "yomogi",
+      "slug": "yomogi",
+      "variantId": "yomogi-10g",
+      "itemId": "ZHPJRFPKMNHDXJ4WFKWXESDE",
+      "variationId": "F7X4UHYUAI7PSGURVQ4LEROY",
+      "sku": "827330F",
+      "name": "乾燥ヨモギ　10g",
+      "variationName": "通常",
+      "price": 980,
+      "currency": "JPY",
+      "retired": false,
+      "amount": "10g"
+    },
+    {
+      "id": "goldenrod-leaf",
+      "slug": "goldenrod-leaf",
+      "variantId": "goldenrod-leaf-10g",
+      "itemId": "VFBUEWXR77OYU44XN3KBI6AO",
+      "variationId": "U4T4IF6YCH2K2CGSG7IPWV5J",
+      "sku": "F838089",
+      "name": "乾燥セイタカアワダチソウ　10g",
+      "variationName": "通常",
+      "price": 980,
+      "currency": "JPY",
+      "retired": true,
+      "amount": "10g"
+    },
+    {
+      "id": "goldenrod-leaf-stem",
+      "slug": "goldenrod-leaf-stem",
+      "variantId": "goldenrod-leaf-stem-20g",
+      "itemId": "JWLMZFTF3KBBREWDGXIOTTK7",
+      "variationId": "CHYZVEADNVDMKAMR7XTYWJLP",
+      "sku": "G932452",
+      "name": "乾燥セイタカアワダチソウ（葉、茎）　20g",
+      "variationName": "通常",
+      "price": 980,
+      "currency": "JPY",
+      "retired": true,
+      "amount": "20g"
+    }
+  ]
+}

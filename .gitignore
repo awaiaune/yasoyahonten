@@ -9,3 +9,7 @@ dev/.state/
 **/.env
 **/.env.local
 **/.env.*.local
+# Production backup data must remain outside Git.
+**/yasoya-orders*.sql
+**/restore-verification.sqlite
+**/backup-verification.json

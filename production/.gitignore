@@ -1,3 +1,9 @@
 .generated/
 *.local.json
 *.local.jsonc
+# Backups contain customer data; never track them.
+backups/
+*.sql.dump
+*.sqlite
+*.sqlite3
+backup-verification.json

@@ -1,0 +1,80 @@
+{
+  "name": "yasoya-honten-payments",
+  "main": "storefront-worker.js",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": true,
+  "vars": {
+    "SQUARE_ENVIRONMENT": "production",
+    "SQUARE_LOCATION_ID": "LQ693S4H2NBZ8",
+    "SQUARE_API_VERSION": "2026-07-15",
+    "ALLOWED_ORIGINS": "https://yasoyahonten.awaiaune.com",
+    "RESEND_FROM_EMAIL": "八草屋本店 <order@send.awaiaune.com>",
+    "ORDER_NOTIFICATION_EMAIL": "yasoyahonten@gmail.com",
+    "REPLY_TO_EMAIL": "contact@awaiaune.com",
+    "SITE_URL": "https://yasoyahonten.awaiaune.com",
+    "RUNTIME_TIER": "production",
+    "PRODUCTION_WORKER_NAME": "yasoya-honten-payments",
+    "PRODUCTION_PURCHASE_PROTOCOL": "durable-v1",
+    "PRODUCTION_CHECKOUT_ENABLED": "0",
+    "MANAGEMENT_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_SCHEMA_READY": "0",
+    "PRODUCTION_MANAGEMENT_READ_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_DRAFT_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_IMAGES_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_CATALOG_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_INVENTORY_ENABLED": "0",
+    "PRODUCTION_DATABASE_ID": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+    "PRODUCTION_INSTANCE_ID": "REPLACE_WITH_NEW_PRODUCTION_INSTANCE_UUID",
+    "PRODUCTION_UNIFIED_PUBLISH_ENABLED": "0",
+    "PRODUCTION_STOREFRONT_ENABLED": "0",
+    "PRODUCTION_STOREFRONT_PUBLISH_ENABLED": "0",
+    "PRODUCTION_MANAGED_CHECKOUT_ENABLED": "0",
+    "STOREFRONT_FEATURED_ENABLED": "0",
+    "STOREFRONT_RETIRE_GOLDENROD": "0",
+    "PRODUCTION_ADMIN_ORIGIN": "https://admin.awaiaune.com",
+    "PRODUCTION_ACCESS_TEAM_DOMAIN": "REPLACE_WITH_VERIFIED_PRODUCTION_TEAM",
+    "PRODUCTION_ACCESS_AUDIENCE": "REPLACE_WITH_VERIFIED_PRODUCTION_AUD",
+    "PRODUCTION_ADMIN_EMAIL": "REPLACE_WITH_APPROVED_ADMIN_EMAIL",
+    "SQUARE_PRODUCTION_APPLICATION_ID": "REPLACE_WITH_PRODUCTION_APPLICATION_ID",
+    "MANAGEMENT_STOCK_WRITES": "disabled",
+    "PRODUCTION_CATALOG_CUTOVER_APPROVAL": "NOT_APPROVED",
+    "PRODUCTION_INVENTORY_WRITER_APPROVAL": "NOT_APPROVED"
+  },
+  "d1_databases": [
+    {
+      "binding": "ORDERS_DB",
+      "database_name": "yasoya-orders",
+      "database_id": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+      "migrations_dir": "../worker/migrations-production"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PURCHASE_COORDINATOR",
+        "class_name": "PurchaseCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-purchase-coordinator",
+      "new_sqlite_classes": [
+        "PurchaseCoordinator"
+      ]
+    }
+  ],
+  "keep_vars": true,
+  "assets": {
+    "directory": ".generated/v53",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "REPLACE_WITH_VERIFIED_PRODUCTION_BUCKET"
+    }
+  ],
+  "account_id": "REPLACE_WITH_VERIFIED_PRODUCTION_ACCOUNT_ID"
+}

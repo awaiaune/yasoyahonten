@@ -1,3 +1,5 @@
+import {existingProductionProduct} from './existing-production.js';
+import {integratedPublication} from './integrated-policy.js';
 import {featuredAdmin,retiredProduct,removeFeaturedStatements} from './storefront-selection.js';
 import {release,releaseStatements,prepareReleaseMappings} from './release.js';
 import {inspectSalesCatalog} from './sales-version-proof.js';
@@ -22,10 +24,10 @@ export class Management {
   const slug=identifier(input.slug);need(!p||p.slug===slug,'既存商品のURLは変更できません。',409);
   const old=p?.draft.variants||[];need(old.every(v=>data.variants.some(n=>n.id===v.id)),'既存バリエーションは削除せず販売停止にしてください。');
   // Drafts have no external effects; staging locks protect sync/stock and checkout only.
-  if(this.env.RUNTIME_TIER!=='staging')await this.s.assertUnlocked([...old,...data.variants].map(v=>v.id));
+  if(!integratedPublication(this.env))await this.s.assertUnlocked([...old,...data.variants].map(v=>v.id));
   for(const v of data.variants){const row=await this.s.one('SELECT product_id FROM mg_variants WHERE id=?',[v.id]);need(!row||row.product_id===id,'別商品で使用中の識別子です。',409);}
   for(const image of data.images)need(await this.s.one('SELECT id FROM mg_images WHERE id=?',[image]),'画像を先にアップロードしてください。');
-  const latest=this.env.RUNTIME_TIER==='staging'?(await this.s.one('SELECT MAX(revision) AS revision FROM mg_revisions WHERE product_id=?',[id]))?.revision:p?.draft_revision;
+  const latest=integratedPublication(this.env)?(await this.s.one('SELECT MAX(revision) AS revision FROM mg_revisions WHERE product_id=?',[id]))?.revision:p?.draft_revision;
   const revision=(latest||0)+1,version=(p?.version||0)+1,result={id,version,revision};const at=now();
   const statements=[['INSERT INTO mg_revisions VALUES(?,?,?,?)',[id,revision,json(data),at]]];
   if(p)statements.push(['UPDATE mg_products SET draft_revision=?,version=?,updated_at=? WHERE id=?',[revision,version,at,id]]);
@@ -47,6 +49,7 @@ export class Management {
    if(production(this.env)){await this.square.assertWritableLocation();await this.square.assertUniqueSku(variation.id,d.sku);}
    const expected=this.square.expectedLink(v.id);
    if(this.env.RUNTIME_TIER==='sandbox-validation'&&JSON.parse(this.env.SQUARE_VARIATION_IDS||'{}')[v.id])need(expected&&expected.variationId===variation.id&&expected.itemId===d.item_id&&expected.sku===d.sku&&!variation.is_deleted&&(variation.present_at_all_locations||variation.present_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID))&&!variation.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID),'既存Item・Variation・SKUが一致しません。',409);
+   if(production(this.env)&&integratedPublication(this.env)){const known=existingProductionProduct(v.id);if(known)need(variation.id===known.variationId&&d.item_id===known.itemId&&d.sku===known.sku,'既存本番商品のItem・Variation・SKUが確認済み対応表と異なります。',409);}
    need(variation.id===ref.variationId,'Variation IDが一致しません。',409);
    const item=await this.square.object(d.item_id);need(item?.id===d.item_id,'Item IDが一致しません。',409);need(item?.type==='ITEM'&&Number.isSafeInteger(item.version)&&Number.isSafeInteger(variation.version),'Squareの商品が確認できません。',409);
    need((item.present_at_all_locations||item.present_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID))&&!item.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID),'Locationが一致しません。',409);
@@ -58,7 +61,7 @@ export class Management {
  mappingInsert(m){if(production(this.env)){need(typeof m.sku==='string'&&m.sku.length>0,'実照合したSKUが必要です。',409);return ['INSERT INTO mg_mappings(variant_id,environment,location_id,item_id,variation_id,item_version,variation_version,sku,instance_id,verified_at) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_version=excluded.item_version,variation_version=excluded.variation_version,verified_at=excluded.verified_at WHERE item_id=excluded.item_id AND variation_id=excluded.variation_id AND sku=excluded.sku',[m.variant_id,'production',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version,m.sku,this.env.PRODUCTION_INSTANCE_ID,now()]];}return ['INSERT INTO mg_mappings VALUES(?,?,?,?,?,?,?) ON CONFLICT(variant_id) DO UPDATE SET item_id=excluded.item_id,variation_id=excluded.variation_id,item_version=excluded.item_version,variation_version=excluded.variation_version',[m.variant_id,'sandbox',this.env.SQUARE_LOCATION_ID,m.item_id,m.variation_id,m.item_version,m.variation_version]];}
  async assertSalesCatalog(quote){
   for(const v of quote.items){if(production(this.env)&&!(await this.s.publicProducts()).some(p=>p.variants.some(n=>n.id===v.id)))continue;const mapping=await this.s.one('SELECT * FROM mg_mappings WHERE variant_id=?',[v.id]);need(mapping,'Square対応がありません。',409);const object=await this.square.object(mapping.variation_id),data=object?.item_variation_data;
-   if(this.env.RUNTIME_TIER==='staging'){const check=await inspectSalesCatalog(this,mapping,object,v);need(check.ok,'Square照合不一致：'+check.mismatches.map(m=>m.label+(m.key==='version'?'（D1 '+m.saved+' ／ Square '+m.current+'）':'')).join('・')+'。管理画面の「同期状況を確認（読取のみ）」で確認してください。再送や在庫上書きはしていません。',409);continue;}
+   if(integratedPublication(this.env)){const check=await inspectSalesCatalog(this,mapping,object,v);need(check.ok,'Square照合不一致：'+check.mismatches.map(m=>m.label+(m.key==='version'?'（D1 '+m.saved+' ／ Square '+m.current+'）':'')).join('・')+'。管理画面の「同期状況を確認（読取のみ）」で確認してください。再送や在庫上書きはしていません。',409);continue;}
    need(data&&Number(data.price_money?.amount)===v.unitPrice&&data.price_money.currency==='JPY'&&data.name===v.name&&object.version===mapping.variation_version&&data.track_inventory===true&&!object.absent_at_location_ids?.includes(this.env.SQUARE_LOCATION_ID),'Squareの商品が外部から変更されています。再同期するまで購入できません。',409);
   }
  }
@@ -82,10 +85,10 @@ export class Management {
   const p=await this.s.product(id);need(p&&p.version===input.expectedVersion,'商品が更新されています。再読込してください。',409);
   need(!retiredProduct(this.env,p)&&!(await this.s.retiredProductIds()).has(id),'この商品は販売終了です。履歴・Square IDを維持し、再公開は行いません。',409);
   if(production(this.env))for(const v of p.draft.variants)need(!CATALOG[v.id]||v.price===CATALOG[v.id].price,'既存公開サイトの価格切替は未実装です。価格変更を公開できません。',409);
-  if(this.env.RUNTIME_TIER==='staging'){const locks=await this.s.locked(p.draft.variants.map(v=>v.id));need(!locks.length,'既存の同期・在庫ロックがあります。新しい同期は開始していません。「同期状況を確認（読取のみ）」で実行中・再試行待ち・要確認を確認してください。',409);await this.square.assertWritableLocation();}
+  if(integratedPublication(this.env)){const locks=await this.s.locked(p.draft.variants.map(v=>v.id));need(!locks.length,'既存の同期・在庫ロックがあります。新しい同期は開始していません。「同期状況を確認（読取のみ）」で実行中・再試行待ち・要確認を確認してください。',409);await this.square.assertWritableLocation();}
   const maps=await this.s.all('SELECT m.* FROM mg_mappings m JOIN mg_variants v ON v.id=m.variant_id WHERE v.product_id=?',[id]);
   for(const v of p.draft.variants)need(!CATALOG[v.id]||maps.some(m=>m.variant_id===v.id),'既存商品はSandbox IDを関連付けてから公開してください。',409);
-  return this.queue('publish',id,{expectedVersion:p.version,revision:p.draft_revision,data:p.draft,maps,targetStatus:'published',...(this.env.RUNTIME_TIER==='staging'&&input.releaseSite?{releaseSite:true}:{})},input.operationId,actor,p.draft.variants.map(v=>v.id));
+  return this.queue('publish',id,{expectedVersion:p.version,revision:p.draft_revision,data:p.draft,maps,targetStatus:'published',...(integratedPublication(this.env)&&input.releaseSite?{releaseSite:true}:{})},input.operationId,actor,p.draft.variants.map(v=>v.id));
  }
  async state(id,input,actor){
   assertSquareWrite(this.env);
@@ -124,12 +127,12 @@ export class Management {
  async jobs(){return Promise.all((await this.s.all('SELECT id FROM mg_jobs ORDER BY created_at DESC LIMIT 200')).map(r=>this.job(r.id)));}
  async reconcile(id){
   if(!production(this.env)&&this.env.RUNTIME_TIER!=='staging')assertSquareWrite(this.env);
-  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');if(j.state==='done'){if(this.env.RUNTIME_TIER==='staging'){const proof=j.result_json&&JSON.parse(j.result_json);need(j.kind==='stock'?proof?.applied===true:Array.isArray(proof?.mappings)&&proof.mappings.length>0,'成功証跡がないためロックを解除できません。',409);await this.s.batch([['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('authenticated-admin','completed_lock_released',j.resource_id,{job:id})]);}return this.job(id);}
-  need(j.state==='review'||this.env.RUNTIME_TIER==='staging'&&j.kind!=='stock'&&['queued','running','retry'].includes(j.state),'読み取り照合できる状態ではありません。再送せず状態を確認してください。',409);const p=JSON.parse(j.payload_json);let result;
+  const j=await this.s.one('SELECT * FROM mg_jobs WHERE id=?',[id]);need(j,'ジョブがありません。',404);productionGrant(this.env,j.kind==='stock'?'inventory':'catalog');if(j.state==='done'){if(integratedPublication(this.env)){const proof=j.result_json&&JSON.parse(j.result_json);need(j.kind==='stock'?proof?.applied===true:Array.isArray(proof?.mappings)&&proof.mappings.length>0,'成功証跡がないためロックを解除できません。',409);await this.s.batch([['DELETE FROM mg_locks WHERE job_id=?',[id]],this.s.audit('authenticated-admin','completed_lock_released',j.resource_id,{job:id})]);}return this.job(id);}
+  need(j.state==='review'||integratedPublication(this.env)&&j.kind!=='stock'&&['queued','running','retry'].includes(j.state),'読み取り照合できる状態ではありません。再送せず状態を確認してください。',409);const p=JSON.parse(j.payload_json);let result;
   if(j.kind==='stock'){need(j.result_json,'在庫操作の成功証跡がありません。Square側履歴の手動確認が必要です。',409);const count=(await this.square.count([p.mapping.variation_id])).get(p.mapping.variation_id);need(count===p.target,'在庫が一致しません。上書きせず停止しました。',409);result=JSON.parse(j.result_json);}
-  else if(this.env.RUNTIME_TIER==='staging'){const proof=await catalogProof(this,j);need(proof.state==='matched',proof.message+' '+proof.checks.filter(c=>!c.ok).map(c=>c.label).join('・'),409);result={mappings:proof.mappings,evidence:{type:'saved-request-current-state-match',checks:proof.checks,versions:proof.versionInfo,checkedAt:now()}};}
+  else if(integratedPublication(this.env)){const proof=await catalogProof(this,j);need(proof.state==='matched',proof.message+' '+proof.checks.filter(c=>!c.ok).map(c=>c.label).join('・'),409);result={mappings:proof.mappings,evidence:{type:'saved-request-current-state-match',checks:proof.checks,versions:proof.versionInfo,checkedAt:now()}};}
   else {const known=j.result_json?JSON.parse(j.result_json).mappings:p.maps;const body=j.body_json?JSON.parse(j.body_json):null;need(known?.length||this.env.RUNTIME_TIER==='staging'&&body,'Square Item IDが不明です。自動照合できません。',409);const item=known?.length?await this.square.object(known[0].item_id):await this.square.findCreatedItem(body);const mappings=this.square.verifyCatalog(item,p.data,body?.batches[0].objects[0].item_data.image_ids,p.targetStatus,body?.batches[0].objects[0].item_data.variations);for(const old of known||[]){const m=mappings.find(m=>m.variant_id===old.variant_id);need(m?.variation_id===old.variation_id&&(this.env.RUNTIME_TIER!=='staging'||m.item_id===old.item_id),'Square IDが一致しません。',409);}result={mappings};}
-  if(this.env.RUNTIME_TIER==='staging'){
+  if(integratedPublication(this.env)){
    const updates=j.kind==='stock'?[
     ['UPDATE mg_inventory_operations SET after_quantity=?,state=? WHERE id=?',[p.target,'done',id]],
     ['INSERT INTO mg_stock_snapshot VALUES(?,?,?) ON CONFLICT(variant_id) DO UPDATE SET quantity=excluded.quantity,observed_at=excluded.observed_at',[j.resource_id,p.target,now()]]
@@ -179,11 +182,12 @@ export class Management {
      body={idempotency_key:id,changes:[{type:'PHYSICAL_COUNT',physical_count:adjustment}]};
     }else{
      let preserved=await this.square.preserveMappings(p.maps);
-     if(this.env.RUNTIME_TIER==='staging'&&p.releaseSite)preserved=await prepareReleaseMappings(this,preserved,p);
+     if(integratedPublication(this.env)&&p.releaseSite)preserved=await prepareReleaseMappings(this,preserved,p);
      await this.square.assertNewSkusAvailable(p.data,p.maps);
      if(p.releaseSite)releasePhase='画像確認';
      const imageIds=[];
      for(const imageId of p.data.images){let mapping=await this.s.one('SELECT * FROM mg_image_mappings WHERE image_id=?',[imageId]);if(!mapping){const image=await this.s.one('SELECT * FROM mg_images WHERE id=?',[imageId]);need(image&&this.env.PRODUCT_IMAGES,'画像ストレージが確認できません。',503);const object=await this.env.PRODUCT_IMAGES.get(image.object_key);need(object,'画像がありません。',409);const squareImageId=await this.square.image(imageId,await object.arrayBuffer(),image.mime);await this.s.run('INSERT INTO mg_image_mappings VALUES(?,?,?,?)',[imageId,production(this.env)?'production':'sandbox',squareImageId,now()]);mapping={square_image_id:squareImageId};}imageIds.push(mapping.square_image_id);}
+     if(production(this.env)&&p.releaseSite&&p.maps.length&&!p.data.images.length)imageIds.push(...(preserved[0]?.item_image_ids||[])); // Never clear existing Square photos during initial linking.
      body=this.square.catalogBody({id:j.resource_id,data:p.data},preserved,id,imageIds);
      if(j.kind==='state')for(const item of body.batches[0].objects){item.item_data.is_archived=p.targetStatus==='archived';item.present_at_location_ids=[];item.absent_at_location_ids=[this.env.SQUARE_LOCATION_ID];for(const v of item.item_data.variations){v.present_at_location_ids=[];v.absent_at_location_ids=[this.env.SQUARE_LOCATION_ID];}}
     }
@@ -225,15 +229,15 @@ export class Management {
   const policy=externalPolicy(this.env);
   const blockingJobs=await this.s.all("SELECT DISTINCT l.job_id AS id,j.kind,j.state,j.last_error AS error,j.updated_at AS updatedAt,json_extract(j.payload_json,'$.releaseSite') AS release FROM mg_locks l JOIN mg_variants v ON v.id=l.variant_id LEFT JOIN mg_jobs j ON j.id=l.job_id WHERE v.product_id=?",[p.id]);
   const publication=await this.s.one("SELECT detail_json FROM mg_audit WHERE resource_id=? AND action IN ('site_published','release_published') ORDER BY rowid DESC LIMIT 1",[p.id]);
-  return {...p,retired:(await this.s.retiredProductIds()).has(p.id),...(this.env.RUNTIME_TIER==='staging'&&j&&JSON.parse(j.payload_json).releaseSite?{releaseJob:{...await this.job(j.id),submittedRevision:JSON.parse(j.payload_json).revision}}:{}),siteWarnings:publication?JSON.parse(publication.detail_json).warnings||[]:[],blockingJobs,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
-   source:policy.source,...(this.env.RUNTIME_TIER==='staging'?{capabilities:{draft:true,images:true,sitePublish:true,unifiedPublish:true,featuredProducts:true,catalog:!policy.readOnly,inventory:!policy.readOnly}}:{}),...(production(this.env)?{capabilities:{...productionPolicy(this.env),featuredProducts:this.env.STOREFRONT_FEATURED_ENABLED==='1',sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1'&&productionPolicy(this.env).draft}}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
+  return {...p,retired:retiredProduct(this.env,p)||(await this.s.retiredProductIds()).has(p.id),...(integratedPublication(this.env)&&j&&JSON.parse(j.payload_json).releaseSite?{releaseJob:{...await this.job(j.id),submittedRevision:JSON.parse(j.payload_json).revision}}:{}),siteWarnings:publication?JSON.parse(publication.detail_json).warnings||[]:[],blockingJobs,syncState:j?.state||(p.draft.variants.every(v=>maps.some(m=>m.variant_id===v.id))?'linked':'unlinked'),
+   source:policy.source,...(this.env.RUNTIME_TIER==='staging'?{capabilities:{draft:true,images:true,sitePublish:true,unifiedPublish:true,featuredProducts:true,catalog:!policy.readOnly,inventory:!policy.readOnly}}:{}),...(production(this.env)?{capabilities:{...productionPolicy(this.env),unifiedPublish:integratedPublication(this.env),featuredProducts:this.env.STOREFRONT_FEATURED_ENABLED==='1',sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1'&&productionPolicy(this.env).draft}}:{}),accessMode:production(this.env)?(productionPolicy(this.env).catalog||productionPolicy(this.env).inventory?'PRODUCTION_MANAGEMENT':'PRODUCTION_READ_ONLY'):policy.managementOnly?'SANDBOX_MANAGEMENT':policy.readOnly?'READ_ONLY':'READ_WRITE',
    useConfiguredLinks:this.env.RUNTIME_TIER==='sandbox-validation'&&p.draft.variants.every(v=>Boolean(this.square.expectedLink(v.id)))};
  }
  async products(){return Promise.all((await this.s.products()).map(p=>this.productView(p)));}
  async handle(path,method,body,actor){
   if(path==='/api/admin/storefront/featured')return featuredAdmin(this,method,body,actor);
   if(path==='/api/admin/products/import'&&method==='POST'){need(!production(this.env),'本番の既存商品は実照合した下書きと対応表で導入してください。',409);return importLegacy(this,actor);}
-  if(path==='/api/admin/products'&&method==='GET')return {products:await this.products(),...(this.env.RUNTIME_TIER==='staging'?{source:'square-sandbox',capabilities:{draft:true,images:true,sitePublish:true,unifiedPublish:true,featuredProducts:true,catalog:!externalPolicy(this.env).readOnly,inventory:!externalPolicy(this.env).readOnly}}:{}),...(production(this.env)?{source:'square-production',capabilities:{...productionPolicy(this.env),featuredProducts:this.env.STOREFRONT_FEATURED_ENABLED==='1'}}:{})};
+  if(path==='/api/admin/products'&&method==='GET')return {products:await this.products(),...(this.env.RUNTIME_TIER==='staging'?{source:'square-sandbox',capabilities:{draft:true,images:true,sitePublish:true,unifiedPublish:true,featuredProducts:true,catalog:!externalPolicy(this.env).readOnly,inventory:!externalPolicy(this.env).readOnly}}:{}),...(production(this.env)?{source:'square-production',capabilities:{...productionPolicy(this.env),unifiedPublish:integratedPublication(this.env),sitePublish:this.env.PRODUCTION_STOREFRONT_PUBLISH_ENABLED==='1',featuredProducts:this.env.STOREFRONT_FEATURED_ENABLED==='1'}}:{})};
   if(path==='/api/admin/inventory'&&method==='GET')return {inventory:await this.inventory()};
   if(path==='/api/admin/audit'&&method==='GET')return {events:await this.s.all('SELECT actor,action,resource_id,detail_json,created_at FROM mg_audit ORDER BY created_at DESC LIMIT 200')};
   if(path==='/api/admin/jobs'&&method==='GET')return {jobs:await this.jobs(),orphanLocks:await this.s.all('SELECT l.variant_id AS variantId,l.job_id AS jobId FROM mg_locks l LEFT JOIN mg_jobs j ON j.id=l.job_id WHERE j.id IS NULL'),monitoring:await this.supervision.status()};
@@ -243,7 +247,7 @@ export class Management {
    if(method==='POST'&&m[2])return m[2]==='release'?release(this,id,body,actor):m[2]==='sync-check'?inspectSync(this,id):m[2]==='site'?publishSite(this,id,body,actor):this[m[2]](id,body,actor);
   }
   m=path.match(/^\/api\/admin\/inventory\/([a-z0-9-]+)$/);if(m&&method==='POST')return this.adjust(m[1],body,actor);
-  m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)$/);if(m&&method==='GET'){need(this.env.RUNTIME_TIER==='staging','ステージング専用です。',403);return {job:await this.job(operation(m[1]))};}
+  m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)$/);if(m&&method==='GET'){need(integratedPublication(this.env),'統合公開は無効です。',403);return {job:await this.job(operation(m[1]))};}
   m=path.match(/^\/api\/admin\/jobs\/([a-f0-9-]+)\/(retry|reconcile|adopt-current)$/);if(m&&method==='POST')return this[m[2]==='adopt-current'?'adoptCurrent':m[2]](operation(m[1]));
   need(false,'管理APIが見つかりません。',404);
  }

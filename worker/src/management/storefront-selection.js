@@ -2,7 +2,7 @@ import {production,productionGrant} from '../production-policy.js';
 import {need,operation,digest,json} from './domain.js';
 export const selectionEnabled=env=>env.RUNTIME_TIER==='staging'||production(env)&&env.STOREFRONT_FEATURED_ENABLED==='1';
 export const retirementEnabled=env=>env.RUNTIME_TIER==='staging'||env.STOREFRONT_RETIRE_GOLDENROD==='1';
-const retiredIds=new Set(['goldenrod','goldenrod-leaf-10g','goldenrod-leaf-stem-20g']);
+const retiredIds=new Set(['goldenrod','goldenrod-leaf','goldenrod-leaf-stem','goldenrod-leaf-10g','goldenrod-leaf-stem-20g']);
 export function retiredProduct(env,p){
  if(!retirementEnabled(env))return false;
  const data=p.draft||p;

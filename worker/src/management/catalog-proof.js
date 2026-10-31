@@ -1,7 +1,9 @@
+import {integratedPublication,integratedGrant} from './integrated-policy.js';
+import {production} from '../production-policy.js';
 import {need} from './domain.js';
 // Evidence is collected afresh from immutable job data and Square GETs only.
 export async function catalogProof(manager,job){
- need(manager.env.RUNTIME_TIER==='staging','ステージング専用です。',403);
+ need(integratedPublication(manager.env),'統合公開は無効です。',403);
  const checks=[],versionInfo=[];let mappings=[];
  const check=(label,ok)=>{checks.push({label,ok:Boolean(ok)});};
  try{
@@ -40,7 +42,7 @@ export async function catalogProof(manager,job){
   const adoptionMappings=[];
   // Cancellation is safe only when every original optimistic version is fenced
   // by a strictly newer version on the exact same existing objects. No creates.
-  const adoptionAvailable=job.kind==='publish'&&job.state==='review'&&known?.length===sent.item_data.variations.length&&item?.item_data?.variations?.length===sent.item_data.variations.length&&!sent.id.startsWith('#')&&item?.id===sent.id&&!item.is_deleted&&!item.item_data.is_archived&&present(item)&&Number.isSafeInteger(sent.version)&&Number.isSafeInteger(item.version)&&item.version>sent.version&&sent.item_data.variations.every(desired=>{
+  const adoptionAvailable=!production(manager.env)&&job.kind==='publish'&&job.state==='review'&&known?.length===sent.item_data.variations.length&&item?.item_data?.variations?.length===sent.item_data.variations.length&&!sent.id.startsWith('#')&&item?.id===sent.id&&!item.is_deleted&&!item.item_data.is_archived&&present(item)&&Number.isSafeInteger(sent.version)&&Number.isSafeInteger(item.version)&&item.version>sent.version&&sent.item_data.variations.every(desired=>{
    const current=item.item_data.variations.find(v=>v.id===desired.id),d=current?.item_variation_data,old=known.find(m=>m.variation_id===desired.id&&m.item_id===item.id);
    const safe=old&&!desired.id.startsWith('#')&&d?.item_id===item.id&&d.sku===desired.item_variation_data.sku&&d.track_inventory===true&&d.price_money?.currency==='JPY'&&Number.isSafeInteger(Number(d.price_money.amount))&&Number(d.price_money.amount)>0&&!current.is_deleted&&d.sellable!==false&&present(current)&&Number.isSafeInteger(desired.version)&&Number.isSafeInteger(current.version)&&current.version>desired.version;
    if(safe)adoptionMappings.push({...old,item_version:item.version,variation_version:current.version});return Boolean(safe);
