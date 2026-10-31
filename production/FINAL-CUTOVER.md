@@ -14,14 +14,15 @@
 - ユーザー確認済みProduction Application ID: `sq0idp-JYrGicMfKr-ILhZeLS9Xsw`。Locationは上記の本番ID。
 - ユーザー提示の既存Worker完全Version ID（切戻し候補）: `4ddbd925-2967-4d93-b553-ff4ea4d685a5`。切替直前に別Versionへ変わっていれば記録を更新する。
 - Secrets SQUARE_ACCESS_TOKEN / ADMIN_TOKEN とResend設定は存在。値を取得・転記しない。
-- MANAGEMENT_ENABLED=0、購入/管理フラグはOFF。本番管理Access・本番画像R2は未確認で、既存ステージング/validationを流用しない。
+- MANAGEMENT_ENABLED=0、購入/管理フラグはOFF。本番画像R2は作成完了の報告未受領。既存ステージング/validationを流用しない。
+- 本番管理Accessはユーザーが作成済み: Application=`yasoya-honten-admin`、保護対象=`admin.awaiaune.com`の全パス、Policy=`Yasoya Admin Only`、管理者メールのみAllow。AUD=`83b65f5860ed7658d558dd620138208905240339a95e4ef9053fd2cddbfedd79`。Workerへ未反映で、Team Domain/正確な許可メールは未受領。
 
-## 未設定項目と必要な操作（今は実行しない）
+## 準備状況と残る操作（Codexから本番操作はしない）
 
 | 項目 | 採用案・操作場所 | 設定内容 |
 |---|---|---|
 | 本番画像R2 | R2 Object Storage → Create bucket | `yasoya-honten-product-images`、公開アクセス無効。購入Workerのbinding=`PRODUCT_IMAGES`。設定ファイルの名前は作成案で、実在確認を意味しない |
-| 管理用Access | Zero Trust → Access → Applications → Add application → Self-hosted | 名前=`yasoya-honten-admin`、ホスト=`admin.awaiaune.com`、全パス、Allowは承認管理者のメールのみ。Bypass/Everyoneは使わない。ホストの既存用途があれば作成前に停止 |
+| 管理用Access（作成済み） | Zero Trust → Access → Applications → yasoya-honten-admin | 全パス・管理者メールのみAllow・上記AUDを採用。再作成不要。Team Domain/許可メールを確認後、両Workerへ反映するのは承認後 |
 | 管理用Worker | Workers & Pages → 新規Worker | `yasoya-honten-admin`、Service binding `PAYMENTS_SERVICE` → `yasoya-honten-payments`。workers.dev/Preview URL無効。公開時にCustom Domain=`admin.awaiaune.com`。先に上のAccessを用意する |
 | Access環境変数 | 両Worker → Settings → Variables and Secrets | `PRODUCTION_ADMIN_ORIGIN=https://admin.awaiaune.com`、`PRODUCTION_ACCESS_TEAM_DOMAIN`=本番AccessのTeam Domain、`PRODUCTION_ACCESS_AUDIENCE`=新アプリAUD、`PRODUCTION_ADMIN_EMAIL`=許可メール。ステージングAUDは使わない |
 | Square App ID（確認済み） | 購入Worker → Settings → Variables and Secrets | 上記の確認済みApp IDを`SQUARE_PRODUCTION_APPLICATION_ID`へ設定。LocationはLQ693S4H2NBZ8を維持。App IDはSecretではない |
@@ -31,7 +32,7 @@
 準備の順番は次のとおり。現段階ではCodexから実行しない。
 
 1. R2画面で本番専用bucketの有無を確認し、未作成なら`yasoya-honten-product-images`を非公開で作成する。既存購入Workerへのbinding反映は承認した本番デプロイ時にまとめる。
-2. `admin.awaiaune.com`が他用途で使われていないことを確認し、管理専用Accessを準備する。Team Domain/AUD/許可メールだけを記録。公開サイト・既存APIホストを対象にしない。
+2. 管理専用Accessは作成済み。残りのTeam Domain/許可メールを記録する。AUD・全パス保護は再確認不要。公開サイト・既存APIホストを対象にしない。
 3. 管理Workerは名前・Service binding・Build/Deploy設定を準備する。新規作成画面がDeployを要求する場合はまだ実行せず、その直前で止める。workers.dev/Previewは無効、Custom Domain追加はAccess準備後の承認済み公開時に行う。
 4. 購入WorkerのSecret一覧で`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`の有無を名前だけ確認。不足分は安全なSecret入力で登録する準備をし、Save and deploy等で稼働Versionが変わる操作は最終承認後にまとめる。既存Secretの表示・転記・上書きはしない。
 
@@ -47,7 +48,7 @@
 - D1実Database ID・DO実namespace/class/接続Workerはユーザー確認済み。同じ照合を繰り返さず、次は未準備リソースへ進む。
 - DOのnamespace名・ID・class・Bound Workerは上記の確認済み値を採用し、同じ画面の再確認は不要。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
-- 新AccessのTeam Domain/AUD/許可メール。Production App ID・Locationの再確認は不要。Secret値は不要。
+- 作成済み管理AccessのTeam Domainと正確な許可メール。AUD・Production App ID・Locationの再確認は不要。Secret値は不要。
 
 ## 設定ファイル・追加SQL
 
@@ -85,4 +86,4 @@
 
 ## 判定
 
-既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、本番専用R2/Accessは未作成なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。
+既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、本番専用R2の完了報告・管理Workerの準備・AccessのTeam Domain/許可メール等が未受領なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。
