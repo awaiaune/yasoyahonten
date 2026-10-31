@@ -9,7 +9,7 @@
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
 - Workers Builds: mainで有効、Preview Builds無効、Root=worker、Deploy=`npx wrangler deploy`。
 - 購入Worker: yasoya-honten-payments、既存API origin=`https://yasoya-honten-payments.tatsurou3523.workers.dev`（ユーザー確認済み）。Custom Domains/Routesなし、Worker全体のAccessなし。新サイト切替後もこのAPI originを維持する。
-- D1 binding ORDERS_DB → yasoya-orders、DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。orders存在・テスト注文2件・Time Travel利用可。
+- D1実設定はユーザーがCloudflareで確認済み: `ORDERS_DB` → `yasoya-orders`、Database ID=`442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。本番準備設定と完全一致。orders存在・テスト注文2件・Time Travel利用可。DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
 - ユーザー確認済みProduction Application ID: `sq0idp-JYrGicMfKr-ILhZeLS9Xsw`。Locationは上記の本番ID。
 - ユーザー提示の既存Worker完全Version ID（切戻し候補）: `4ddbd925-2967-4d93-b553-ff4ea4d685a5`。切替直前に別Versionへ変わっていれば記録を更新する。
@@ -28,6 +28,13 @@
 | 管理用Square Secret | 購入Worker → Settings → Variables and Secrets → Secret | コードは`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`を参照する。未登録ならProduction管理用トークンを安全なSecret入力で登録。既存`SQUARE_ACCESS_TOKEN`は上書きしない。値はチャット/コード/ログへ出さない |
 | 公開ドメイン | 購入Worker → Settings → Domains & Routes → Custom Domain | 最後に`yasoyahonten.awaiaune.com`を割当てる。既存CNAMEが競合する場合だけDNS画面で既知CNAMEを削除して直ちに追加。Worker用DNSはCloudflareに管理させ、手動CNAME先を推測しない。Accessはこのホスト/購入APIへ適用しない |
 
+準備の順番は次のとおり。現段階ではCodexから実行しない。
+
+1. R2画面で本番専用bucketの有無を確認し、未作成なら`yasoya-honten-product-images`を非公開で作成する。既存購入Workerへのbinding反映は承認した本番デプロイ時にまとめる。
+2. `admin.awaiaune.com`が他用途で使われていないことを確認し、管理専用Accessを準備する。Team Domain/AUD/許可メールだけを記録。公開サイト・既存APIホストを対象にしない。
+3. 管理Workerは名前・Service binding・Build/Deploy設定を準備する。新規作成画面がDeployを要求する場合はまだ実行せず、その直前で止める。workers.dev/Previewは無効、Custom Domain追加はAccess準備後の承認済み公開時に行う。
+4. 購入WorkerのSecret一覧で`PRODUCTION_MANAGEMENT_SQUARE_TOKEN`の有無を名前だけ確認。不足分は安全なSecret入力で登録する準備をし、Save and deploy等で稼働Versionが変わる操作は最終承認後にまとめる。既存Secretの表示・転記・上書きはしない。
+
 管理WorkerはAccess JWTを検証し、購入Workerも管理APIで同じ署名/AUD/メールを再検証する。さらに既存ADMIN_TOKENでログインする。公開ホストやworkers.devからの管理API直アクセスは拒否。購入APIにはAccessログインを要求しない。
 
 初期の商品画像は既存レモンバーム/よもぎの静的写真を使える。ステージングR2の6オブジェクトやSandbox商品DBを丸ごと移さない。追加画像は本番管理画面から個別アップロードし、非公開R2からWorker経由で配信する。既存Square画像IDはローカル画像未登録を理由に削除しない。
@@ -37,7 +44,7 @@
 - Account ID・既存workers.dev URL・完全Version IDは上記のユーザー提示値を採用済みで、再確認は不要。
 - コード照合済み: 準備ブランチとローカル保存済みorigin/mainの`worker/wrangler.jsonc`は、D1名`yasoya-orders`・binding `ORDERS_DB`・ID `442fa9fd-25d3-4c01-bcc3-04be7b420cf5`、DO binding `PURCHASE_COORDINATOR`・class `PurchaseCoordinator`で一致。新しい公開entrypointも同じclassを再exportする。これは稼働設定の取得結果ではない。
 - DO実設定はユーザーがCloudflareで確認済み: namespace `yasoya-honten-payments_PurchaseCoordinator`、class `PurchaseCoordinator`、namespace ID `6802cc5abc6d440285ec19c9e7c82103`、Bound Worker `yasoya-honten-payments`。移行入力/検証コードと一致。CodexによるAPI取得結果ではない。Wranglerの既存DO bindingは同Workerのclassを指定しnamespace IDを直接指定しないため、同じWorker名/class/bindingを維持し、namespace再作成・削除・再初期化は行わない。
-- D1のOverviewでIDが設定案 `442fa9fd-25d3-4c01-bcc3-04be7b420cf5` と一致するかだけ確認。
+- D1実Database ID・DO実namespace/class/接続Workerはユーザー確認済み。同じ照合を繰り返さず、次は未準備リソースへ進む。
 - DOのnamespace名・ID・class・Bound Workerは上記の確認済み値を採用し、同じ画面の再確認は不要。
 - migration tagはコードの`v1-purchase-coordinator`、固定Object名は`yasoya-honten-global-purchase-lock`を維持。実migration履歴は未確認のまま明記し、それだけを理由にData Studioを繰り返さない。class改名・追加migration・初期化はしない。
 - 新AccessのTeam Domain/AUD/許可メール。Production App ID・Locationの再確認は不要。Secret値は不要。
