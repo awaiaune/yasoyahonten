@@ -10,6 +10,8 @@ export default {async fetch(request,env,ctx){
   productionIdentity(env);
   const url=new URL(request.url),admin=/^\/api\/admin(?:\/|$)/.test(url.pathname);
   if(admin){if(url.origin!==env.PRODUCTION_ADMIN_ORIGIN)return new Response('Use the protected management origin',{status:403});return application.fetch(request,env,ctx);}
+  // Preserve old clients' status/recovery URLs during the origin cutover.
+  if(/^https:\/\/yasoya-honten-payments\.[a-z0-9-]+\.workers\.dev$/.test(env.PRODUCTION_LEGACY_API_ORIGIN||'')&&url.origin===env.PRODUCTION_LEGACY_API_ORIGIN&&url.pathname.startsWith('/api/'))return application.fetch(request,env,ctx);
   if(url.origin!==env.SITE_URL)return new Response('Host rejected',{status:403});
   if(/^\/admin(?:\/|$)/.test(url.pathname))return new Response('Not found',{status:404});
   let response;
