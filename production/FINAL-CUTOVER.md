@@ -145,3 +145,43 @@
 初回工程の提案: 切替直前のTime Travel時点を記録したうえで、yasoya-ordersへ追加型管理SQLだけを適用する。Console用は`production/release/console/all.sql`（コメントなし）、必要なら01〜18.sqlを順番に実行。既存orders・DO・Square・Worker・DNSは変更しない。この工程も承認までは実行しない。
 
 検証: API/認証/既存Secret/追加移行/管理UIの53件を実行。52件成功、スマホUI1件は旧ボタン名を探すテストが失敗したため現行の権限OFFボタンを検証するよう修正し、単独再実行で成功。UIの動作コードは変更していない。390pxスマホでAccess/ADMIN_TOKENログイン、写真追加、下書き保存、再読込後の保持、Square書込み無効を確認。API専用入口で新規決済OFF、旧照会・既存注文表示・認証必須・直接URL拒否・サイト非配信を検証。ローカル模擬Square/D1/R2/Access証明書のみ。Cloudflare実Access/Service binding/D1適用、実トークン権限、Square Productionの実商品/在庫照合、稼働DO内状態は未検証。GitHub CI 0件はユーザー確認情報であり今回API再取得なし。
+
+## D1追加SQLの最終実行手順（2026-11-01・未適用）
+
+この節がD1手順の最新版。元の331199dでは既存テーブル/markerで再実行が衝突するため、配備用SQLだけを再開可能に修正した。元の厳格なschema定義ファイルは変更していない。instance UUIDは`0f1d8c9f-ae1b-40ef-bb42-f0b790bcd5fa`のまま。管理機能追加に関係のない開発・本番操作は行っていない。
+
+対象はCloudflare → Storage & databases → D1 → `yasoya-orders`、ID `442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。同DBのConsoleで実行する。SQLでは接続先の実Database IDを取得できないため、画面の対象DBを選択する。既知のAccount/D1/DO設定の再監査はしない。
+
+1. **読み取りのみ**: `production/release/checks/before.sql`をコピーしConsoleへ貼り付けて実行する。コードフェンスやファイル名は貼らない。1つのSELECTで、UTC照会日時・orders件数・17定義の照合を1結果表に出す。初回はschema行が全てMISSINGで正常。途中再開はMATCH/MISSINGだけなら可。MISMATCHやunexpected行が1つでもあれば、書込みを始めず停止する。orders_countを記録する。
+2. **途中再開の場合のみ**: before結果のschema:production_environmentがMATCHなら`checks/existing-marker.sql`も実行する。EMPTY/MATCHなら可、MISMATCHなら停止。MISSINGならこの確認は不要で、まだこのSQLを実行しない。
+3. **Time Travelを記録**: 同DBのTime Travelで、適用直前の復元可能なUTC日時を記録し、bookmarkが表示されれば併記する。beforeのobserved_utcは照会日時であり、復元可能性の証明そのものではない。Restoreは押さない。実行者のメモへDB名/ID・復元時点UTC・SQL版のcommitを保存する。現時点では実日時を取得しておらずmanifest.timeTravelCheckpointはnullのまま。記録前は適用しない。
+4. **承認後だけ書込み**: `production/release/console/all.sql`をそのまま実行する。コメントなしで18文。複数文貼付がConsoleで処理されない場合だけ、同じ内容の01.sql〜18.sqlを番号順に1つずつ実行する。今回の手順とwrangler d1 migrations applyを併用しない。
+5. **読み取りのみ**: `production/release/checks/after.sql`を実行する。17個のschemaが全てMATCH、environmentがMATCH、orders_countが適用前と同じなら完了。初回はrows:mg_*の14件が0。途中再開で元から管理データがある場合はその数を保持し、0へ揃えない。後確認が不完全・エラーなら完了扱いせずWorker公開へ進まない。
+
+途中失敗時は作成済みテーブルが残る場合がある。全体が自動で元へ戻るとは仮定しない。上の1〜2をやり直し、合格する場合だけ01から、またはall.sqlで再開できる。CREATE TABLE/INDEX IF NOT EXISTSで既存内容を保ち、同一のmarkerは何もしない。異なるmarkerは最後のINSERTが主キー違反で停止し、既存値を上書きしない。IF NOT EXISTSは定義不一致を修復する機能ではないため、事前のschema照合を省略しない。
+
+変更は管理テーブル14個・production_environment1個・索引2個・識別marker1行のみ。ordersのschema/行、DO、R2画像、Square商品/価格/在庫、Secret、Worker、DNSは変更しない。管理レコードを初期化するSQLや注文サンプルの挿入は配備SQLに含めない。
+
+番号順の実行対象:
+- `01.sql`: production_environmentを追加（既存なら保持）
+- `02.sql`: mg_productsを追加（既存なら保持）
+- `03.sql`: mg_revisionsを追加（既存なら保持）
+- `04.sql`: mg_variantsを追加（既存なら保持）
+- `05.sql`: mg_imagesを追加（既存なら保持）
+- `06.sql`: mg_mappingsを追加（既存なら保持）
+- `07.sql`: mg_jobsを追加（既存なら保持）
+- `08.sql`: mg_jobs_dueを追加（既存なら保持）
+- `09.sql`: mg_locksを追加（既存なら保持）
+- `10.sql`: mg_inventory_operationsを追加（既存なら保持）
+- `11.sql`: mg_stock_snapshotを追加（既存なら保持）
+- `12.sql`: mg_commandsを追加（既存なら保持）
+- `13.sql`: mg_auditを追加（既存なら保持）
+- `14.sql`: mg_image_mappingsを追加（既存なら保持）
+- `15.sql`: mg_job_notificationsを追加（既存なら保持）
+- `16.sql`: mg_notification_dueを追加（既存なら保持）
+- `17.sql`: mg_management_monitorを追加（既存なら保持）
+- `18.sql`: 本番識別markerを登録（同一なら保持、不一致ならエラー）
+
+実行前後の確認はSQLの定義・件数・識別結果だけで、顧客情報や注文内容は表示しない。本番SQL Console/Time Travelには今回アクセスしていないため、直前確認結果・復元時点は未確認。適用は引き続き承認待ち。
+
+D1最終検証: ローカルD1エミュレーターで38件成功・失敗0。18文の0〜18文完了後の19位置からの再開、全体再実行、既存orders全値保持、管理データ/在庫スナップショット/ロック保持、異なるmarkerの上書き拒否、不一致schemaの検出を確認。適用前後のSQLは各1つのSELECTにまとめ、D1のcompound SELECT制限に抵触しない構成で検証済み。schema照合はSQLiteが除去するCREATE先頭のIF NOT EXISTS以外は厳密比較し、文字列内の空白/大文字小文字も保護する。表記だけが違う場合もMISMATCHで止め、無条件に修正しない。本番実行なし。
