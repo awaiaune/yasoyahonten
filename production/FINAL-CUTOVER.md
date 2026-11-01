@@ -74,7 +74,7 @@
 |---|---|---|
 | 1 | 準備ブランチ`production/v53-port-20261031`だけをpush。mainへmerge/pushしない。必要ならレビューPRを作るがmergeしない | Pagesはmain/rootなのでサイト更新なし。購入WorkerはBuilds停止、PreviewもOFF |
 | 2 | 直前のTime Travel時点と既存Worker Versionを記録し、対象D1へ`production/release/console/`の追加SQLを適用 | orders/既存DO/Squareは初期化しない。SQL適用は別承認 |
-| 3 | 購入WorkerのBuildsを停止のまま、配信元Production branchを上記専用ブランチへ変更。Root=worker、Build=`node ../production/prepare-v53.mjs`、Deploy=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。許可メールをDashboardの`PRODUCTION_ADMIN_EMAIL`へ設定 | この設定変更も本番操作として直前承認。既存Secret/R2/D1/DO識別子を保持。購入OFF、Square管理書込みOFF |
+| 3 | 購入WorkerのBuildsを停止のまま、配信元Production branchを上記専用ブランチへ変更。Root=worker、Buildは空欄（APIのみ、サイト梱包不要）、Deploy=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。許可メールをDashboardの`PRODUCTION_ADMIN_EMAIL`へ設定 | この設定変更も本番操作として直前承認。既存Secret/R2/D1/DO識別子を保持。購入OFF、Square管理書込みOFF |
 | 4 | 承認した1回のBuildだけ起動。手動起動が使えなければ、明示承認のうえ一時的にBuildsを有効にし専用ブランチへ空コミットをpushして起動。完了後は再びBuilds停止 | mainを触らない。新サイトの正規ドメイン/DNSは触らない。旧workers.dev APIを継続 |
 | 5 | 新管理Workerを同じGitHub専用ブランチから作成。Root=worker、Build=`node ../production/prepare-admin.mjs`、Deploy=`npx wrangler@4.155.0 deploy --config ../production/release/admin.jsonc`。公開前に同じ許可メールを設定 | ADMIN_TOKEN/Square Secretは新Workerへコピーしない。SERVICE binding経由で既存Workerを利用。workers.dev/Preview URLなし、assetsは認証後のみ |
 | 6 | Access保護済み`admin.awaiaune.com`を管理WorkerのCustom Domainへ追加し、Access＋既存ADMIN_TOKENで管理画面へログイン | この管理ドメイン接続は別承認のDNS操作。公開サイトのCNAMEは変えない。購入OFFのまま。初期の管理閲覧を確認 |
@@ -91,10 +91,10 @@
 1. **自動反映を止める**: 購入Worker → Settings → BuildsでDisable builds=ON（Previewは既にOFFのまま）。main更新前に行う。GitHub Pagesにはこの停止は効かないため、上記の選別PRと旧画面保護が必須。新管理Workerもmain自動反映に任せず承認したコミットを明示的に公開する。
 2. **準備リソースと受付停止**: 上の本番専用R2・Access・管理Worker・変数/Secretを設定。購入Workerの`PRODUCTION_CHECKOUT_ENABLED=0`を維持し、旧checkoutへ停止表示を適用する。受付済み決済の状態照会/復旧は旧API originで維持し、未確定決済を再送しない。
 3. **D1追加**: D1 yasoya-ordersのTime Travelで直前日時（タイムゾーン付き）/bookmarkが表示されれば記録。Restoreは押さない。同DBのConsoleにレビュー済み追加SQLを番号順で適用する。エラー時は停止し、DROPや全初期化で解決しない。
-4. **準備バックエンド公開**: 選別PRを承認後mainへ反映。Root=worker、Build command=`node ../production/prepare-v53.mjs`、Deploy command=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。意図したSHAに対し明示的にBuildを1回起動する。再有効化だけで過去コミットが起動するとは仮定しない。keep_varsは非秘密変数を保持するが、configに明記したフラグはconfig値が優先する。既存Secretは再登録/上書きしない。
+4. **準備バックエンド公開**: 選別PRを承認後mainへ反映。Root=worker、Build commandは空欄（APIのみ）、Deploy command=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。意図したSHAに対し明示的にBuildを1回起動する。再有効化だけで過去コミットが起動するとは仮定しない。keep_varsは非秘密変数を保持するが、configに明記したフラグはconfig値が優先する。既存Secretは再登録/上書きしない。
 5. **管理画面公開**: 管理WorkerのビルドはRoot=workerなら `node ../production/prepare-admin.mjs`、Deployは `npx wrangler@4.155.0 deploy --config ../production/release/admin.jsonc`。Access保護を用意したadmin.awaiaune.comをこのWorkerのCustom Domainに追加する。ログイン/閲覧を確認。
 6. **商品関連付け**: `existing-products.json`の4商品のID/SKUを読取照合してD1へ関連付け。継続2商品は980円/JPY/既存Item・Variation・SKUを維持しサイト公開、終了2商品はD1 archived。Squareの商品削除/在庫上書きはしない。トップ掲載は1=レモンバーム、2=よもぎ、3=空欄。初期取込にSquareへの更新は不要。
-7. **新サイト有効化**: ready設定で同Workerを公開。購入受付0は維持。readyは管理Catalog/Inventory書込み権限も有効にするため、その権限有効化も最終承認に含める（実際のSquare更新は別途内容確認して行う）。公開内容・既存商品リンク・終了商品の直URL/旧カート拒否を確認後、公開ホストをCustom Domainへ切替。現在のDNS onlyのまま通常Worker Routeを追加する方式は採用しない。動的トップ/SHOP/商品詳細はWorker+D1から配信し、商品追加時のGit pushは不要。
+7. **新サイト有効化**: この段階で初めてBuild command=`node ../production/prepare-v53.mjs`へ変更し、ready設定で同Workerを公開。購入受付0は維持。readyは管理Catalog/Inventory書込み権限も有効にするため、その権限有効化も最終承認に含める（実際のSquare更新は別途内容確認して行う）。公開内容・既存商品リンク・終了商品の直URL/旧カート拒否を確認後、公開ホストをCustom Domainへ切替。現在のDNS onlyのまま通常Worker Routeを追加する方式は採用しない。動的トップ/SHOP/商品詳細はWorker+D1から配信し、商品追加時のGit pushは不要。
 8. **購入は別承認**: 実カードテスト/一般購入受付再開は別承認。承認後に購入フラグを1へ変更し、980円商品1点（送料は画面の現行ルール込み）を1回だけ決済。1決済/1注文/在庫1減を確認する。結果不明なら同じattemptIdで状態照会し、別注文として再決済しない。返金は自動で行わない。
 
 公開後の自動反映は、固定Wrangler/本番設定を指定したBuild commandを保持し、承認した時点で再有効化する。Pages設定は移行中残すが、DNS切替後の正規ホストはWorker配信になる。main更新からPagesへのビルドが起きても正規ホストの動的商品には使わない。
@@ -114,3 +114,34 @@
 2026-11-01既存Secret再利用: `PRODUCTION_MANAGEMENT_SQUARE_TOKEN`未登録をユーザー確認。サーバー側で既存`SQUARE_ACCESS_TOKEN`を利用し、専用Secretがある構成も維持。管理Worker/ブラウザへの転記なし。Production回帰・認証・設定生成・Secret非露出59件成功、続くメール未収集での設定生成1件も成功（同時に既存設定生成11件を再確認、計60種類）。模擬Squareで画像/商品同期/在庫/購入の回帰を確認し、401/403で再送せず停止。実トークン権限・本番Squareの受入は未実施。管理Worker設定にREPLACEはなく、許可メールだけDashboard設定必須。Asset梱包成功。main push/本番操作なし。
 
 2026-11-01 Build停止後準備: ユーザー確認のDisable builds=ONを反映。管理Worker先行は専用ブランチから導入し、main/Pages/正規サイトDNSを更新しない経路を確定。`production/release/`に非秘密のbootstrap/ready/admin設定、追加SQL、Console分割SQL、manifest、旧画面停止版を生成（全て未実行）。instance UUIDは既存の準備済みSQLと同じ値を維持。配備設定3種をオフラインでbundleし、Asset参照・追加SQLマーカー・DB/DO・購入OFF・初回Square書込みOFFを確認。認証/設定22件成功・失敗0。最初の検証コマンドはルートからesbuild依存を解決できず停止したが、dev側依存を正しく参照して再実行し成功（コード/本番の不具合ではない）。本番/外部通信なし。次は専用ブランチのみのpushとDraft PR準備の承認。
+
+## PR #3の競合レビューと最小導入範囲（2026-11-01）
+
+通常Gitでmain=`c32234d9bfcc09f6a8edddd91d6a88e3ee56809e`、PR head=`59961fd8465be6d6dcd0cbdcfefbdaf726dfebe0`を確認。merge-baseは`f6b7fd9a79372d25e4e104deb4544dc7bc286744`。`git merge-tree --write-tree --name-only origin/main HEAD`で作業ツリー/ブランチを変更せず競合を再現した（Git objectのみ生成、merge commitなし）。
+
+| 競合ファイル | 種類 | 両側の変更・原因 |
+|---|---|---|
+| validation/safety.js | add/add | mainの検証境界と、専用ブランチのstaging境界追加が別履歴で同名新規追加 |
+| worker/src/external-policy.js | add/add | Production/validationの安全制御に対するstaging tier追加 |
+| worker/src/index.js | content | 同じ購入Worker入口に、mainのProduction制御とv53の管理API/動的商品/同期エラー表示を実装 |
+| worker/src/management/domain.js | add/add | 管理ガードにstagingのDB境界追加 |
+| worker/src/management/service.js | add/add | 下書き分離、一括公開、同期復旧、トップ掲載/終了商品の管理 |
+| worker/src/management/square.js | add/add | 本番ID/証跡照合、画像保護、バージョン整合、既存Secret再利用 |
+| worker/src/management/store.js | add/add | 公開/下書き分離、販売終了除外、対応表付き商品/在庫ロード |
+| worker/src/management/storefront.js | add/add | 商品詳細/販売状態・既存リンクの描画対応 |
+
+7 add/add＋1 content。mainと開発系列が同じbaseから別々に機能追加したためであり、現行ブランチ内の未解決マーカーではない。mainの`worker/wrangler.jsonc`と準備ブランチの同ファイルは内容一致。Access検証・Production policy・購入台帳の共通既存実装も保持されている。PR全体を一括採用せず、競合は今回解消しない。専用ブランチからのWorker配備にはmainとのmergeは不要。
+
+分類:
+
+- Pagesへ直接影響する9パス: `checkout.html`、`admin/index.html`、`css/admin.css`、`js/admin-management.js`、`js/admin-ui.js`、`js/admin.js`、`js/checkout-v1.js`、`js/checkout.js`、`js/managed-storefront.js`。mainへ取り込めば旧画面/購入処理/管理UIが更新されるため初回はmain未変更。ソース追加の他ディレクトリもPages配下へ配信され得るため、301ファイル全体のmergeを公開手段としない。
+- 購入/管理バックエンド: `worker/src/`と必要な共有安全モジュール。新しい`production/api-worker.js`でAPIだけを配信。公開サイトHTMLやv53レンダラーは含めない。旧APIの照会と既存DOクラスを維持し、購入はOFF。
+- 管理Worker: `production/admin-worker.js`と認証依存4モジュール、梱包元の管理UI5ファイル。rootの同名ファイルをGitHub Pagesへ反映せず、管理Worker Assetsとしてだけ配信。
+- D1: `worker/migrations-production/0001_management.sql`、`0002_management_supervision.sql`、Production markerから作成した`production/release/additive.sql`。適用は別承認。orders更新/削除なし。
+- 後続サイト工程: `staging/site/`のv53原本、`production/prepare-v53.mjs`、storefront entry/ready設定。初回管理導入には不要。テスト/資料/その他validation設定も配備対象外（bundleの共有依存だけ例外）。
+
+最小配備の実測一覧は`production/release/deployment-files.json`。購入バックエンド29モジュール（mainとの差分20）、管理Worker4モジュール（共有3・固有1）と管理UI5 AssetsのみをWranglerがbundle/uploadする。加えて公開対象のconfigと固定Wrangler依存を使用する。D1 SQLは別工程。139ファイルあるstagingディレクトリのサイト原本等を最初の公開に巻き込まない。
+
+初回工程の提案: 切替直前のTime Travel時点を記録したうえで、yasoya-ordersへ追加型管理SQLだけを適用する。Console用は`production/release/console/all.sql`（コメントなし）、必要なら01〜18.sqlを順番に実行。既存orders・DO・Square・Worker・DNSは変更しない。この工程も承認までは実行しない。
+
+検証: API/認証/既存Secret/追加移行/管理UIの53件を実行。52件成功、スマホUI1件は旧ボタン名を探すテストが失敗したため現行の権限OFFボタンを検証するよう修正し、単独再実行で成功。UIの動作コードは変更していない。390pxスマホでAccess/ADMIN_TOKENログイン、写真追加、下書き保存、再読込後の保持、Square書込み無効を確認。API専用入口で新規決済OFF、旧照会・既存注文表示・認証必須・直接URL拒否・サイト非配信を検証。ローカル模擬Square/D1/R2/Access証明書のみ。Cloudflare実Access/Service binding/D1適用、実トークン権限、Square Productionの実商品/在庫照合、稼働DO内状態は未検証。GitHub CI 0件はユーザー確認情報であり今回API再取得なし。

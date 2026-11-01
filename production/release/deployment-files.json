@@ -1,0 +1,101 @@
+{
+  "state": "REVIEW_ONLY_NOT_DEPLOYED",
+  "baseMain": "c32234d9bfcc09f6a8edddd91d6a88e3ee56809e",
+  "plan": "Do not merge PR #3 wholesale. Deploy bundles from the dedicated branch; leave main/Pages untouched.",
+  "phases": {
+    "managementBackend": {
+      "configuration": "production/release/bootstrap.jsonc",
+      "modules": [
+        "production/access.js",
+        "production/api-worker.js",
+        "production/existing-products.json",
+        "staging/safety.js",
+        "validation/catalog.js",
+        "validation/safety.js",
+        "worker/src/catalog.js",
+        "worker/src/checkout-contract.js",
+        "worker/src/external-policy.js",
+        "worker/src/index.js",
+        "worker/src/management/catalog-proof.js",
+        "worker/src/management/domain.js",
+        "worker/src/management/existing-production.js",
+        "worker/src/management/images.js",
+        "worker/src/management/importer.js",
+        "worker/src/management/integrated-policy.js",
+        "worker/src/management/release.js",
+        "worker/src/management/sales-catalog-check.js",
+        "worker/src/management/sales-version-proof.js",
+        "worker/src/management/service.js",
+        "worker/src/management/site-publication.js",
+        "worker/src/management/square.js",
+        "worker/src/management/store.js",
+        "worker/src/management/storefront-selection.js",
+        "worker/src/management/storefront.js",
+        "worker/src/management/supervision.js",
+        "worker/src/management/sync-diagnostics.js",
+        "worker/src/production-policy.js",
+        "worker/src/purchase-ledger.js"
+      ],
+      "changedModulesFromMain": [
+        "production/api-worker.js",
+        "production/existing-products.json",
+        "staging/safety.js",
+        "validation/safety.js",
+        "worker/src/external-policy.js",
+        "worker/src/index.js",
+        "worker/src/management/catalog-proof.js",
+        "worker/src/management/domain.js",
+        "worker/src/management/existing-production.js",
+        "worker/src/management/integrated-policy.js",
+        "worker/src/management/release.js",
+        "worker/src/management/sales-catalog-check.js",
+        "worker/src/management/sales-version-proof.js",
+        "worker/src/management/service.js",
+        "worker/src/management/site-publication.js",
+        "worker/src/management/square.js",
+        "worker/src/management/store.js",
+        "worker/src/management/storefront-selection.js",
+        "worker/src/management/storefront.js",
+        "worker/src/management/sync-diagnostics.js"
+      ],
+      "assets": [],
+      "scope": "API-only bundle; no v53 static assets, no public-site domain"
+    },
+    "managementUi": {
+      "configuration": "production/release/admin.jsonc",
+      "modules": [
+        "production/access.js",
+        "production/admin-worker.js",
+        "worker/src/checkout-contract.js",
+        "worker/src/production-policy.js"
+      ],
+      "changedModulesFromMain": [
+        "production/admin-worker.js"
+      ],
+      "assets": [
+        "admin/index.html",
+        "css/admin.css",
+        "js/admin.js",
+        "js/admin-ui.js",
+        "js/admin-management.js"
+      ],
+      "scope": "Upload management-only assets; Access is mandatory"
+    },
+    "database": {
+      "applyOnlyAfterApproval": true,
+      "schemaSources": [
+        "worker/migrations-production/0001_management.sql",
+        "worker/migrations-production/0002_management_supervision.sql"
+      ],
+      "sql": "production/release/additive.sql",
+      "consoleSql": "production/release/console/all.sql",
+      "ordersMutation": false
+    },
+    "publicSite": {
+      "deferred": true,
+      "configuration": "production/release/ready.jsonc",
+      "packaging": "production/prepare-v53.mjs",
+      "notes": "Only in a separate approved phase; includes v53 site assets and DNS cutover. Not required to deploy management."
+    }
+  }
+}

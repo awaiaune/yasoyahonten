@@ -1,6 +1,6 @@
 {
   "name": "yasoya-honten-payments",
-  "main": "../storefront-worker.js",
+  "main": "../api-worker.js",
   "compatibility_date": "2026-08-04",
   "workers_dev": true,
   "vars": {
@@ -62,11 +62,6 @@
     }
   ],
   "keep_vars": true,
-  "assets": {
-    "directory": "../.generated/v53",
-    "binding": "ASSETS",
-    "run_worker_first": true
-  },
   "r2_buckets": [
     {
       "binding": "PRODUCT_IMAGES",
