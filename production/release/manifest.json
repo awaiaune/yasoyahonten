@@ -1,0 +1,29 @@
+{
+  "state": "REVIEW_ONLY_NOT_DEPLOYED",
+  "worker": "yasoya-honten-payments",
+  "databaseId": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+  "doNamespaceId": "6802cc5abc6d440285ec19c9e7c82103",
+  "rollbackVersionId": "4ddbd925-2967-4d93-b553-ff4ea4d685a5",
+  "instanceId": "0f1d8c9f-ae1b-40ef-bb42-f0b790bcd5fa",
+  "protection": "Time Travel checkpoint + additive-only migration; no orders deletion",
+  "checkoutEnabled": false,
+  "domainCutover": {
+    "mode": "MANUAL_DASHBOARD_AFTER_READY",
+    "publicHost": "yasoyahonten.awaiaune.com",
+    "publicWorker": "yasoya-honten-payments",
+    "oldDns": {
+      "type": "CNAME",
+      "target": "awaiaune.github.io",
+      "proxied": false
+    },
+    "adminHost": "admin.awaiaune.com",
+    "adminWorker": "yasoya-honten-admin",
+    "preserveLegacyApiOrigin": "https://yasoya-honten-payments.tatsurou3523.workers.dev"
+  },
+  "timeTravelCheckpoint": null,
+  "needsFinalApproval": true,
+  "beforeExecutionRequired": [
+    "Set PRODUCTION_ADMIN_EMAIL on both Workers to the approved Access policy email",
+    "Record immediate pre-cutover Time Travel point"
+  ]
+}

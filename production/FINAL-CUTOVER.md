@@ -7,7 +7,7 @@
 - Cloudflare Account ID: `fcf37e462257810df77e8fbc0e7f4317`（ユーザーがDashboardで確認した値。CodexからのAPI照合は未実施）。
 - GitHub Pages: main/root、独自ドメイン yasoyahonten.awaiaune.com。
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
-- Workers Builds: mainで有効、Preview Builds無効、Root=worker、Deploy=`npx wrangler deploy`。
+- Workers Builds: main連携、**Disable builds=ONをユーザー確認済み**。Preview Builds無効、Root=worker、現行Deploy=`npx wrangler deploy`。停止設定は維持する。
 - 購入Worker: yasoya-honten-payments、既存API origin=`https://yasoya-honten-payments.tatsurou3523.workers.dev`（ユーザー確認済み）。Custom Domains/Routesなし、Worker全体のAccessなし。新サイト切替後もこのAPI originを維持する。
 - D1実設定はユーザーがCloudflareで確認済み: `ORDERS_DB` → `yasoya-orders`、Database ID=`442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。本番準備設定と完全一致。orders存在・テスト注文2件・Time Travel利用可。DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
@@ -54,7 +54,7 @@
 ## 設定ファイル・追加SQL
 
 1. `production/v53.candidate.jsonc` は既存購入Worker向けの**未完成テンプレート**。REPLACEや未作成リソース名を含む間はデプロイしない。
-2. 上の実値をGit対象外の `production/dashboard.local.json` に入力する。形式は `dashboard-input.example.json`。Preview無効は反映済み、Workers Buildsは現況どおり有効として記録済み。R2/Access作成済みなどの真偽値を先にtrueにしない。
+2. 上の実値をGit対象外の `production/dashboard.local.json` に入力する。形式は `dashboard-input.example.json`。Preview無効は反映済み、Workers Builds停止はユーザー確認済みとして反映済み。R2/Access作成済みなどの真偽値を先にtrueにしない。
 3. オフラインで `node production/prepare-v53.mjs`、`node production/prepare-admin.mjs`、`node production/prepare-release.mjs production/dashboard.local.json` を実行。
 4. `production/release/` にbootstrap/ready/admin設定、additive.sql、Console用all.sql/番号順分割SQL、manifest、旧checkout停止版が生成される。同じmanifestのinstance UUIDは再生成でも維持する。SQLは `worker/migrations-production/0001_management.sql` → `0002_management_supervision.sql` → Production専用marker挿入。orders更新/削除や在庫初期化は含まない。既存管理テーブルがあれば再適用せず差分確認。
 5. 生成した管理設定のCustom Domainも手動追加とし、設定の初回デプロイではDNSを変えない。Team Domain/AUDは両Workerの生成設定に含め、許可メールだけDashboardで設定し`keep_vars=true`で保持。Secretは一切設定ファイルへ含めない。Resendのメール変数も候補設定から除外し、現行Dashboard値を保持する。
@@ -66,7 +66,27 @@
 - bootstrap: `MANAGEMENT_ENABLED=1`、`PRODUCTION_MANAGEMENT_SCHEMA_READY=1`、`PRODUCTION_MANAGEMENT_READ_ENABLED=1`、`PRODUCTION_MANAGEMENT_DRAFT_ENABLED=1`、`PRODUCTION_MANAGEMENT_IMAGES_ENABLED=1`。`PRODUCTION_MANAGEMENT_CATALOG_ENABLED=0`、`PRODUCTION_MANAGEMENT_INVENTORY_ENABLED=0`、`MANAGEMENT_STOCK_WRITES=disabled`。
 - ready: 上に加え`PRODUCTION_STOREFRONT_ENABLED=1`、`PRODUCTION_STOREFRONT_PUBLISH_ENABLED=1`、`PRODUCTION_MANAGED_CHECKOUT_ENABLED=1`、`PRODUCTION_UNIFIED_PUBLISH_ENABLED=1`、`STOREFRONT_FEATURED_ENABLED=1`、`STOREFRONT_RETIRE_GOLDENROD=1`。Catalog/Inventoryの許可設定は生成コードに明記し最終レビュー対象とする。managed checkout有効と新規決済受付ONは別設定。
 
-## 承認後の具体的な実行順序
+## 管理Worker先行導入（main・Pagesを更新しない初回経路）
+
+この節が初回管理導入の優先手順。下のサイト全面切替手順は別承認の後続工程とする。今回、Cloudflare実設定は一切変更していない。
+
+| 順序 | 承認後に実行する内容 | 保護するもの |
+|---|---|---|
+| 1 | 準備ブランチ`production/v53-port-20261031`だけをpush。mainへmerge/pushしない。必要ならレビューPRを作るがmergeしない | Pagesはmain/rootなのでサイト更新なし。購入WorkerはBuilds停止、PreviewもOFF |
+| 2 | 直前のTime Travel時点と既存Worker Versionを記録し、対象D1へ`production/release/console/`の追加SQLを適用 | orders/既存DO/Squareは初期化しない。SQL適用は別承認 |
+| 3 | 購入WorkerのBuildsを停止のまま、配信元Production branchを上記専用ブランチへ変更。Root=worker、Build=`node ../production/prepare-v53.mjs`、Deploy=`npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc`。許可メールをDashboardの`PRODUCTION_ADMIN_EMAIL`へ設定 | この設定変更も本番操作として直前承認。既存Secret/R2/D1/DO識別子を保持。購入OFF、Square管理書込みOFF |
+| 4 | 承認した1回のBuildだけ起動。手動起動が使えなければ、明示承認のうえ一時的にBuildsを有効にし専用ブランチへ空コミットをpushして起動。完了後は再びBuilds停止 | mainを触らない。新サイトの正規ドメイン/DNSは触らない。旧workers.dev APIを継続 |
+| 5 | 新管理Workerを同じGitHub専用ブランチから作成。Root=worker、Build=`node ../production/prepare-admin.mjs`、Deploy=`npx wrangler@4.155.0 deploy --config ../production/release/admin.jsonc`。公開前に同じ許可メールを設定 | ADMIN_TOKEN/Square Secretは新Workerへコピーしない。SERVICE binding経由で既存Workerを利用。workers.dev/Preview URLなし、assetsは認証後のみ |
+| 6 | Access保護済み`admin.awaiaune.com`を管理WorkerのCustom Domainへ追加し、Access＋既存ADMIN_TOKENで管理画面へログイン | この管理ドメイン接続は別承認のDNS操作。公開サイトのCNAMEは変えない。購入OFFのまま。初期の管理閲覧を確認 |
+| 7 | 商品が未取込なら、既存4商品の読取照合→D1下書き/対応付けを管理APIから行う。継続2商品、終了2商品の区分を保持して商品/在庫表示を確認 | このD1登録も承認対象。既存Square ID/SKU/980円を維持。Square再作成/在庫上書きなし。Pagesへは反映しない |
+
+新管理Worker作成画面がDeployを要求する場合は、準備だけでは進めず承認を取る。自動ビルドが始まる設定操作も承認対象。管理Worker側のBuildsも初回後は停止し、以後のブランチpushで無断公開しない。
+
+変更対象は`production/release/`の非秘密設定/追加SQL、管理Worker・既存購入Workerの公開コード/設定、追加の管理D1テーブル、管理用ドメイン接続。変更しないものはmain、Pages設定と公開root、正規サイトDNS、Square商品/価格/在庫、既存D1 orders、DO namespace/class/Object名、既存Secret値。R2は既存本番bucketへbindingするが、初回閲覧確認ではオブジェクトを書き込まない。
+
+初回導入の切戻し: 両WorkerのBuildsを停止し、管理ドメイン接続を外してAccessは残す。購入Workerを`4ddbd925-2967-4d93-b553-ff4ea4d685a5`へ戻し、購入OFFを維持。Buildsの配信元はmainへ戻すが再有効化しない。追加管理テーブルは残し、Time Travel復元/DO初期化/Square巻戻しはしない。正規サイトDNS/main/Pagesは未変更なので戻す必要がない。
+
+## サイト全面切替：後続の別承認手順
 
 1. **自動反映を止める**: 購入Worker → Settings → BuildsでDisable builds=ON（Previewは既にOFFのまま）。main更新前に行う。GitHub Pagesにはこの停止は効かないため、上記の選別PRと旧画面保護が必須。新管理Workerもmain自動反映に任せず承認したコミットを明示的に公開する。
 2. **準備リソースと受付停止**: 上の本番専用R2・Access・管理Worker・変数/Secretを設定。購入Workerの`PRODUCTION_CHECKOUT_ENABLED=0`を維持し、旧checkoutへ停止表示を適用する。受付済み決済の状態照会/復旧は旧API originで維持し、未確定決済を再送しない。
@@ -87,8 +107,10 @@
 
 ## 判定
 
-既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、管理Workerの準備・本番への許可メール設定反映が未完了なので、最終配備設定はまだ生成・実行しない。上記不足を埋めた実設定/SQL/対象SHAを提示し、最終承認後にのみ実行する。
+既存126件のローカル検証とステージング実機結果を再利用する。今回変更した構成生成11件成功・失敗0（新規1件を含む）。管理UIのオフライン梱包も成功。本番の現在値に未確認があり、本番への許可メール設定・追加SQL・公開はまだ実行していない。配備用の非秘密設定/SQLは今回生成し、準備済みinstance UUIDを維持する。実行対象と影響を提示し、最終承認後にのみ実行する。
 
 2026-11-01追加検証: `dev/production-access-config.test.mjs` 10件＋設定生成11件、計21件成功・失敗0。確認済みTeam Domain/AUDを使い、ローカル生成RSA鍵・模擬メール/証明書でJWTを検証。正常JWT、不正Issuer/AUD/メール/有効期限/署名/alg、メールヘッダー偽装、署名が有効でもworkers.dev/Preview経由拒否を確認。外部通信なし。実メールのポリシー照合や本番環境変数への反映を実施したという意味ではない。
 
 2026-11-01既存Secret再利用: `PRODUCTION_MANAGEMENT_SQUARE_TOKEN`未登録をユーザー確認。サーバー側で既存`SQUARE_ACCESS_TOKEN`を利用し、専用Secretがある構成も維持。管理Worker/ブラウザへの転記なし。Production回帰・認証・設定生成・Secret非露出59件成功、続くメール未収集での設定生成1件も成功（同時に既存設定生成11件を再確認、計60種類）。模擬Squareで画像/商品同期/在庫/購入の回帰を確認し、401/403で再送せず停止。実トークン権限・本番Squareの受入は未実施。管理Worker設定にREPLACEはなく、許可メールだけDashboard設定必須。Asset梱包成功。main push/本番操作なし。
+
+2026-11-01 Build停止後準備: ユーザー確認のDisable builds=ONを反映。管理Worker先行は専用ブランチから導入し、main/Pages/正規サイトDNSを更新しない経路を確定。`production/release/`に非秘密のbootstrap/ready/admin設定、追加SQL、Console分割SQL、manifest、旧画面停止版を生成（全て未実行）。instance UUIDは既存の準備済みSQLと同じ値を維持。配備設定3種をオフラインでbundleし、Asset参照・追加SQLマーカー・DB/DO・購入OFF・初回Square書込みOFFを確認。認証/設定22件成功・失敗0。最初の検証コマンドはルートからesbuild依存を解決できず停止したが、dev側依存を正しく参照して再実行し成功（コード/本番の不具合ではない）。本番/外部通信なし。次は専用ブランチのみのpushとDraft PR準備の承認。

@@ -17,11 +17,11 @@
   "accessTeamDomain": "white-hill-a411.cloudflareaccess.com",
   "accessAudience": "83b65f5860ed7658d558dd620138208905240339a95e4ef9053fd2cddbfedd79",
   "accessProtectsAdmin": true,
-  "publicAccessNotRequired": false,
-  "workersBuildsDisabled": false,
+  "publicAccessNotRequired": true,
+  "workersBuildsDisabled": true,
   "previewBuildsDisabled": true,
   "pagesSourceConfirmed": "main/(root)",
-  "publicRoutingReviewed": false,
+  "publicRoutingReviewed": true,
   "timeTravelAvailable": true,
-  "buildControlsReviewed": false
+  "buildControlsReviewed": true
 }

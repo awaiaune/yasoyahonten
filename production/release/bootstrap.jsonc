@@ -1,0 +1,78 @@
+{
+  "name": "yasoya-honten-payments",
+  "main": "../storefront-worker.js",
+  "compatibility_date": "2026-08-04",
+  "workers_dev": true,
+  "vars": {
+    "SQUARE_ENVIRONMENT": "production",
+    "SQUARE_LOCATION_ID": "LQ693S4H2NBZ8",
+    "SQUARE_API_VERSION": "2026-07-15",
+    "ALLOWED_ORIGINS": "https://yasoyahonten.awaiaune.com",
+    "SITE_URL": "https://yasoyahonten.awaiaune.com",
+    "RUNTIME_TIER": "production",
+    "PRODUCTION_WORKER_NAME": "yasoya-honten-payments",
+    "PRODUCTION_PURCHASE_PROTOCOL": "durable-v1",
+    "PRODUCTION_CHECKOUT_ENABLED": "0",
+    "MANAGEMENT_ENABLED": "1",
+    "PRODUCTION_MANAGEMENT_SCHEMA_READY": "1",
+    "PRODUCTION_MANAGEMENT_READ_ENABLED": "1",
+    "PRODUCTION_MANAGEMENT_DRAFT_ENABLED": "1",
+    "PRODUCTION_MANAGEMENT_IMAGES_ENABLED": "1",
+    "PRODUCTION_MANAGEMENT_CATALOG_ENABLED": "0",
+    "PRODUCTION_MANAGEMENT_INVENTORY_ENABLED": "0",
+    "PRODUCTION_DATABASE_ID": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+    "PRODUCTION_INSTANCE_ID": "0f1d8c9f-ae1b-40ef-bb42-f0b790bcd5fa",
+    "PRODUCTION_UNIFIED_PUBLISH_ENABLED": "0",
+    "PRODUCTION_STOREFRONT_ENABLED": "0",
+    "PRODUCTION_STOREFRONT_PUBLISH_ENABLED": "1",
+    "PRODUCTION_MANAGED_CHECKOUT_ENABLED": "0",
+    "STOREFRONT_FEATURED_ENABLED": "1",
+    "STOREFRONT_RETIRE_GOLDENROD": "1",
+    "PRODUCTION_ADMIN_ORIGIN": "https://admin.awaiaune.com",
+    "PRODUCTION_ACCESS_TEAM_DOMAIN": "white-hill-a411.cloudflareaccess.com",
+    "PRODUCTION_ACCESS_AUDIENCE": "83b65f5860ed7658d558dd620138208905240339a95e4ef9053fd2cddbfedd79",
+    "SQUARE_PRODUCTION_APPLICATION_ID": "sq0idp-JYrGicMfKr-ILhZeLS9Xsw",
+    "MANAGEMENT_STOCK_WRITES": "disabled",
+    "PRODUCTION_CATALOG_CUTOVER_APPROVAL": "NOT_APPROVED",
+    "PRODUCTION_INVENTORY_WRITER_APPROVAL": "NOT_APPROVED",
+    "PRODUCTION_LEGACY_API_ORIGIN": "https://yasoya-honten-payments.tatsurou3523.workers.dev"
+  },
+  "d1_databases": [
+    {
+      "binding": "ORDERS_DB",
+      "database_name": "yasoya-orders",
+      "database_id": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+      "migrations_dir": "../../worker/migrations-production"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PURCHASE_COORDINATOR",
+        "class_name": "PurchaseCoordinator"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-purchase-coordinator",
+      "new_sqlite_classes": [
+        "PurchaseCoordinator"
+      ]
+    }
+  ],
+  "keep_vars": true,
+  "assets": {
+    "directory": "../.generated/v53",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "r2_buckets": [
+    {
+      "binding": "PRODUCT_IMAGES",
+      "bucket_name": "yasoya-honten-product-images"
+    }
+  ],
+  "account_id": "fcf37e462257810df77e8fbc0e7f4317",
+  "preview_urls": false
+}
