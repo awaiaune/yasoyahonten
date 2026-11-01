@@ -1,4 +1,4 @@
-# 最終切替手順（2026-11-01更新・未実行・承認待ち）
+# 最終切替手順（2026-11-02更新・Worker公開は承認待ち）
 
 本番準備ブランチ `production/v53-port-20261031`、基準 `1cc621d`。注文2件はテスト注文だが初回は残す。ordersの削除・初期化はしない。保護は切替直前のTime Travel時点記録＋追加型SQL。バックアップexportは任意であり、Codex認証の再試験は行わない。
 
@@ -9,7 +9,7 @@
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
 - Workers Builds: main連携、**Disable builds=ONをユーザー確認済み**。Preview Builds無効、Root=worker、現行Deploy=`npx wrangler deploy`。停止設定は維持する。
 - 購入Worker: yasoya-honten-payments、既存API origin=`https://yasoya-honten-payments.tatsurou3523.workers.dev`（ユーザー確認済み）。Custom Domains/Routesなし、Worker全体のAccessなし。新サイト切替後もこのAPI originを維持する。
-- D1実設定はユーザーがCloudflareで確認済み: `ORDERS_DB` → `yasoya-orders`、Database ID=`442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。本番準備設定と完全一致。orders存在・テスト注文2件・Time Travel利用可。DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。
+- D1実設定はユーザーがCloudflareで確認済み: `ORDERS_DB` → `yasoya-orders`、Database ID=`442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。本番準備設定と完全一致。orders存在・テスト注文2件・Time Travel利用可。2026-11-02にユーザーがb64726bの管理SQL適用を報告（関連15テーブル・明示索引2・識別MATCH・orders2件）。DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
 - ユーザー確認済みProduction Application ID: `sq0idp-JYrGicMfKr-ILhZeLS9Xsw`。Locationは上記の本番ID。
 - ユーザー提示の既存Worker完全Version ID（切戻し候補）: `4ddbd925-2967-4d93-b553-ff4ea4d685a5`。切替直前に別Versionへ変わっていれば記録を更新する。
@@ -185,3 +185,23 @@
 実行前後の確認はSQLの定義・件数・識別結果だけで、顧客情報や注文内容は表示しない。本番SQL Console/Time Travelには今回アクセスしていないため、直前確認結果・復元時点は未確認。適用は引き続き承認待ち。
 
 D1最終検証: ローカルD1エミュレーターで38件成功・失敗0。18文の0〜18文完了後の19位置からの再開、全体再実行、既存orders全値保持、管理データ/在庫スナップショット/ロック保持、異なるmarkerの上書き拒否、不一致schemaの検出を確認。適用前後のSQLは各1つのSELECTにまとめ、D1のcompound SELECT制限に抵触しない構成で検証済み。schema照合はSQLiteが除去するCREATE先頭のIF NOT EXISTS以外は厳密比較し、文字列内の空白/大文字小文字も保護する。表記だけが違う場合もMISMATCHで止め、無条件に修正しない。本番実行なし。
+
+## D1適用後とbootstrap前の最新手順（2026-11-02）
+
+ユーザーが本番yasoya-ordersへb64726b相当の01〜18.sqlを適用済みと報告。管理関連15テーブル（mg_*14＋production_environment）・明示索引2・environment=MATCH・orders2件で変更なし。これはユーザーのConsole確認結果であり、Codexによる実DB照会ではない。**追加SQLは再適用しない。テーブルの再作成・初期化もしない。**
+
+スマホで改行/インデントを調整したため、旧after.sqlのDDL文字列完全一致は最終判定に使わない。代わりに`production/release/checks/semantic.sql`を本番D1 Consoleで1回実行する。全体が読取のみの1つのSELECTで、顧客データは出さない。
+
+- pragma_table_xinfoで列数・列順・名前・型・NOT NULL・既定値・主キー順・隠し列を確認。
+- pragma_index_list/index_xinfoで全PK/UNIQUE制約、索引の列順・一意性・照合順序・降順・部分索引を確認。明示索引2件も個別表示する。
+- CHECKは引用文字列内の空白/文字の大文字小文字を保存し、引用外の改行・空白・SQLキーワードの大文字小文字だけを除いて照合。任意の式の同値性まで判断する方式ではなく、元のCHECKと同じ条件が書式変更されただけであることを確認する。
+- 外部キー・トリガー・想定外の衝突ポリシー/照合設定等を拒否。環境markerも従来通り検証し、ordersは件数のみ表示する。
+- 合格はtable:*15行・index:*2行・environment1行が全てMATCH、orders_countが2、unexpected行が0。19行の小さい結果表になる。不一致なら詳細の種別を元に調査し、SQL再適用や列変更で無条件に解消しない。
+
+この19行の実DB結果は未取得。本番の構造検証完了とはまだ扱わない。今回Cloudflareへの接続再試行は行っていない。
+
+bootstrapは`production/release/bootstrap.jsonc`を使用し、main/Pages/DNSは変更しない。API専用入口・サイトAssetsなし。D1/DO/R2は確認済みの既存対象、購入受付0、Catalog0、Inventory0、stock writes disabled、keep_vars=true、既存SQUARE_ACCESS_TOKENを購入Worker内で管理読取にも再利用する。Access Team Domain/AUDを維持し、PRODUCTION_ADMIN_EMAILは確認済みポリシーと同値をDashboardへ設定する（実メールのチャット再提示は不要）。旧API originは維持。Rollback先は4ddbd925-2967-4d93-b553-ff4ea4d685a5。SQL適用済みテーブルは切戻し時も残す。
+
+構造チェック合格後に行うWorker側の最初の設定操作は、Disable builds=ONのままBuildsのProduction branchをproduction/v53-port-20261031へ変更すること。Root=worker、Build command空欄、Deploy command=npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsoncを設定し、Build起動/Deployは別承認まで実行しない。この設定変更も今回は未実行。
+
+検証はSQLiteへのschema再現とread-only query_only=ONでの構造検証、署名付き模擬JWT、bootstrapのオフラインbundleで25件成功・失敗0。手入力相当の改行/インデント/キーワード大小文字を許容し、型/NOT NULL/既定値/主キー/SKU一意性/CHECK/索引/トリガー/markerの相違を検出、照会前後で既存行不変を確認。ローカルD1エミュレーターは今回起動待ちでタイムアウトし、この確認SQLを実D1互換実行できたとは主張しない。試行プロセスは停止済み。Worker公開・main更新・D1追加適用・DNS/Square変更なし。

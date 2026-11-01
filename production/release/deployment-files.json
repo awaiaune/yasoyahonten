@@ -89,7 +89,12 @@
       ],
       "sql": "production/release/additive.sql",
       "consoleSql": "production/release/console/all.sql",
-      "ordersMutation": false
+      "ordersMutation": false,
+      "reportedApplied": true,
+      "reportedSqlVersion": "b64726b",
+      "reapply": false,
+      "structuralVerification": "PENDING_CONSOLE_READONLY_RESULT",
+      "verificationSql": "production/release/checks/semantic.sql"
     },
     "publicSite": {
       "deferred": true,
