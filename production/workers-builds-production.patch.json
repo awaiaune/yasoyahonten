@@ -1,0 +1,7 @@
+{
+  "production_settings": {
+    "root_directory": "worker",
+    "build_command": "",
+    "deploy_command": "npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsonc"
+  }
+}

@@ -7,7 +7,7 @@
 - Cloudflare Account ID: `fcf37e462257810df77e8fbc0e7f4317`（ユーザーがDashboardで確認した値。CodexからのAPI照合は未実施）。
 - GitHub Pages: main/root、独自ドメイン yasoyahonten.awaiaune.com。
 - DNS: 同ホストは `CNAME awaiaune.github.io`、DNS only。現時点はGitHub Pages配信。
-- Workers Builds: main連携、**Disable builds=ONをユーザー確認済み**。Preview Builds無効、Root=worker、現行Deploy=`npx wrangler deploy`。停止設定は維持する。
+- Workers Builds: Production branch=`production/v53-port-20261031`へ変更済み（2026-11-02ユーザー確認）、**Disable builds=ONを維持**。Preview Builds無効、Root=worker、現行Deploy=`npx wrangler deploy`。停止設定は維持する。
 - 購入Worker: yasoya-honten-payments、既存API origin=`https://yasoya-honten-payments.tatsurou3523.workers.dev`（ユーザー確認済み）。Custom Domains/Routesなし、Worker全体のAccessなし。新サイト切替後もこのAPI originを維持する。
 - D1実設定はユーザーがCloudflareで確認済み: `ORDERS_DB` → `yasoya-orders`、Database ID=`442fa9fd-25d3-4c01-bcc3-04be7b420cf5`。本番準備設定と完全一致。orders存在・テスト注文2件・Time Travel利用可。2026-11-02にユーザーがb64726bの管理SQL適用を報告（関連15テーブル・明示索引2・識別MATCH・orders2件）。DO binding PURCHASE_COORDINATOR → PurchaseCoordinator。
 - RUNTIME_TIER/SQUARE_ENVIRONMENT=production、Location=LQ693S4H2NBZ8、API version=2026-07-15、SITE_URL=https://yasoyahonten.awaiaune.com。
@@ -211,3 +211,17 @@ bootstrapは`production/release/bootstrap.jsonc`を使用し、main/Pages/DNSは
 長いsemantic.sqlは変更せず、同じ判定を保つ独立した12本を`production/release/checks/semantic-parts/`に生成。実行順と期待結果は同ディレクトリREADME.md。01〜03は列/型/NOT NULL/既定値/主キー/隠し列（5表ずつ）、04〜06は一意制約/索引（5表ずつ）、07はCHECK、08は追加制約、09は明示索引2個、10はenvironment、11はorders_count、12は想定外オブジェクト。各SQLは単独の読取SELECTで、事前のSQL実行による状態を必要としない。最大約2.2KB。12は0行、それ以外は指定行数のMATCH（11は2）が正常。
 
 列比較は元SQLと同じ7項目をPRAGMAの列順付きJSON配列で照合し、その他の検査条件は元SQL生成結果から再利用。SQLite query_only=ONで12本をそれぞれ別DBで実行、照会前後の全行不変を確認。正常・手入力書式・型/列順/必須/既定値/主キー/一意性/CHECK/索引順・降順・部分索引/外部キー/トリガー/識別不一致/不足・想定外の表/索引など22パターンで、元SQLの19行へ組み戻した判定が一致。元検査の回帰と合わせ37件成功・失敗0。本番実結果は引き続き未取得、追加SQL18文は適用済みなので再適用しない。Worker/main/DNS/Square変更なし。
+
+## Workers Builds本番設定API（2026-11-02・手順のみ）
+
+ユーザーが購入WorkerのProduction branchを専用ブランチへ変更済みと報告。Disable builds=ON。DashboardのProductionタブにコマンド欄がなくても、Previews Baseの値を本番設定として代用しない。
+
+Cloudflare公式OpenAPI https://github.com/cloudflare/api-schemas/blob/main/openapi.yaml で確認したAPIは `GET /accounts/{account_id}/builds/workers/{script_tag}`。result.production_settingsが本番、result.previews_base_configはPreview。script_tagはWorker名やVersion IDではなく、不変の内部ID。`GET /accounts/{account_id}/workers/scripts`でid=yasoya-honten-paymentsのtagを選ぶ。必要権限は前者Workers CI Read、タグ取得はWorkers Scripts Read。変更はWorkers CI Write。対象アカウントはfcf37e462257810df77e8fbc0e7f4317に限定する。
+
+安全な読み取り手順は、ユーザー管理のCodespaces等の対話端末で `python3 production/read-builds-settings.py` を実行する。既存のCloudflare APIトークンをgetpassで非表示入力。コード/環境ファイル/コマンド引数へ埋め込まない。スクリプトは2つのGET以外のパスを許可せず、リダイレクトを追わない。生レスポンス・環境変数・ヘッダー・未知のコマンド文字列は出さず、確認済み目標との一致判定だけ表示する。Codexの既存Secretプロキシで同じ認証テストを繰り返さない。
+
+別承認後の設定更新は同じURLへのPATCH。本文はproduction/workers-builds-production.patch.jsonに限定し、production_settingsのroot_directory=worker、build_command空文字、deploy_command=npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsoncの3つだけを指定する。git_repository、previews_base_config、previews_enabled、build_token_uuid、environment_variablesを送らない。全体PUTやGETレスポンスの丸ごと再送はしない。前後のGETで一致を確認し、Preview/branchの不変も確認する。
+
+公式WorkerResponse/UpdateWorkerRequestにはDisable buildsに相当するフラグが定義されていない。GETで停止維持を証明できるとは扱わず、PATCH前後にDashboardのONを確認する。推測のenabled/builds_disabledフィールドは追加しない。手動Buildは別のPOST /builds/triggers/{trigger_uuid}/buildsであり、今回これを呼ばない。設定PATCHの副作用を実環境で試したものではなく、現在はGET/PATCHとも本番へ未送信。変更の承認はまだ得ていない。
+
+公式スキーマの参照だけを行い、本番APIは再試行していない。ローカル8テスト成功（GET限定/認証方式/入力非表示/出力非露出/Preview非代用/識別不一致拒否/redirect拒否/部分PATCH範囲）。デプロイ・Build起動・D1/DNS/Square変更なし。
