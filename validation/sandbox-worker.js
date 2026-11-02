@@ -12,6 +12,8 @@ export function guardBusinessServices(env, services) {
             return action(...args);
         };
     }
+    if (services.mail) guarded.mail = Object.fromEntries(Object.entries(services.mail).map(([name, action]) =>
+        [name, async (...args) => { await assertDatabase(env); return action(...args); }]));
     return guarded;
 }
 export class SandboxPurchaseCoordinator extends PurchaseCoordinator {

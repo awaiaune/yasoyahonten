@@ -284,6 +284,9 @@ test('every coordinator business service checks the current marker before effect
     const services=Object.fromEntries(names.map(name=>[name,async()=>{events.push(name);return name;}]));
     const guarded=guardBusinessServices(env,services);
     for(const name of names){events.length=0;assert.equal(await guarded[name](),name);assert.deepEqual(events,['marker-select',name]);}
+    services.mail={send:async()=>{events.push('mail-send');}};
+    const mail=guardBusinessServices(env,services).mail;events.length=0;await mail.send();assert.deepEqual(events,['marker-select','mail-send']);
+    mode='wrong';events.length=0;await assert.rejects(mail.send());assert.deepEqual(events,['marker-select']);
     for(mode of ['missing','wrong','error'])for(const name of names){events.length=0;await assert.rejects(guarded[name]());assert.deepEqual(events,['marker-select']);}
 });
 test('running and restarted validation DOs gate fetch and Alarm before ledger or storage work',async()=>{
@@ -291,10 +294,10 @@ test('running and restarted validation DOs gate fetch and Alarm before ledger or
     env.ORDERS_DB={prepare(sql){assert.match(sql,/^SELECT instance_id/);events.push('marker-select');return {first:async()=>({instance_id:valid?manifest().instanceId:'wrong'})};}};
     const ctx={storage:new Proxy({}, {get(){throw new Error('No durable storage operation allowed in gate test');}}),blockConcurrencyWhile:fn=>(init=fn())};
     const coordinator=new SandboxPurchaseCoordinator(ctx,env);await init;
-    for(const method of ['submit','recover','warnings','alarm'])coordinator.ledger[method]=async()=>{events.push(method);return method==='warnings'?[]:{ok:true};};
+    for(const method of ['submit','recover','warnings','alarm','mailAlarm'])coordinator.ledger[method]=async()=>{events.push(method);return method==='warnings'?[]:{ok:true};};
     const request=path=>new Request('https://do.internal/'+path,{method:'POST',body:JSON.stringify({attemptId:crypto.randomUUID()})});
     for(const path of ['pay','status','recover','warnings']){events.length=0;assert.equal((await coordinator.fetch(request(path))).status,200);assert.equal(events[0],'marker-select');assert.equal(events.length,2);}
-    events.length=0;await coordinator.alarm();assert.deepEqual(events,['marker-select','alarm']);
+    events.length=0;await coordinator.alarm();assert.deepEqual(events,['marker-select','alarm','mailAlarm']);
     valid=false;
     for(const path of ['pay','status','recover','warnings']){events.length=0;await assert.rejects(coordinator.fetch(request(path)));assert.deepEqual(events,['marker-select']);}
     events.length=0;await assert.rejects(coordinator.alarm());assert.deepEqual(events,['marker-select']);

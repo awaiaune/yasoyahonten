@@ -1,3 +1,4 @@
+import {OrderMailOutbox} from './order-mail-outbox.js';
 // DO is the durable purchase journal; D1 remains a retryable projection.
 const RETRY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 8;
@@ -5,7 +6,13 @@ export class PurchaseError extends Error {
     constructor(status, message) { super(message); this.status = status; }
 }
 export class PurchaseLedger {
-    constructor(storage, services) { this.storage = storage; this.services = services; }
+    constructor(storage, services) {
+        this.storage = storage; this.services = services;
+        if (services.mail) this.mail = new OrderMailOutbox(storage, {
+            prepare: record => this.services.mail.prepare(record),
+            send: task => this.services.mail.send(task)
+        }, () => this.now());
+    }
     now() { return this.services.now?.() ?? Date.now(); }
     key(id) { return `attempt:${id}`; }
     read(id) { return this.storage.get(this.key(id)); }
@@ -33,6 +40,16 @@ export class PurchaseLedger {
             for (const [, r] of await this.entries('attempt:')) await this.write(r);
             await this.storage.put('sku-index-v2', true);
         }
+        if (this.mail && !(await this.storage.get('order-mail-index-v1'))) {
+            try {
+                await this.arm(this.now() + 60_000);
+                let complete = true;
+                for (const [, r] of await this.entries('attempt:')) {
+                    try { await this.mail.ensure(r); } catch { complete = false; }
+                }
+                if (complete) await this.storage.put('order-mail-index-v1', true);
+            } catch { /* Keep the additive upgrade pending, without blocking payment recovery. */ }
+        }
         this.initialized = true;
     }
     scheduled(r) {
@@ -40,6 +57,9 @@ export class PurchaseLedger {
             r.phase === 'paid' && r.projection !== 'stored' && (r.projectionAttempts || 0) < MAX_RECOVERY_ATTEMPTS);
     }
     async write(r) {
+        if (this.mail && r.phase === 'paid' && r.projection === 'stored') {
+            try { await this.arm(this.now() + 60_000); } catch { /* mail-create is saved below for a later retry */ }
+        }
         const holds = await this.storage.get('sku-holds') || {};
         for (const [sku, ids] of Object.entries(holds)) {
             holds[sku] = ids.filter(id => id !== r.id);
@@ -49,7 +69,8 @@ export class PurchaseLedger {
         r.updatedAt = new Date(this.now()).toISOString();
         r.nextDue ??= this.now() + 30_000;
         // Single atomic storage.put: journal, locks and recovery index agree even after a crash.
-        await this.storage.put({ [this.key(r.id)]: r, 'sku-holds': holds, [`pending:${r.id}`]: !this.closed(r) });
+        await this.storage.put({ [this.key(r.id)]: r, 'sku-holds': holds, [`pending:${r.id}`]: !this.closed(r),
+            ...(this.mail && r.phase === 'paid' && r.projection === 'stored' ? {[`mail-create:${r.id}`]:true} : {}) });
         if (this.scheduled(r)) await this.arm(r.nextDue);
     }
     async submit(body) {
@@ -100,7 +121,7 @@ export class PurchaseLedger {
         await this.initialize();
         const r = await this.read(id);
         if (!r) throw new PurchaseError(404, '注文処理はまだ開始されていません。');
-        if (this.closed(r)) return this.summary(r);
+        if (this.closed(r)) { await this.recoverMail(r); return this.summary(r); }
         if (!force && r.nextDue > this.now()) return this.summary(r);
         if (r.manual) {
             // An authenticated operator can request another read-only payment
@@ -125,6 +146,7 @@ export class PurchaseLedger {
                 try { await this.services.project(r); r.projection = 'stored'; } catch { r.projection = 'retry_required'; }
                 r.nextDue = this.now() + 60_000; await this.write(r);
             }
+            await this.recoverMail(r);
             await this.notify(r); return this.summary(r);
         }
         if (r.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) return this.manual(r, 'manual_review_required');
@@ -164,12 +186,33 @@ export class PurchaseLedger {
         try { await this.services.project(r); r.projection = 'stored'; }
         catch { r.projection = 'retry_required'; if (!r.manual) r.warning = 'order_projection_required'; }
         await this.write(r); // releases only this order's locks once inventory is confirmed
-        if (r.projection === 'stored' && !r.emailAttempted) {
-            r.emailAttempted = true; await this.write(r);
-            r.emailQueued = Boolean(await this.services.email(r)); await this.write(r);
-        }
+        await this.recoverMail(r);
         if (r.manual) await this.notify(r);
         return this.summary(r);
+    }
+    async recoverMail(r) {
+        if (!this.mail) return;
+        // Email outages/storage failures never turn a confirmed purchase into a
+        // failed charge response. The preinstalled Alarm retries the outbox.
+        try { await this.mail.ensure(r); await this.mail.process(r.id); }
+        catch { try { await this.arm(this.now() + 60_000); } catch { /* durable mail-create remains pending */ } }
+    }
+    async mailStatus(orderReference) {
+        await this.initialize();
+        return this.mail ? this.mail.status(orderReference) : {admin:{state:'unrecorded'},customer:{state:'unrecorded'}};
+    }
+    async mailAlarm() {
+        if (!this.mail) return;
+        await this.initialize();
+        // Repair a crash between order projection and outbox creation, including
+        // records written after the one-time legacy migration marker.
+        for (const [key, pending] of await this.entries('mail-create:')) {
+            if (pending) {
+                try { const r = await this.read(key.slice(12)); if (r) await this.mail.ensure(r); }
+                catch { await this.arm(this.now() + 60_000); }
+            }
+        }
+        await this.mail.alarm();
     }
     async manual(r, warning) {
         r.manual = true; r.warning = warning; await this.write(r); await this.notify(r); return this.summary(r);
