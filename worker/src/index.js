@@ -174,6 +174,15 @@ export default {
                     const status = url.searchParams.get("status") || "pending";
                     return corsJson({ orders: await listOrders(env, status) }, 200, origin, allowedOrigins);
                 }
+                if (request.method === "GET" && /^\/api\/admin\/orders\/[^/]+\/mail-status$/.test(url.pathname)) {
+                    const orderReference = decodeURIComponent(url.pathname.split('/')[4]);
+                    if (!await getOrder(env, orderReference)) throw new HttpError(404, "注文が見つかりません。");
+                    const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
+                    const response = await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/mail-status', {
+                        method:'POST', body:JSON.stringify({orderReference})
+                    });
+                    return corsJson(await response.json(), response.status, origin, allowedOrigins);
+                }
                 if (request.method === "GET" && url.pathname.startsWith("/api/admin/orders/")) {
                     const ref = decodeURIComponent(url.pathname.split("/").pop());
                     const order = await getOrder(env, ref);
@@ -638,7 +647,8 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
     return result.payment;
 }
 
-async function sendOrderEmails({ env, payment, quote, contact, orderReference }) {
+function buildOrderMessages({ env, payment, quote, contact, orderReference }) {
+    if (!env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL || !contact.email) throw new Error("Mail configuration required");
     const adminEmail = env.ORDER_NOTIFICATION_EMAIL || "yasoyahonten@gmail.com";
     const replyTo = env.REPLY_TO_EMAIL || adminEmail;
     const siteUrl = env.SITE_URL || "https://yasoyahonten.awaiaune.com";
@@ -656,36 +666,30 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
     const adminMail = buildAdminEmail(common);
     const customerMail = buildCustomerEmail(common);
 
-    const results = await Promise.allSettled([
-        sendResendEmail(env, {
+    return {
+        admin: {key: `admin-${payment.id}`, body: JSON.stringify({
             from: env.RESEND_FROM_EMAIL,
             to: [adminEmail],
             reply_to: contact.email,
             subject: `【八草屋本店】新しいご注文 ${orderReference}`,
             html: adminMail.html,
             text: adminMail.text
-        }, `admin-${payment.id}`),
-
-        sendResendEmail(env, {
+        })},
+        customer: {key: `customer-${payment.id}`, body: JSON.stringify({
             from: env.RESEND_FROM_EMAIL,
             to: [contact.email],
             reply_to: replyTo,
             subject: `ご注文ありがとうございます｜八草屋本店 ${orderReference}`,
             html: customerMail.html,
             text: customerMail.text
-        }, `customer-${payment.id}`)
-    ]);
-
-    for (const result of results) {
-        if (result.status === "rejected") {
-            console.error("Resend delivery failed:", result.reason);
-        }
-    }
+        })}
+    };
 }
 
-async function sendResendEmail(env, payload, idempotencyKey) {
+async function sendResendEmail(env, payload, idempotencyKey, frozenBody) {
     assertMail(env);
     assertTestEmail(env, payload);
+    if (!resendKey(env)) throw Object.assign(new Error('Mail credential is not configured'), {code:'resend_not_configured'});
     const transport = env.LOCAL_RESEND ? (url, options) => {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
         return env.LOCAL_RESEND.fetch(url, options);
@@ -698,17 +702,17 @@ async function sendResendEmail(env, payload, idempotencyKey) {
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey.slice(0, 256)
         },
-        body: JSON.stringify(payload)
+        body: frozenBody ?? JSON.stringify(payload)
     });
 
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(
-            result?.message ||
-            result?.error?.message ||
-            `Resend error (${response.status})`
-        );
+        const code = response.status === 429 ? 'resend_rate_limited' : response.status >= 500 ? 'resend_unavailable'
+            : response.status === 409 ? 'resend_key_conflict' : 'resend_request_rejected';
+        const concurrent = response.status === 409 && result?.name === 'concurrent_idempotent_requests';
+        throw Object.assign(new Error('Email acceptance not confirmed'), {code:concurrent?'resend_unavailable':code,
+            permanent:response.status >= 400 && response.status < 500 && response.status !== 429 && !concurrent});
     }
 
     return result;
@@ -1147,13 +1151,9 @@ export class PurchaseCoordinator {
             lookup: record => lookupSquarePayment(env, record),
             decrement: async record => { if(externalPolicy(env).managementOnly)assertCheckout(env);return decrementSquareInventory({ env, ...record, paymentId: record.payment.id }); },
             project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
-            email: async record => {
-                if(externalPolicy(env).managementOnly)assertMail(env);
-                if (resendKey(env) && env.RESEND_FROM_EMAIL) {
-                    this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
-                    return true;
-                }
-                return false;
+            mail: {
+                prepare: record => buildOrderMessages({env, ...record}),
+                send: task => sendResendEmail(env, JSON.parse(task.body), task.key, task.body)
             }
         });
     }
@@ -1199,6 +1199,10 @@ export class PurchaseCoordinator {
                     const catalog=catalogFor(this.env),ids=[...new Set(body.ids)];if(!ids.every(id=>catalog[id]))throw new ManagementError(400,'商品がありません。');
                     const rows=await manager.inventory();return Response.json({inventory:ids.map(id=>{const r=rows.find(r=>r.id===id);return {id,name:catalog[id].name,availableQuantity:catalog[id].active&&!r?.held?(r?.quantity||0):0};})});
                 }
+                if (path === '/mail-status') {
+                    const ref = requireString(body.orderReference, '注文番号が必要です。', 100);
+                    return Response.json({mail:await this.ledger.mailStatus(ref)});
+                }
                 if (path === "/warnings") result = { attempts: await this.ledger.warnings() };
                 else if (path === "/status" || path === "/recover") {
                     body.attemptId = validateAttemptId(body.attemptId);
@@ -1209,9 +1213,9 @@ export class PurchaseCoordinator {
                 const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 503;
                 return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError || error instanceof ManagementError)?error.code:undefined,stage:error instanceof ManagementError?error.actionStage:undefined,message: status === 503 && !(error instanceof ManagementError&&error.actionStage) && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-        },{catalog:!['/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
+        },{catalog:!['/mail-status','/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
     }
-    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEffects(this.env))await this.management().recover();} },{catalog:false}); }
+    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{try{await this.ledger.mailAlarm();}finally{if(managementEffects(this.env))await this.management().recover();}} },{catalog:false}); }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

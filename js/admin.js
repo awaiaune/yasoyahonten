@@ -121,11 +121,25 @@
     } catch (error) { if (generation === orderGeneration) { $('orders').replaceChildren(); message('status',error.message,'error'); } }
     finally { if (generation === orderGeneration) $('orders').setAttribute('aria-busy','false'); }
   }
+  async function showOrderMail(ref, target) {
+    const labels={accepted:'受付済み（配信完了は未確認）',delivered:'配信完了',pending:'送信待ち',unknown:'受付結果を確認中',manual_review:'管理者確認待ち',unrecorded:'旧注文・送信記録なし'};
+    const reasons={legacy_delivery_unknown:'旧方式の送信結果が不明なため、自動再送しません。',idempotency_window_expired:'安全な再試行期限を超えました。Resendで注文番号を確認し、新しいキーで再送しないでください。',mail_configuration_required:'送信元・通知先の設定確認が必要です。',resend_request_rejected:'Resendの認証・送信元設定を確認してください。',resend_key_conflict:'同一キーの送信内容に相違があります。Resendで確認してください。',resend_not_configured:'ResendのSecret設定を確認してください。'};
+    try {
+      const {mail}=await data('/api/admin/orders/'+encodeURIComponent(ref)+'/mail-status');
+      if (target!==document.getElementById('orderMailStatus')) return;
+      target.innerHTML=['admin','customer'].map(kind=>{const t=mail[kind]||{state:'unrecorded'};return `<p><strong>${kind==='admin'?'管理者宛':'購入者宛'}</strong>：${esc(labels[t.state]||'確認が必要です')}<br><small>${esc(reasons[t.reason]||(['pending','unknown'].includes(t.state)?'購入受付OFFでも同じキーと本文で自動確認します。':'メールのために再決済する必要はありません。'))}</small></p>`;}).join('');
+    } catch { if(target===document.getElementById('orderMailStatus'))target.textContent='メール状態を取得できません。注文を開き直してください。再決済は不要です。'; }
+  }
   async function openOrder(ref) {
     try {
       const {order:o} = await data('/api/admin/orders/' + encodeURIComponent(ref)); const c = o.contact;
       const address = `〒${esc(c.postalCode)}<br>${esc(c.state)}${esc(c.city)}${(c.addressLines || []).map(esc).join(' ')} `;
       $('detailBody').innerHTML = `<p class="ref">${esc(o.order_reference)}</p><div class="section-heading"><h3>${esc(c.familyName)} ${esc(c.givenName)} 様</h3>${badge(o.status)}</div><p class="hint">${date(o.created_at)}</p><div class="section"><h3>ご注文の商品</h3>${o.items.map(i => `<div class="detail-item"><span>${esc(i.name)} × ${i.quantity}</span><strong>${money(i.lineTotal)}</strong></div>`).join('')}<div class="detail-item"><span>送料</span><span>${money(o.shipping)}</span></div><div class="detail-total"><span>合計</span><span>${money(o.total)}</span></div></div><div class="section"><h3>お届け先</h3><p class="address">${address}<br>電話：${esc(c.phone)}<br>メール：${esc(c.email)}</p></div>${o.status === 'pending' ? `<div class="section"><h3>発送する</h3><label>発送方法<select id="method"><option>ゆうパケット</option><option>クリックポスト</option><option>レターパック</option><option>ゆうパック</option><option>普通郵便</option><option>その他</option></select></label><label>追跡番号（任意）<input id="tracking" inputmode="numeric" maxlength="100" placeholder="追跡がある場合のみ"></label><p class="notice">${local ? 'ローカル確認：実際のメール送信や発送は行いません。' : '発送済みに変更し、お客様へ発送完了メールを送信します。'}</p><button id="ship" class="primary wide">発送を確定する</button><p id="shipMsg" class="message" role="status" aria-live="polite"></p></div>` : `<div class="section sent"><strong>発送済み</strong><p>発送方法：${esc(o.shipping_method || '未登録')}<br>追跡番号：${esc(o.tracking_number || 'なし')}<br>発送処理：${date(o.shipped_at)}</p></div>`}`;
+      const mailSection=document.createElement('section');mailSection.className='section';
+      const mailTitle=document.createElement('h3');mailTitle.textContent='注文メール';
+      const mailStatus=document.createElement('div');mailStatus.id='orderMailStatus';mailStatus.setAttribute('role','status');mailStatus.textContent='メール状態を確認しています…';
+      mailSection.append(mailTitle,mailStatus);$('detailBody').append(mailSection);
+      void showOrderMail(ref,mailStatus);
       if (!$('detail').open) $('detail').showModal();
       if (o.status === 'pending') $('ship').onclick = () => ship(o.order_reference);
     } catch (error) { notify(error.message,'error'); }
