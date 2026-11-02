@@ -205,3 +205,9 @@ bootstrapは`production/release/bootstrap.jsonc`を使用し、main/Pages/DNSは
 構造チェック合格後に行うWorker側の最初の設定操作は、Disable builds=ONのままBuildsのProduction branchをproduction/v53-port-20261031へ変更すること。Root=worker、Build command空欄、Deploy command=npx wrangler@4.155.0 deploy --config ../production/release/bootstrap.jsoncを設定し、Build起動/Deployは別承認まで実行しない。この設定変更も今回は未実行。
 
 検証はSQLiteへのschema再現とread-only query_only=ONでの構造検証、署名付き模擬JWT、bootstrapのオフラインbundleで25件成功・失敗0。手入力相当の改行/インデント/キーワード大小文字を許容し、型/NOT NULL/既定値/主キー/SKU一意性/CHECK/索引/トリガー/markerの相違を検出、照会前後で既存行不変を確認。ローカルD1エミュレーターは今回起動待ちでタイムアウトし、この確認SQLを実D1互換実行できたとは主張しない。試行プロセスは停止済み。Worker公開・main更新・D1追加適用・DNS/Square変更なし。
+
+## スマホ用の構造確認SQL分割（2026-11-02）
+
+長いsemantic.sqlは変更せず、同じ判定を保つ独立した12本を`production/release/checks/semantic-parts/`に生成。実行順と期待結果は同ディレクトリREADME.md。01〜03は列/型/NOT NULL/既定値/主キー/隠し列（5表ずつ）、04〜06は一意制約/索引（5表ずつ）、07はCHECK、08は追加制約、09は明示索引2個、10はenvironment、11はorders_count、12は想定外オブジェクト。各SQLは単独の読取SELECTで、事前のSQL実行による状態を必要としない。最大約2.2KB。12は0行、それ以外は指定行数のMATCH（11は2）が正常。
+
+列比較は元SQLと同じ7項目をPRAGMAの列順付きJSON配列で照合し、その他の検査条件は元SQL生成結果から再利用。SQLite query_only=ONで12本をそれぞれ別DBで実行、照会前後の全行不変を確認。正常・手入力書式・型/列順/必須/既定値/主キー/一意性/CHECK/索引順・降順・部分索引/外部キー/トリガー/識別不一致/不足・想定外の表/索引など22パターンで、元SQLの19行へ組み戻した判定が一致。元検査の回帰と合わせ37件成功・失敗0。本番実結果は引き続き未取得、追加SQL18文は適用済みなので再適用しない。Worker/main/DNS/Square変更なし。

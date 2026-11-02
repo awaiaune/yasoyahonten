@@ -23,10 +23,11 @@ function checkExpressions(sql){
  while((at=s.indexOf('check(',at))!==-1){let depth=0,quote='',end=at+5;for(;end<s.length;end++){const c=s[end];if(quote){if(c===quote)quote='';continue;}if(c==="'"){quote=c;continue;}if(c==='(')depth++;if(c===')'&&--depth===0){end++;break;}}result.push(s.slice(at,end));at=end;}
  return result;
 }
+const q=v=>v===null?'NULL':typeof v==='number'?String(v):"'"+String(v).replaceAll("'","''")+"'";
+const values=rows=>rows.map(r=>'('+r.map(q).join(',')+')').join(',\n');
+async function reference(instanceId){return JSON.parse(execFileSync('python3',['-c',metadata],{input:await migrationBundle(instanceId),encoding:'utf8',timeout:10000,maxBuffer:1024*1024}));}
 export async function semanticSql(instanceId){
- const ref=JSON.parse(execFileSync('python3',['-c',metadata],{input:await migrationBundle(instanceId),encoding:'utf8',timeout:10000,maxBuffer:1024*1024}));
- const q=v=>v===null?'NULL':typeof v==='number'?String(v):"'"+String(v).replaceAll("'","''")+"'";
- const values=rows=>rows.map(r=>'('+r.map(q).join(',')+')').join(',\n');
+ const ref=await reference(instanceId);
  const tables=ref.tables.map(t=>[t.name,t.columns.length,t.indexes.length,checkExpressions(t.sql).length]);
  const columns=ref.tables.flatMap(t=>t.columns.map(c=>[t.name,c.cid,c.name,c.type.toUpperCase(),c.notnull,c.dflt_value,c.pk,c.hidden]));
  const indexes=ref.tables.flatMap(t=>t.indexes.map(i=>[t.name,...i]));
@@ -83,4 +84,49 @@ UNION ALL SELECT 'orders_count',CAST(COUNT(*) AS TEXT) FROM orders
 UNION ALL SELECT 'unexpected:'||name,type FROM sqlite_schema WHERE (name GLOB 'mg_*' OR name='production_environment') AND name NOT IN (SELECT name FROM expected_tables) AND name NOT IN ('mg_jobs_due','mg_notification_due')
 ORDER BY check_name;
 `;
+}
+
+// Each part contains its own CTEs and is a single independent read-only statement.
+// Reuse the original predicates instead of weakening or reimplementing the checks.
+export async function semanticSplitSql(instanceId){
+ const full=await semanticSql(instanceId),ref=await reference(instanceId),parts=[];
+ const between=(start,end)=>{const a=full.indexOf(start),b=full.indexOf(end,a+start.length);if(a<0||b<0)throw Error('Semantic SQL layout changed');return full.slice(a,b).trim();};
+ const cte=(name,rows)=>name+' AS (VALUES\n'+values(rows)+')';
+ const tables=items=>cte('expected_tables(name,columns_count,indexes_count,checks_count)',items.map(t=>[t.name,t.columns.length,t.indexes.length,checkExpressions(t.sql).length]));
+ const indexes=items=>cte('expected_indexes(table_name,index_name,is_unique,origin,partial,keys)',items.flatMap(t=>t.indexes.map(i=>[t.name,...i])));
+ const checkRows=cte('expected_checks(table_name,expression)',ref.tables.flatMap(t=>checkExpressions(t.sql).map(c=>[t.name,c])));
+ const actualIndexes=between('actual_indexes AS (','scan(name,sql,pos,quote,compact)').replace(/,$/,'');
+ const scanner=between('scan(name,sql,pos,quote,compact)','table_results AS (').replace(/,$/,'');
+ const predicates={
+  indexes:between('WHEN (SELECT COUNT(*) FROM index_shapes','WHEN NOT EXISTS(SELECT 1 FROM normalized'),
+  checks:between('WHEN NOT EXISTS(SELECT 1 FROM normalized','WHEN EXISTS(SELECT 1 FROM pragma_foreign_key_list'),
+  extras:between('WHEN EXISTS(SELECT 1 FROM pragma_foreign_key_list',"ELSE 'MATCH' END AS result FROM expected_tables"),
+ };
+ const add=(file,ctes,select,expected)=>{
+  const sql=(ctes.length?'WITH RECURSIVE\n'+ctes.join(',\n')+'\n':'')+select.trim().replace(/;$/,'')+';\n';
+  parts.push({file,sql,expected});
+ };
+ const tableSelect=(stage,predicate)=>"SELECT '"+stage+":'||t.name AS check_name,CASE WHEN NOT EXISTS(SELECT 1 FROM sqlite_schema s WHERE s.name=t.name AND s.type='table') THEN 'MISSING' "+predicate+" ELSE 'MATCH' END AS result FROM expected_tables t ORDER BY t.name";
+ for(let g=0;g<3;g++){
+  const items=ref.tables.slice(g*5,g*5+5);
+  // Same seven PRAGMA fields as the original predicate; an ordered JSON tuple
+  // avoids repeating the table name for every column and retains NULL/type values.
+  const definitions=cte('expected(name,definition)',items.map(t=>[t.name,JSON.stringify(t.columns.map(c=>[c.cid,c.name,c.type.toUpperCase(),c.notnull,c.dflt_value,c.pk,c.hidden]))]));
+  add(String(g+1).padStart(2,'0')+'-columns.sql',[definitions],`SELECT 'columns:'||e.name AS check_name,CASE
+WHEN NOT EXISTS(SELECT 1 FROM sqlite_schema s WHERE s.name=e.name AND s.type='table') THEN 'MISSING'
+WHEN e.definition=(SELECT json_group_array(json(v)) FROM (SELECT json_array(p.cid,p.name,upper(trim(p.type)),p."notnull",p.dflt_value,p.pk,p.hidden) AS v FROM pragma_table_xinfo(e.name) p ORDER BY p.cid)) THEN 'MATCH'
+ELSE 'MISMATCH:COLUMNS' END AS result FROM expected e ORDER BY e.name`,'5行すべてMATCH（列・型・NOT NULL・既定値・主キー・隠し列）');
+ }
+ for(let g=0;g<3;g++){
+  const items=ref.tables.slice(g*5,g*5+5);
+  add(String(g+4).padStart(2,'0')+'-unique-indexes.sql',[tables(items),indexes(items),actualIndexes],tableSelect('indexes',predicates.indexes),'5行すべてMATCH（主キー/一意制約・索引数・列順・照合/降順・部分索引）');
+ }
+ add('07-check-constraints.sql',[tables(ref.tables),checkRows,scanner],tableSelect('checks',predicates.checks),'15行すべてMATCH（CHECK条件、引用内文字を保持）');
+ add('08-extra-constraints.sql',[tables(ref.tables),scanner],tableSelect('extras',predicates.extras),'15行すべてMATCH（想定外の外部キー・トリガー・衝突ポリシー等なし）');
+ const explicit=between("UNION ALL SELECT 'index:'","UNION ALL SELECT 'environment'").replace(/^UNION ALL /,'').replace("'index:'||name,","'index:'||name AS check_name,").replace('END FROM index_shapes','END AS result FROM index_shapes');
+ add('09-named-indexes.sql',[tables(ref.tables),actualIndexes],explicit,'mg_jobs_due / mg_notification_dueの2行すべてMATCH');
+ add('10-environment.sql',[],between("UNION ALL SELECT 'environment'","UNION ALL SELECT 'orders_count'").replace(/^UNION ALL /,'').replace("'environment',","'environment' AS check_name,").replace('END FROM production_environment','END AS result FROM production_environment'),'environment 1行がMATCH');
+ add('11-orders-count.sql',[],"SELECT 'orders_count' AS check_name,CAST(COUNT(*) AS TEXT) AS result FROM orders",'orders_countが2（件数のみ表示）');
+ add('12-unexpected-objects.sql',[tables(ref.tables)],between("UNION ALL SELECT 'unexpected:'",'ORDER BY check_name;').replace(/^UNION ALL /,'').replace("'unexpected:'||name,type","'unexpected:'||name AS check_name,type AS result"),'0行（想定外の管理用オブジェクトなし）');
+ return parts;
 }

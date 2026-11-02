@@ -3,7 +3,7 @@ import {readFile,writeFile,mkdir} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {migrationBundle,migrationChecks} from './prepare-migration.mjs';
-import {semanticSql} from './prepare-d1-semantic.mjs';
+import {semanticSql,semanticSplitSql} from './prepare-d1-semantic.mjs';
 const need=(ok,label)=>{if(!ok)throw Error(label);};
 const uuid=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 export function validateDashboard(d){
@@ -54,6 +54,9 @@ if(process.argv[1]===new URL(import.meta.url).pathname){
  const checks=await migrationChecks(instanceId);await mkdir(new URL('checks/',out),{recursive:true});
  for(const [name,key]of [['before','before'],['existing-marker','existingMarker'],['after','after']])await writeFile(new URL('checks/'+name+'.sql',out),checks[key]);
  await writeFile(new URL('checks/semantic.sql',out),await semanticSql(instanceId));
+ const split=await semanticSplitSql(instanceId),splitDir=new URL('checks/semantic-parts/',out);await mkdir(splitDir,{recursive:true});
+ for(const part of split)await writeFile(new URL(part.file,splitDir),part.sql);
+ await writeFile(new URL('README.md',splitDir),'# スマホ用の独立した構造確認SQL\n\n対象: yasoya-orders。追加SQLは適用済みのため再適用しない。各ファイルは単独の読み取りSELECT。01→12の順で1本ずつ実行する。コードフェンスやファイル名は貼り付けない。\n\n'+split.map(p=>'- ['+p.file+']('+p.file+'): '+p.expected).join('\n')+'\n\nMISSING/MISMATCHまたは想定外の行があれば停止する。12だけは0行が正常。テーブル/索引/設定を変更するSQLは含まない。\n');
  const statements=result.sql.replace(/^--.*$/mg,'').split(';').map(s=>s.trim()).filter(Boolean);await mkdir(new URL('console/',out),{recursive:true});
  await writeFile(new URL('console/all.sql',out),statements.join(';\n')+';\n');
  for(const [i,sql]of statements.entries())await writeFile(new URL('console/'+String(i+1).padStart(2,'0')+'.sql',out),sql+';\n');

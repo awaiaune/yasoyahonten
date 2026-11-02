@@ -1,0 +1,1 @@
+SELECT 'environment' AS check_name,CASE WHEN COUNT(*)=1 AND SUM(CASE WHEN id=1 AND instance_id='0f1d8c9f-ae1b-40ef-bb42-f0b790bcd5fa' AND database_id='442fa9fd-25d3-4c01-bcc3-04be7b420cf5' AND location_id='LQ693S4H2NBZ8' THEN 1 ELSE 0 END)=1 THEN 'MATCH' ELSE 'MISMATCH' END AS result FROM production_environment;
