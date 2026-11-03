@@ -60,7 +60,7 @@ test('product creation, two-photo upload, reorder and variant creation work on a
  await page.locator('[name=vname]').fill('画面試験ハーブ 10g');
  const photos=await Promise.all(['lemonbalm.jpg','yomogi.jpg'].map(async name=>({name,mimeType:'image/jpeg',buffer:await readFile(new URL('../images/'+name,import.meta.url))})));
  await page.locator('#imageFiles').setInputFiles(photos);await idle();assert.equal(await page.locator('.image-entry').count(),2);
- await page.getByText('写真の順序・メイン画像を編集',{exact:true}).click();
+ await page.getByText('写真の順序・植物の代表写真を編集',{exact:true}).click();
  const first=await page.locator('.image-entry img').first().getAttribute('src');await page.getByRole('button',{name:'写真1を後ろへ'}).click();
  await page.waitForFunction(first=>document.querySelector('.image-entry img').src!==first,first);
  await page.getByRole('button',{name:'＋ バリエーションを追加'}).click();assert.equal(await page.locator('#variantList fieldset').count(),2);
