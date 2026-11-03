@@ -49,6 +49,17 @@
     function complete(result){
         if(result?.status==='declined'){localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);throw new Error('決済が完了しなかったことを確認しました。再度お試しください。');}
         if(!result?.ok||!result.paymentId||!result.orderReference)throw new Error('注文の処理状況を確認中です。再購入せず「処理状況を確認」を押してください。');
+        // Keep a short-lived, tab-scoped receipt reference for the thank-you verification.
+        // Never store the card token. If storage is unavailable, do not interrupt a paid order.
+        try {
+            const originalAttemptId=localStorage.getItem(ATTEMPT_KEY);
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(originalAttemptId||'')) {
+                sessionStorage.setItem('yasoya_verified_checkout_v1',JSON.stringify({
+                    attemptId:originalAttemptId.toLowerCase(),paymentId:result.paymentId,
+                    orderReference:result.orderReference,createdAt:Date.now()
+                }));
+            }
+        } catch { /* A storage restriction must never turn one paid order into another charge. */ }
         completed=true;window.YasoyaCart.clear();localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);
         location.href=`thanks.html?payment=${encodeURIComponent(result.paymentId)}&order=${encodeURIComponent(result.orderReference)}`;
     }
