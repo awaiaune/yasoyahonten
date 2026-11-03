@@ -25,7 +25,9 @@ export function draft(input){
  const variants=input.variants.map(v=>({id:identifier(v.id),name:text(v.name,120),price:integer(v.price,1,10000000),amount:text(v.amount||'',120,false),maxQuantity:integer(v.maxQuantity??10,1,10),active:v.active!==false}));
  need(new Set(variants.map(v=>v.id)).size===variants.length,'バリエーションIDが重複しています。');
  const images=input.images||[];need(Array.isArray(images)&&images.length<=10&&images.every(i=>/^[a-f0-9]{64}$/.test(i))&&new Set(images).size===images.length,'画像の指定が正しくありません。');
- return {name:text(input.name,120),description:text(input.description||'',8000,false),variants,images,alt:text(input.alt||input.name,200),sortOrder:integer(input.sortOrder??0,0,100000)};
+ const featuredImageId=input.featuredImageId??null;
+ need(featuredImageId===null||(typeof featuredImageId==='string'&&images.includes(featuredImageId)),'植物の代表写真は商品写真の中から選択してください。');
+ return {name:text(input.name,120),description:text(input.description||'',8000,false),variants,images,...(featuredImageId?{featuredImageId}:{}),alt:text(input.alt||input.name,200),sortOrder:integer(input.sortOrder??0,0,100000)};
 }
 export const now=()=>new Date().toISOString();
 export const json=value=>JSON.stringify(value);
