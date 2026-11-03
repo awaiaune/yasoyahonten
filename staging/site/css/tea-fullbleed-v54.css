@@ -1,0 +1,33 @@
+/* v54 TEA: same full-bleed frame geometry as the adjacent brand film.
+ * This stylesheet is scoped to the homepage and does not change checkout,
+ * admin, inventory, product detail, or the existing image/swipe behavior.
+ */
+body:has(.v21-film) .v20-tea {
+  display: block;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 0 clamp(40px, 5.5vw, 76px) !important;
+}
+body:has(.v21-film) .v23-tea-stage {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+  margin: 0 !important;
+}
+body:has(.v21-film) .v20-tea-indicator {
+  margin: 0 !important;
+  padding: 20px 0 24px;
+  box-sizing: border-box;
+}
+@media (max-width: 700px) {
+  body:has(.v21-film) .v23-tea-stage {
+    aspect-ratio: 4 / 5;
+  }
+  body:has(.v21-film) .v20-tea {
+    margin-bottom: 40px !important;
+  }
+  body:has(.v21-film) .v20-tea-indicator {
+    padding: 16px 0 20px;
+  }
+}
