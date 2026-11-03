@@ -36,12 +36,17 @@ test('Checkout retains all form, cart, Square tokenization and recovery anchors'
  assert(built.includes('content="noindex, nofollow"'),'checkout should not be indexed');
  assert(!(await read('js/checkout-v1.js')).includes('applePay('),'new payment methods must be a separately approved change');
 });
-test('Thank-you no longer claims unverified payment success on direct navigation',async()=>{
+test('Thank-you starts neutral and includes the backend verification client',async()=>{
  const built=await read('production/.generated/v53/thanks.html');
- assert(built.includes('THANK YOU')===false); // editorial sentence-case heading adopted
- assert(built.includes('Thank you.'));
- assert(built.includes('ご注文の受付状況は、確認メールでご案内します。'));
+ const verification=await read('production/.generated/v53/js/thanks-verified-v57.js');
+ assert(built.includes('id="thankYouHeading">Order status.</h1>'));
+ assert(!built.includes('>Thank you.</h1>'));
+ assert(built.includes('id="orderVerificationMessage"'));
+ assert(built.includes('id="retryOrderStatus"'));
+ assert(built.includes('src="js/thanks-verified-v57.js"'));
  assert(built.includes('content="noindex, nofollow"'));
+ assert(verification.includes('/api/v1/payments/status'));
+ assert(!verification.includes('fetch(\'/api/v1/payments\''));
  assert(!built.includes('ご注文を受け付けました。'));
 });
 test('Approved JCB removes both current and old-source notices without altering top hero',async()=>{
