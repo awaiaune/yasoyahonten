@@ -25,15 +25,18 @@
 <main class="thanks-page" id="main">
   <div class="thanks-inner">
     <p class="v56-eyebrow">YASOYA HONTEN / YOUR ORDER</p>
-    <h1>Thank you.</h1>
-    <p>八草屋本店をご利用いただき、ありがとうございます。<br/>
-    ご注文の受付状況は、確認メールでご案内します。</p>
-    <p class="v56-order-note">決済結果が確認できない場合は、再度購入せず、お問い合わせください。</p>
+    <h1 id="thankYouHeading">Order status.</h1>
+    <p id="orderVerificationMessage" role="status" aria-live="polite">注文状況を確認しています…</p>
+    <p id="verifiedOrderReferenceRow" class="v56-order-note" hidden>注文番号：<span id="verifiedOrderReference"></span></p>
+    <p class="v56-order-note">決済結果を確認できない場合も、再購入せずお問い合わせください。</p>
+    <button id="retryOrderStatus" type="button" class="v57-retry" hidden>処理状況をもう一度確認する</button>
     <a class="v56-thanks-return" href="index.html">BACK TO HOME ↗</a>
+    <a class="v57-contact" href="contact.html">CONTACT / お問い合わせ</a>
   </div>
 </main>
 <footer class="v21-footer"><div class="v21-footer-main"><a class="v21-footer-logo" href="index.html">YASOYA HONTEN</a><nav aria-label="フッターナビゲーション"><a href="products.html">SHOP</a><a href="project.html">STORY</a><a href="contact.html">CONTACT</a></nav></div><div class="v21-footer-legal"><a href="tokushoho.html">特定商取引法に基づく表記</a><a href="privacy-policy.html">PRIVACY</a></div><small class="v21-copyright">© YASOYA HONTEN</small></footer>
 <script src="js/store-config.js"></script>
+<script defer src="js/thanks-verified-v57.js"></script>
 <script src="js/cart.js"></script>
 <script src="js/cart-drawer.js"></script>
 <script defer src="js/editorial-v5.js"></script>
