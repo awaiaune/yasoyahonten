@@ -24,7 +24,7 @@ for(const [mode,expected] of [['ready',null],['sdk-blocked','CARD_SDK_LOAD_FAILE
    const path=u.pathname==='/'?'/checkout.html':u.pathname;
    try{const body=await readFile(new URL('../production/.generated/v53'+path,import.meta.url));return route.fulfill({body,headers:{'Content-Type':path.endsWith('.js')?'application/javascript':path.endsWith('.css')?'text/css':'text/html',...(path.endsWith('.html')?{'Content-Security-Policy':mode==='csp'?csp.replaceAll('https://*.squareup.com',''):csp}:{})}});}catch{return route.fulfill({status:404,body:'missing'});}
   });
-  const page=await context.newPage();page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));await page.goto(origin+'/checkout.html');if(await page.locator('#checkoutNoticeClose').count())await page.locator('#checkoutNoticeClose').click();
+  const page=await context.newPage();page.setDefaultTimeout(8000);page.on('pageerror',e=>errors.push(e.message));await page.goto(origin+'/checkout.html');assert.equal(await page.locator('#checkoutNotice').count(),0);
   if(mode==='ready'){
    await page.waitForFunction(()=>document.getElementById('cardInitializationStatus').dataset.state==='ready');
    assert.deepEqual(await page.evaluate(()=>window.offlineArgs),['sq0idp-offline','LQ693S4H2NBZ8']);assert.equal(await page.evaluate(()=>window.offlineAttach),'#card-container');
