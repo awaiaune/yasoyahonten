@@ -3,7 +3,7 @@ import {createServer} from 'node:http';
 import {readFile,realpath} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-const dir=fileURLToPath(new URL('../staging/site/',import.meta.url)),port=8791;
+const dir=fileURLToPath(new URL('../staging/site/',import.meta.url)),port=Number(process.env.YASOYA_PREVIEW_PORT||8791);
 const csp="default-src 'none'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'none'; script-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'";
 function decorate(html,isCheckout){
  html=html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'');
