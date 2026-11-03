@@ -1,5 +1,6 @@
 // Thank-you receipt verification. Never accept URL values alone as proof of payment.
-// Read-only payment status API; never submits a payment or reloads a failed checkout.
+// Existing status/recovery API only; never submits a new charge or reloads checkout.
+// Pending orders may continue their original recovery (such as stock projection/email).
 (()=>{
  'use strict';
  const RECEIPT_KEY='yasoya_verified_checkout_v1';
