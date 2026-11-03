@@ -48,7 +48,7 @@ test('checkout and thank-you layouts are consistent on phones and desktop',async
    await page.goto(base+'/thanks.html');
    assert.equal(await page.locator('.editorial-header').count(),1);
    assert.equal(await page.locator('.v21-footer').count(),1);
-   assert.equal(await page.locator('h1').textContent(),'Thank you.');
+   assert.equal(await page.locator('h1').textContent(),'Order status.');
    assert.equal(await page.locator('#checkoutNotice').count(),0);
    assert(!(await page.locator('main').innerText()).includes('ご注文を受け付けました。'));
    assert.equal((await page.evaluate(()=>document.documentElement.scrollWidth))<=width+2,true);
