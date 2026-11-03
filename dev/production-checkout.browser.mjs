@@ -3,12 +3,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {chromium} from 'playwright-core';
+import {existsSync} from 'node:fs';
 const origin='https://yasoyahonten.awaiaune.com',sdkOrigin='https://web.squarecdn.com';
 const csp=(await readFile(new URL('../production/storefront-worker.js',import.meta.url),'utf8')).match(/const csp="([^"]+)"/)[1];
 const sdk=mode=>`window.Square={payments:(app,location)=>{window.offlineArgs=[app,location];${mode==='payments-fail'?"throw Object.assign(Error('private SDK detail'),{code:422});":''}return {card:async()=>{${mode==='card-fail'?"throw Error('private SDK detail');":''}return {destroy:async()=>{window.offlineDestroyed=true;},attach:async selector=>{window.offlineAttach=selector;${mode==='attach-fail'?"throw Error('private SDK detail');":''}${mode==='timeout'||mode==='csp'?"if('"+mode+"'==='timeout')return new Promise(()=>{});":''}${mode==='empty'?"return;":''}const iframe=document.createElement('iframe');iframe.title='Production-shaped offline card';iframe.src='https://pci-connect.squareup.com/offline-card';document.querySelector(selector).append(iframe);${mode==='csp'?"return new Promise(()=>{});":"await new Promise(resolve=>iframe.onload=resolve);"}},tokenize:async()=>{throw Error('Test must not tokenize');}};}}}};const sheet=document.createElement('link');sheet.rel='stylesheet';sheet.href='${sdkOrigin}/offline-card.css';sheet.onload=()=>window.offlineCssLoaded=true;document.head.append(sheet);`;
 for(const [mode,expected] of [['ready',null],['sdk-blocked','CARD_SDK_LOAD_FAILED'],['payments-fail','決済クライアント初期化'],['card-fail','カードフォーム生成'],['attach-fail','カードフォーム表示'],['timeout','CARD_INIT_TIMEOUT'],['empty','CARD_FORM_EMPTY'],['csp','CARD_CSP_BLOCKED'],['config','CARD_PRODUCTION_CONFIG'],['quote-fail','HTTP 409']]){
  test('production checkout '+mode+' shows form or a bounded inline failure',{timeout:15000},async t=>{
-  const browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
+  const browser=await chromium.launch({executablePath:process.env.YASOYA_CHROMIUM_PATH||(existsSync('/usr/bin/chromium')?'/usr/bin/chromium':chromium.executablePath()),headless:true,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,serviceWorkers:'block'});
   await context.addInitScript(mode=>{if(location.origin!=='https://yasoyahonten.awaiaune.com')return;localStorage.setItem('yasoya_honten_cart_v1',JSON.stringify([{id:'offline-herb',name:'試験商品',quantity:1,price:980}]));const original=setTimeout;window.setTimeout=(fn,ms,...args)=>original(fn,ms===12000&&['timeout','csp'].includes(mode)?1000:ms,...args);},mode);
   let payments=0,sandboxRequests=0;const errors=[];
