@@ -9,7 +9,7 @@ const {chromium}=createRequire(import.meta.url)('playwright-core');
 const files=['tea-cup-preview.jpg','tea-pour-preview.jpg','tea-leaves-preview.jpg'];
 const original=execFileSync('git',['show','a00b3d0:staging/site/index.html'],{encoding:'utf8'});
 let browser,server,origin,preview;
-before(async()=>{preview=await buildPreview();server=previewServer();server.listen(0,'127.0.0.1');await once(server,'listening');origin='http://127.0.0.1:'+server.address().port;browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-background-networking']});});
+before(async()=>{preview=await buildPreview();server=previewServer();server.listen(0,'127.0.0.1');await once(server,'listening');origin='http://127.0.0.1:'+server.address().port;browser=await chromium.launch({headless:true,args:['--no-sandbox','--disable-background-networking']});});
 after(async()=>{await browser?.close();if(server)await new Promise(r=>server.close(r));});
 async function context(t,width=390){const c=await browser.newContext({viewport:{width,height:844},isMobile:true,hasTouch:true,serviceWorkers:'block'});t.after(()=>c.close());const outside=[],errors=[];await c.route('**/*',r=>{if(new URL(r.request().url()).origin===origin)return r.continue();outside.push(r.request().url());return r.abort();});const p=await c.newPage();p.setDefaultTimeout(6000);p.on('pageerror',e=>errors.push(e.message));return {c,p,outside,errors};}
 async function swipe(p,direction='left'){
@@ -50,4 +50,35 @@ test('preview cannot access purchase/admin APIs, checkout or external services',
  for(const path of ['/api/v1/payments','/api/admin/products','/checkout.html'])assert.equal((await fetch(origin+path)).status,403);
  assert.equal((await fetch(origin+'/api/v1/payments',{method:'POST'})).status,405);
  const {p}=await context(t);await p.goto(origin+'/');const r=await p.evaluate(async()=>({status:(await fetch('https://connect.squareup.com/v2/locations')).status}));assert.equal(r.status,503);
+});
+
+test('TEA centered caption, image-overlay progress and preserved film gap',async t=>{
+ const {p}=await context(t,390);
+ await p.goto(origin+'/');
+ await p.locator('#teaStage').scrollIntoViewIfNeeded();
+ const stage=await p.locator('#teaStage').boundingBox();
+ const caption=await p.locator('#teaStage .is-active figcaption').boundingBox();
+ const dots=await p.locator('.v20-tea-indicator').boundingBox();
+ const film=await p.locator('.v20-film-frame').boundingBox();
+ assert(Math.abs(caption.x+caption.width/2-stage.x-stage.width/2)<3,'TEA caption must be centered horizontally');
+ assert(Math.abs(caption.y+caption.height/2-stage.y-stage.height/2)<3,'TEA caption must be centered vertically');
+ assert(dots.y>=stage.y+stage.height-70,'TEA progress should be near the image bottom');
+ assert(dots.y+dots.height<=stage.y+stage.height+1,'TEA progress must overlay the photograph');
+ assert(Math.abs(stage.width-film.width)<1,'TEA and film widths differ');
+ assert(Math.abs(stage.height-film.height)<1,'TEA and film heights differ');
+ const gap=await p.evaluate(()=>document.querySelector('.v21-film').getBoundingClientRect().top-document.querySelector('.v20-tea').getBoundingClientRect().bottom);
+ assert(gap>=39 && gap<50,'White gap between TEA and film was changed');
+});
+test('SHOP ALL VIEW is centered near the first mobile fold and opens collection',async t=>{
+ const {p}=await context(t,390);
+ await p.goto(origin+'/products.html');
+ const teaser=await p.locator('.v35-teaser').boundingBox();
+ const button=await p.locator('.v35-all-open').boundingBox();
+ assert(Math.abs(button.x+button.width/2-195)<2,'ALL VIEW is not horizontally centered');
+ assert(button.y-teaser.y<8,'ALL VIEW must be visible at the top of the teaser');
+ assert(button.height>=44,'ALL VIEW tap target is too small');
+ await p.locator('.v35-all-open').click();
+ assert.equal(await p.locator('#all-botanicals').getAttribute('aria-hidden'),'false');
+ await p.locator('.v35-all-back').click();
+ assert.equal(await p.locator('#all-botanicals').getAttribute('aria-hidden'),'true');
 });
