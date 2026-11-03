@@ -114,17 +114,36 @@
   }
   const gallery = UI.createGallery({track:$('photoGalleryTrack'),indicators:$('photoGalleryDots'),position:$('photoGalleryPosition'),load:preview});
   async function drawImages(preferredId) {
+    if (current.draft.featuredImageId && !current.draft.images.includes(current.draft.featuredImageId)) delete current.draft.featuredImageId;
     gallery.setItems(current.draft.images,current.draft.alt || current.draft.name,preferredId);
     const list = $('imageList'); list.replaceChildren();
+    let botanicalStatus=$('botanicalImageStatus');
+    if (!botanicalStatus) {
+      botanicalStatus=document.createElement('div'); botanicalStatus.id='botanicalImageStatus';
+      botanicalStatus.setAttribute('role','status'); botanicalStatus.className='hint';
+      list.before(botanicalStatus);
+    }
+    botanicalStatus.replaceChildren();
+    const selected=current.draft.featuredImageId;
+    const summary=document.createElement('p');
+    summary.textContent=selected?'植物の代表写真：写真'+(current.draft.images.indexOf(selected)+1)+'（トップ・SHOP・ALL VIEW）':'植物の代表写真：商品詳細の1枚目を共用（未指定）';
+    botanicalStatus.append(summary);
+    if (selected) {
+      const clear=document.createElement('button');clear.type='button';clear.className='secondary';
+      clear.textContent='代表写真の指定を解除';
+      clear.onclick=()=>{if(busy)return;capture();delete current.draft.featuredImageId;setDirty(true);void drawImages();};
+      botanicalStatus.append(clear);
+    }
     for (const [i,id] of current.draft.images.entries()) {
       const div = document.createElement('div'); div.className = 'image-entry'; const img = document.createElement('img'); img.alt = current.draft.alt || current.draft.name || '商品写真'; div.append(img);
       preview(id).then(url => img.src = url).catch(() => img.alt = '写真を取得できません');
-      const label = document.createElement('p'); label.className = 'image-label'; label.textContent = i === 0 ? 'メイン写真' : `写真 ${i+1}`; div.append(label);
+      const label = document.createElement('p'); label.className = 'image-label'; label.textContent = (i === 0 ? '商品詳細の1枚目' : `商品詳細の写真 ${i+1}`)+(current.draft.featuredImageId===id?' ／ 植物の代表写真':''); div.append(label);
       const controls = document.createElement('div'); controls.className = 'image-controls'; div.append(controls);
       for (const [label,accessible,disabled,action] of [
         ['↑',`写真${i+1}を前へ`,i === 0,() => [current.draft.images[i-1],current.draft.images[i]] = [id,current.draft.images[i-1]]],
         ['↓',`写真${i+1}を後ろへ`,i === current.draft.images.length-1,() => [current.draft.images[i+1],current.draft.images[i]] = [id,current.draft.images[i+1]]],
         ['メインにする',`写真${i+1}をメインにする`,i === 0,() => { current.draft.images.splice(i,1); current.draft.images.unshift(id); }],
+        ['植物の代表にする',`写真${i+1}をトップ・SHOP・ALL VIEWの代表画像にする`,current.draft.featuredImageId===id,() => { current.draft.featuredImageId=id; }],
         ['外す',`写真${i+1}を外す`,false,() => current.draft.images.splice(i,1)]]) {
         const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label',accessible); b.disabled = disabled;
         b.onclick = () => { if (busy) return; if (label === '外す' && !confirm('この写真を下書きから外しますか？保存するまで公開内容は変わりません。')) return; capture(); action(); setDirty(true); drawImages(label === 'メインにする' ? id : undefined); }; controls.append(b);
