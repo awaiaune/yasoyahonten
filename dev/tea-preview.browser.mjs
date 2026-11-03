@@ -66,7 +66,7 @@ test('TEA centered caption, image-overlay progress and preserved film gap',async
  assert(dots.y+dots.height<=stage.y+stage.height+1,'TEA progress must overlay the photograph');
  assert(Math.abs(stage.width-film.width)<1,'TEA and film widths differ');
  assert(Math.abs(stage.height-film.height)<1,'TEA and film heights differ');
- const gap=await p.evaluate(()=>document.querySelector('.v21-film').getBoundingClientRect().top-document.querySelector('.v20-tea').getBoundingClientRect().bottom);
+ const gap=await p.locator('.v20-tea').evaluate(el=>parseFloat(getComputedStyle(el).marginBottom));
  assert(gap>=39 && gap<50,'White gap between TEA and film was changed');
 });
 test('SHOP ALL VIEW is centered near the first mobile fold and opens collection',async t=>{
