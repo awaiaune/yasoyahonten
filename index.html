@@ -92,44 +92,6 @@
 
 <body>
 
-    <!-- Payment Notice -->
-
-<div
-    class="payment-notice-overlay"
-    id="paymentNotice"
-    aria-hidden="true">
-
-    <div
-        class="payment-notice-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="paymentNoticeTitle">
-
-        <p
-            class="payment-notice-title"
-            id="paymentNoticeTitle">
-            お支払いについて
-        </p>
-
-        <p class="payment-notice-text">
-            現在JCBは審査中のため<br>
-            ご利用いただけません。<br><br>
-            Visa・Mastercard・American Express<br>
-            をご利用いただけます。
-        </p>
-
-        <button
-            class="payment-notice-close"
-            id="paymentNoticeClose"
-            type="button">
-            確認しました
-        </button>
-
-    </div>
-
-</div>
-
-
     <!-- ==================================================
          Header
     ================================================== -->
@@ -752,28 +714,7 @@
 
     <!-- JavaScript -->
 
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-    const notice = document.getElementById("paymentNotice");
-    const closeButton = document.getElementById("paymentNoticeClose");
 
-    if (!notice || !closeButton) return;
-
-    const storageKey = "yasoya_jcb_notice_2026";
-
-    if (!localStorage.getItem(storageKey)) {
-        notice.classList.add("is-visible");
-        notice.setAttribute("aria-hidden", "false");
-    }
-
-    closeButton.addEventListener("click", () => {
-        notice.classList.remove("is-visible");
-        notice.setAttribute("aria-hidden", "true");
-
-        localStorage.setItem(storageKey, "seen");
-    });
-});
-</script>
     
     <script src="js/editorial.js" defer></script>
     <script src="js/script.js"></script>
