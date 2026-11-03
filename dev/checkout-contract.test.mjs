@@ -9,11 +9,12 @@ import {fixture,baseEnv,contact} from './production-fixture.mjs';
 import {PurchaseCoordinator} from '../worker/src/index.js';
 const source=await readFile(new URL('../js/checkout-v1.js',import.meta.url),'utf8');
 async function client(options={}){
- const values=options.values||new Map(),elements=new Map();let init,submit;
+ const values=options.values||new Map(),sessionValues=options.sessionValues||new Map(),elements=new Map();let init,submit;
  const state={tokens:0,payments:0,cleared:0,saved:null,pending:false,lost:false,notFound:false,enabled:true,requests:[],...options};
  const el=id=>{if(!elements.has(id))elements.set(id,{value:'offline',textContent:'',hidden:false,disabled:false,reportValidity:()=>true,addEventListener:(event,fn)=>{if(event==='submit')submit=fn;else elements.get(id)[event]=fn;}});return elements.get(id);};
  const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
- const context={crypto,URL,AbortSignal,Date,console:{error(){}},localStorage:storage,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async()=>{state.tokens++;if(state.gate)await state.gate;return {status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
+ const session={getItem:k=>sessionValues.get(k)||null,setItem:(k,v)=>sessionValues.set(k,v),removeItem:k=>sessionValues.delete(k)};
+ const context={crypto,URL,AbortSignal,Date,console:{error(){}},localStorage:storage,sessionStorage:session,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async()=>{state.tokens++;if(state.gate)await state.gate;return {status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
   state.requests.push({url,cache:options.cache});
   if(url.endsWith('/checkout-capabilities'))return Response.json({contractVersion:state.version??1,supportedContracts:[1],checkoutEnabled:state.enabled});
   if(url.endsWith('/quote'))return Response.json({total:1330,subtotal:980,shipping:350,items:[]});
@@ -21,16 +22,17 @@ async function client(options={}){
   if(url.endsWith('/payments')){state.payments++;const body=JSON.parse(options.body);assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');state.saved=state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'};if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.pending?202:200});}
   throw Error('unexpected request');
  }};
- vm.runInNewContext(source,context);await init();return {state,values,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
+ vm.runInNewContext(source,context);await init();return {state,values,sessionValues,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
 }
 test('v1 routes preserve request identity while unknown major versions fail before side effects',async()=>{
  const req=new Request('https://api.invalid/api/v1/payments',{method:'POST',body:'{"attemptId":"offline"}'}),r=checkoutRoute(req);assert.equal(r.originalPath,'/api/v1/payments');assert.equal(new URL(r.request.url).pathname,'/api/payments');assert.equal(await r.request.text(),'{"attemptId":"offline"}');assert.throws(()=>checkoutRoute(new Request('https://api.invalid/api/v2/payments')),{status:426});assert.equal(productionCheckoutEnabled({}),false);assert.equal(productionCheckoutEnabled({PRODUCTION_CHECKOUT_ENABLED:'wrong'}),false);
 });
 test('v1 double tap sends one token and one request and clears state only for confirmed success',async()=>{
  const c=await client();let release;c.state.gate=new Promise(r=>release=r);const a=c.click(),b=c.click();await new Promise(r=>setImmediate(r));assert.equal(c.state.tokens,1);release();await Promise.all([a,b]);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,1);assert.equal(c.values.size,0);assert(c.state.requests.every(r=>r.cache==='no-store'));
+ const receipt=JSON.parse(c.sessionValues.get('yasoya_verified_checkout_v1'));assert.equal(receipt.paymentId,'offline-payment');assert.equal(receipt.orderReference,'offline-order');assert.match(receipt.attemptId,/^[0-9a-f-]{36}$/);assert(!JSON.stringify(receipt).includes('offline-card-never-persist'));
 });
 test('v1 HTTP 202 and repeated checks keep the same order without another card token',async()=>{
- const c=await client({pending:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');await c.click();await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);assert(c.el('paymentButton').disabled);
+ const c=await client({pending:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');await c.click();await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);assert(c.el('paymentButton').disabled);assert.equal(c.sessionValues.has('yasoya_verified_checkout_v1'),false);
  c.state.saved={ok:true,paymentId:'offline-paid',orderReference:'offline-order'};await c.check();assert.equal(c.state.cleared,1);assert.equal(c.values.size,0);
 });
 test('v1 lost response and reload recover the same attempt, never persisting a card token',async()=>{
