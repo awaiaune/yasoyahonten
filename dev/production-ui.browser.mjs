@@ -31,6 +31,8 @@ test('Access-protected production UI saves images and drafts independently while
  assert.equal(saved.images.length,2);
  assert.equal(saved.featuredImageId,saved.images[1]);
  assert.notEqual(saved.featuredImageId,saved.images[0]);assert.match(await page.locator('#editorSyncStatus').innerText(),/Square Production/);assert.equal(await page.locator('#publishProduct').innerText(),'Squareと同期して公開');assert(await page.locator('#publishProduct').isDisabled());
- await page.getByRole('button',{name:'商品編集を閉じる'}).click();await page.reload();await idle();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();await page.getByRole('button',{name:'本番形状の架空商品を編集',exact:true}).click();assert.equal(await page.locator('.image-entry').count(),2);assert.match(await page.locator('#botanicalImageStatus').innerText(),/写真2/);
+ await page.getByRole('button',{name:'商品編集を閉じる'}).click();await page.reload();await idle();await page.getByRole('navigation').getByRole('button',{name:'商品',exact:true}).click();await idle();await page.getByRole('button',{name:'本番形状の架空商品を編集',exact:true}).click();assert.equal(await page.locator('.image-entry').count(),2);
+ await page.locator('.photo-arrangement summary').click();
+ assert.match(await page.locator('#botanicalImageStatus').innerText(),/写真2/);
  assert.deepEqual(unexpected,[]);assert.deepEqual(errors,[]);assert(!f.calls.some(c=>c.method==='POST'&&c.path!=='/v2/inventory/counts/batch-retrieve'));assert.equal(f.fake.payments.size,0);
 });
