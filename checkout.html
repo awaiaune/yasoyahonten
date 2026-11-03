@@ -76,44 +76,6 @@
 
 <body>
 
-    <!-- Checkout Payment Notice -->
-
-<div
-    class="checkout-notice-overlay is-visible"
-    id="checkoutNotice"
-    aria-hidden="false">
-
-    <div
-        class="checkout-notice-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="checkoutNoticeTitle">
-
-        <p
-            class="checkout-notice-title"
-            id="checkoutNoticeTitle">
-            お支払いについて
-        </p>
-
-        <p class="checkout-notice-text">
-            現在JCBは審査中のため<br>
-            ご利用いただけません。<br><br>
-            Visa・Mastercard・American Express<br>
-            をご利用いただけます。
-        </p>
-
-        <button
-            class="checkout-notice-close"
-            id="checkoutNoticeClose"
-            type="button">
-            確認しました
-        </button>
-
-    </div>
-
-</div>
-
-
     <!-- ==================================================
          Header
     ================================================== -->
@@ -656,19 +618,7 @@
 
     <!-- JavaScript -->
 
-    <script>
-document.addEventListener("DOMContentLoaded", () => {
-    const notice = document.getElementById("checkoutNotice");
-    const closeButton = document.getElementById("checkoutNoticeClose");
-
-    if (!notice || !closeButton) return;
-
-    closeButton.addEventListener("click", () => {
-        notice.classList.remove("is-visible");
-        notice.setAttribute("aria-hidden", "true");
-    });
-});
-    </script>
+    
 
     <script src="js/script.js"></script>
     <script src="js/store-config.js?release=checkout-v1-20261027"></script>
