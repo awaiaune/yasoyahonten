@@ -17,12 +17,12 @@ async function swipe(p,direction='left'){
  await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:end,y}]});await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();
 }
 const active=async p=>(await p.locator('#teaStage .is-active figcaption').textContent()).trim();
-test('exact images from 55aa513 are imported and only TEA source attributes change',async()=>{
+test('exact images from 55aa513 and scoped full-bleed TEA stylesheet are installed',async()=>{
  const html=await readFile(site+'/index.html','utf8');let expected=original;
  for(const name of files){const p='staging/site/images/'+name;assert.equal(execFileSync('git',['hash-object',p],{encoding:'utf8'}).trim(),execFileSync('git',['rev-parse','55aa513:'+p],{encoding:'utf8'}).trim());}
  const urls=['https://images.backtoyourrootsherbs.com/making-herbal-tea-infusion-at-home.jpg','https://gewurzhaus.com.au/cdn/shop/files/Quiet-Time-Tea.jpg?v=1751348462','https://healthanswers.pfizer.com/sleep/remedies/media_18a5b44097557717cbccd8745443e7e4aaf1997a0.jpg'];
  for(let i=0;i<3;i++)expected=expected.replace(urls[i],'images/'+files[i]).replace(' onerror="this.onerror=null;this.src=\'images/'+files[i]+'\'"','');
- assert.equal(html,expected);assert.equal(execFileSync('git',['diff','--name-only','a00b3d0','--','worker','production','js/admin.js','js/checkout-v1.js'],{encoding:'utf8'}).trim(),'');
+ expected=expected.replace('</head>','<link href="css/tea-fullbleed-v54.css" rel="stylesheet"/></head>');assert.equal(html,expected);assert.equal(execFileSync('git',['diff','--name-only','a00b3d0','--','worker','production','js/admin.js','js/checkout-v1.js'],{encoding:'utf8'}).trim(),'');
 });
 for(const width of [375,390,430])test('mobile '+width+' loads local photos, preserves links/layout, swipe and fade',async t=>{
  const {p,outside,errors}=await context(t,width);await p.goto(origin+'/');await p.locator('#teaStage').scrollIntoViewIfNeeded();
@@ -30,7 +30,7 @@ for(const width of [375,390,430])test('mobile '+width+' loads local photos, pres
  assert.deepEqual(await p.locator('#teaStage img').evaluateAll(imgs=>imgs.map(i=>i.getAttribute('src'))),files.map(n=>'images/'+n));
  assert.equal(await p.locator('#teaStage').evaluate(el=>getComputedStyle(el).touchAction),'pan-y');
  assert.equal(await p.locator('#teaStage .is-active').evaluate(el=>getComputedStyle(el).transitionDuration),'0.7s, 0.7s');
- const metrics=await p.locator('#teaStage').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert(Math.abs(metrics.width-width*.77)<1);assert(Math.abs(metrics.height-Math.min(844*.61,650))<1);
+ const metrics=await p.locator('#teaStage').evaluate(el=>({width:el.getBoundingClientRect().width,height:el.getBoundingClientRect().height}));assert(Math.abs(metrics.width-width)<1);const film=await p.locator('.v20-film-frame').boundingBox();assert(Math.abs(metrics.height-film.height)<1);assert(Math.abs(metrics.width-film.width)<1);const gap=await p.evaluate(()=>document.querySelector('.v21-film').getBoundingClientRect().top-document.querySelector('.v20-tea').getBoundingClientRect().bottom);assert(gap>=39);
  assert(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
  assert.deepEqual(await p.locator('.v39-botanical-link').evaluateAll(els=>els.map(e=>e.getAttribute('href'))),['products/lemonbalm.html','products/yomogi.html','products/goldenrod.html']);
  assert.equal(await active(p),'A QUIET MOMENT');if(width===390)await p.locator('.v20-tea').screenshot({path:output+'/tea-cup-390.png'});
@@ -39,7 +39,7 @@ for(const width of [375,390,430])test('mobile '+width+' loads local photos, pres
  await swipe(p,'right');assert.equal(await active(p),'THE BREW');await p.locator('#teaStage').focus();await p.keyboard.press('ArrowRight');assert.equal(await active(p),'THE LEAVES');await p.keyboard.press('ArrowRight');assert.equal(await active(p),'A QUIET MOMENT');assert.deepEqual(errors,[]);assert.deepEqual(outside,[]);
 });
 test('desktop stage keeps original dimensions and local images',async t=>{
- const {p}=await context(t,1440);await p.goto(origin+'/');await p.locator('#teaStage').scrollIntoViewIfNeeded();const m=await p.locator('#teaStage').boundingBox();assert.equal(m.width,610);assert(Math.abs(m.height-844*.69)<1);assert.equal(await p.locator('#teaStage img').count(),3);
+ const {p}=await context(t,1440);await p.goto(origin+'/');await p.locator('#teaStage').scrollIntoViewIfNeeded();const m=await p.locator('#teaStage').boundingBox();const film=await p.locator('.v20-film-frame').boundingBox();assert(Math.abs(m.width-film.width)<1);assert(Math.abs(m.height-film.height)<1);assert.equal(m.width,1440);assert.equal(await p.locator('#teaStage img').count(),3);
 });
 test('self-contained downloadable HTML renders on mobile without external resources and supports touch',async t=>{
  const {p,outside,errors}=await context(t);await p.goto(origin+'/preview.html#teaStage');await p.locator('#teaStage').scrollIntoViewIfNeeded();await p.waitForFunction(()=>[...document.querySelectorAll('#teaStage img')].every(i=>i.complete&&i.naturalWidth>0));
