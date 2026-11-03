@@ -24,7 +24,7 @@ async function browser(t,patch={}){
   // Fonts and non-business static services are blocked too.
   return route.abort();
  });
- const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(baseEnv.SITE_URL+'/checkout.html');await page.locator('#checkoutNoticeClose').click();
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(baseEnv.SITE_URL+'/checkout.html');assert.equal(await page.locator('#checkoutNotice').count(),0);
  return {...f,page,errors,tokens:()=>tokens};
 }
 async function fill(page){for(const [id,value] of Object.entries({familyName:'試験',givenName:'太郎',email:'buyer@example.invalid',phone:'09012345678',postalCode:'1000001',city:'テスト市',address1:'架空住所1'}))await page.locator('#'+id).fill(value);const state=page.locator('#state');if(await state.evaluate(e=>e.tagName==='SELECT'))await state.selectOption({label:'東京都'});else await state.fill('東京都');}
