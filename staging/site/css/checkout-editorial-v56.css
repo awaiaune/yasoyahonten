@@ -58,4 +58,11 @@ body.v56-transaction .v21-footer a:focus-visible{outline:2px solid currentColor;
  body.v56-transaction .v56-intro{margin-bottom:43px}
  body.v56-transaction .thanks-page{padding-top:145px;padding-bottom:115px}
 }
+/* v57: order verification controls. No success state is visible before backend verification. */
+body.v56-transaction #verifiedOrderReferenceRow[hidden],
+body.v56-transaction #retryOrderStatus[hidden]{display:none!important}
+body.v56-transaction .v57-retry{display:block;max-width:100%;padding:12px 16px;border:1px solid currentColor;color:var(--v56-ink);background:transparent;font:400 12px/1.6 "Noto Sans JP",sans-serif;margin:14px auto;cursor:pointer}
+body.v56-transaction .v57-retry:focus-visible{outline:2px solid var(--v56-ink);outline-offset:4px}
+body.v56-transaction .v57-contact{display:block;width:max-content;max-width:100%;margin:19px auto 0;font:400 10px/1.5 Arial,sans-serif;letter-spacing:.11em;text-decoration:none;border-bottom:1px solid currentColor;padding-bottom:6px}
+body.v56-transaction #orderVerificationMessage{overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){body.v56-transaction > header.editorial-header{transition:none}}
