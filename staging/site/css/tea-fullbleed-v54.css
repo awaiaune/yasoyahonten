@@ -31,3 +31,53 @@ body:has(.v21-film) .v20-tea-indicator {
     padding: 16px 0 20px;
   }
 }
+
+/* v55: center the copy within the photograph and overlay progress on the image.
+ * The existing 40px+ separation from the film remains unchanged.
+ */
+body:has(.v21-film) .v20-tea {
+  position: relative;
+}
+body:has(.v21-film) .v23-tea-slide figcaption {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  font-size: clamp(11px, 1.05vw, 15px);
+  letter-spacing: .23em;
+  line-height: 1.65;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .72);
+}
+body:has(.v21-film) .v20-tea-indicator {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  padding: 0 !important;
+  pointer-events: none;
+}
+body:has(.v21-film) .v20-tea-indicator span {
+  background: rgba(255, 255, 255, .50);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .32);
+}
+body:has(.v21-film) .v20-tea-indicator .is-active {
+  background: #fff;
+}
+@media (max-width: 700px) {
+  body:has(.v21-film) .v23-tea-slide figcaption {
+    font-size: 11px;
+    letter-spacing: .20em;
+  }
+  body:has(.v21-film) .v20-tea-indicator {
+    bottom: 20px;
+  }
+}
