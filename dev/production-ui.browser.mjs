@@ -22,6 +22,7 @@ test('Access-protected production UI saves images and drafts independently while
  await page.locator('#imageFiles').setInputFiles({name:'offline.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});await idle();assert.equal(await page.locator('.image-entry').count(),1);
  await page.locator('#imageFiles').setInputFiles({name:'plant.jpg',mimeType:'image/jpeg',buffer:await readFile(new URL('../images/yomogi.jpg',import.meta.url))});await idle();
  assert.equal(await page.locator('.image-entry').count(),2);
+ await page.locator('.photo-arrangement summary').click();
  await page.getByRole('button',{name:'写真2をトップ・SHOP・ALL VIEWの代表画像にする'}).click();
  assert.match(await page.locator('#botanicalImageStatus').innerText(),/写真2/);
  assert.match(await page.locator('.image-entry').first().innerText(),/商品詳細の1枚目/);
