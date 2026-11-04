@@ -7,8 +7,8 @@ const root=new URL('../',import.meta.url),ready=JSON.parse(await readFile(new UR
 const products=JSON.parse(await readFile(new URL('production/existing-products.json',root),'utf8')).products;
 const code=(await build({entryPoints:[new URL('production/storefront-worker.js',root).pathname],bundle:true,write:false,format:'esm',platform:'browser'})).outputFiles[0].text;
 const sdk=`window.Square={payments:(app,location)=>{window.offlineSdkArgs=[app,location];return {card:async()=>({attach:async selector=>{const iframe=document.createElement('iframe');iframe.src='https://pci-connect.squareup.com/offline';iframe.title='Offline card form';document.querySelector(selector).append(iframe);await new Promise(resolve=>iframe.onload=resolve);},tokenize:async()=>{await window.offlineTokenized();return {status:'OK',token:'offline-not-a-real-card-token'};}})};}};`;
-async function setup(t,off=false){
- const f=await fixture(t,{...ready.vars,PRODUCTION_INSTANCE_ID:instance,PRODUCTION_ACCESS_TEAM_DOMAIN:baseEnv.PRODUCTION_ACCESS_TEAM_DOMAIN,PRODUCTION_ACCESS_AUDIENCE:baseEnv.PRODUCTION_ACCESS_AUDIENCE,PRODUCTION_CHECKOUT_ENABLED:off?'0':'1',PRODUCTION_MANAGED_CHECKOUT_ENABLED:'1',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1'},true,{backendScript:code,assetsDir:new URL('production/.generated/v53',root).pathname});
+async function setup(t,off=false,unified='1'){
+ const f=await fixture(t,{...ready.vars,PRODUCTION_UNIFIED_PUBLISH_ENABLED:unified,PRODUCTION_STOREFRONT_PUBLISH_ENABLED:'1',PRODUCTION_CATALOG_CUTOVER_APPROVAL:unified==='0'?'0':ready.vars.PRODUCTION_CATALOG_CUTOVER_APPROVAL,PRODUCTION_INSTANCE_ID:instance,PRODUCTION_ACCESS_TEAM_DOMAIN:baseEnv.PRODUCTION_ACCESS_TEAM_DOMAIN,PRODUCTION_ACCESS_AUDIENCE:baseEnv.PRODUCTION_ACCESS_AUDIENCE,PRODUCTION_CHECKOUT_ENABLED:off?'0':'1',PRODUCTION_MANAGED_CHECKOUT_ENABLED:off&&unified==='0'?'0':'1',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1'},true,{backendScript:code,assetsDir:new URL('production/.generated/v53',root).pathname});
  f.fake.objects.clear();f.fake.counts.clear();
  for(const p of products){
   const data={name:p.name,description:'ローカル試験',images:[],alt:p.name,sortOrder:0,variants:[{id:p.variantId,name:'通常',price:980,amount:p.amount,maxQuantity:10,active:!p.retired}]};
@@ -36,8 +36,8 @@ async function setup(t,off=false){
  return{...f,page,context,errors,unexpected,count:()=>({tokens,payments,status})};
 }
 async function fill(p){for(const [id,value]of Object.entries({familyName:'試験',givenName:'購入者',email:'buyer@example.invalid',phone:'09012345678',postalCode:'1000001',state:'東京都',city:'試験市',address1:'架空住所1'}))await p.locator('#'+id).fill(value);}
-test('V58 ON: actual product ADD TO CART -> cart -> Production-shaped card -> one payment -> verified THANK YOU',{timeout:45000},async t=>{
- const f=await setup(t);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');const add=f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]');await add.waitFor();assert(await add.isEnabled());await add.click();
+async function verifyOn(t,unified='1'){
+ const f=await setup(t,false,unified);if(unified==='0')assert.deepEqual(['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED','PRODUCTION_CHECKOUT_ENABLED','PRODUCTION_MANAGED_CHECKOUT_ENABLED','PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED'].map(k=>f.env[k]),['0','1','1','1','0','1']);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');const add=f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]');await add.waitFor();assert(await add.isEnabled());await add.click();
  await f.page.locator('#cartCheckout:not([aria-disabled="true"])').waitFor({state:'visible'});await f.page.locator('#cartCheckout').click();await f.page.waitForURL('**/checkout.html');
  await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');assert.deepEqual(await f.page.evaluate(()=>window.offlineSdkArgs),[f.env.SQUARE_PRODUCTION_APPLICATION_ID,'LQ693S4H2NBZ8']);
  await f.page.frameLocator('#card-container iframe').getByLabel('Card number',{exact:true}).fill('offline-test');await fill(f.page);assert.match(await f.page.locator('#checkoutTotal').innerText(),/1,330/);
@@ -47,7 +47,11 @@ test('V58 ON: actual product ADD TO CART -> cart -> Production-shaped card -> on
  const receipt=await f.page.evaluate(()=>sessionStorage.getItem('yasoya_verified_checkout_v1'));assert(receipt);assert(!receipt.includes('offline-not-a-real-card-token'));assert.equal(await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1')),null);
  await f.page.reload();await f.page.waitForFunction(()=>document.getElementById('thankYouHeading')?.textContent==='Thank you.');assert.equal(f.count().payments,1);assert.equal(f.count().tokens,1);assert.equal(f.fake.counts.get(products[1].variationId),2);assert.equal(f.mails.length,2);
  assert(!f.calls.some(c=>c.method==='POST'&&c.path.startsWith('/v2/catalog/')));assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
-});
-test('V58 OFF: actual product button disabled and thank-you direct link never grants success',{timeout:30000},async t=>{
- const f=await setup(t,true);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');assert(await f.page.locator('[data-add-to-cart]').isDisabled());await f.page.goto(f.env.SITE_URL+'/thanks.html?payment=fake&order=fake');await f.page.waitForFunction(()=>document.getElementById('orderVerificationMessage')?.textContent.includes('この画面を開いただけでは'));assert.equal(await f.page.locator('#thankYouHeading').innerText(),'Order status.');assert.deepEqual(f.count(),{tokens:0,payments:0,status:0});assert.equal(f.fake.payments.size,0);
-});
+}
+async function verifyOff(t,unified='1'){
+ const f=await setup(t,true,unified);if(unified==='0')assert.deepEqual(['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED','PRODUCTION_CHECKOUT_ENABLED','PRODUCTION_MANAGED_CHECKOUT_ENABLED','PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED'].map(k=>f.env[k]),['0','1','0','0','0','1']);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');assert(await f.page.locator('[data-add-to-cart]').isDisabled());await f.page.goto(f.env.SITE_URL+'/thanks.html?payment=fake&order=fake');await f.page.waitForFunction(()=>document.getElementById('orderVerificationMessage')?.textContent.includes('この画面を開いただけでは'));assert.equal(await f.page.locator('#thankYouHeading').innerText(),'Order status.');assert.deepEqual(f.count(),{tokens:0,payments:0,status:0});assert.equal(f.fake.payments.size,0);
+ }
+test('V58 ON: actual product ADD TO CART -> cart -> Production-shaped card -> one payment -> verified THANK YOU',{timeout:45000},t=>verifyOn(t));
+test('V58 OFF: actual product button disabled and thank-you direct link never grants success',{timeout:30000},t=>verifyOff(t));
+test('unified publication OFF supports the full managed checkout and verified receipt without Catalog writes',{timeout:45000},t=>verifyOn(t,'0'));
+test('actual 0/1/0/0/0/1 profile keeps product purchase disabled and thank-you neutral',{timeout:30000},t=>verifyOff(t,'0'));

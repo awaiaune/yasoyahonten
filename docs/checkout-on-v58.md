@@ -6,6 +6,50 @@ The live Version/traffic, Codespaces working tree, actual local profile and curr
 D1/Square records have NOT been read in this isolated environment. The rollback
 candidate is a user report, not a freshly verified deployment snapshot.
 
+## Unified publication OFF correction
+
+The actual OFF profile is `0/1/0/0/0/1` in this order:
+unified publication / storefront publication / checkout / managed checkout /
+Catalog writes / inventory writes. The ON profile is `0/1/1/1/0/1`. Do not enable
+unified publication or change Catalog approval to satisfy checkout preflight.
+
+The original 9fce4d9 tests inherited unified publication ON from the review profile.
+With unified publication OFF, the old service selected a reduced comparison that
+missed SKU/parent/sellability and other identity differences and rejected harmless
+version advances. The corrected service uses the full READ-ONLY purchase proof
+under existing Production management/read/schema grants, independently of the
+publication permission. Catalog mutation endpoints still require their unchanged
+Catalog write grant and remain denied.
+
+Data path: published `mg_products` + `mg_revisions` -> `mg_mappings` -> managed
+catalog (legacy entries inactive) -> current Square Item/Variation/SKU/JPY price /
+tracking / deletion / sellability / Location overrides / unique SKU / monotonic
+versions. An unchanged commercial snapshot can pass a newer version without
+rewriting D1 mappings, issuing Catalog upserts or changing inventory. Invalid or
+missing proof stops before payment. The same protected read diagnostic is
+available while unified publication and purchase admission are OFF.
+
+Before the OFF code release, inspect the real existing local file without writing:
+
+```bash
+node production/prepare-checkout-v58.mjs --check-off \
+  production/release/ready-inventory.local.jsonc
+```
+
+Deploy this CORRECTED runtime with purchase OFF first; do not merely use the new
+preparer to flip flags on the old 9fce4d9/V57 runtime. After preparing a separate ON
+file, its read-only validation is:
+
+```bash
+node production/prepare-checkout-v58.mjs --check-on \
+  production/release/ready-checkout-v58.local.jsonc
+```
+
+The OFF/ON validators retain full identity, Domain, D1/DO/R2, read/schema grants,
+inventory approval and Catalog-OFF checks. They reject malformed/missing unified
+flags; accepting the valid value `0` does not grant publication or disable checks.
+No existing local profile is generated or overwritten by the `--check-*` commands.
+
 ## Scope and prerequisites
 
 - Change checkout/managed checkout to `1/1`; retain Catalog writes `0`, inventory

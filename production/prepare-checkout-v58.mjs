@@ -34,18 +34,33 @@ export function validateBase(c){
  if(!c.durable_objects?.bindings?.some(b=>b.name==='PURCHASE_COORDINATOR'&&b.class_name==='PurchaseCoordinator'&&(!b.script_name||b.script_name===c.name)))fail('EXISTING_DO_REQUIRED');
  if(!c.r2_buckets?.some(b=>b.binding==='PRODUCT_IMAGES'&&b.bucket_name==='yasoya-honten-product-images'))fail('EXISTING_R2_REQUIRED');
  if(v.MANAGEMENT_ENABLED!=='1'||v.PRODUCTION_MANAGEMENT_SCHEMA_READY!=='1'||v.PRODUCTION_MANAGEMENT_READ_ENABLED!=='1'||v.PRODUCTION_STOREFRONT_ENABLED!=='1')fail('EXISTING_MANAGEMENT_REQUIRED');
- if(v.PRODUCTION_UNIFIED_PUBLISH_ENABLED!=='1'||v.PRODUCTION_STOREFRONT_PUBLISH_ENABLED!=='1')fail('SALES_VERIFICATION_PROFILE_REQUIRED');
+ // Publishing writes and purchase read-verification are separate capabilities.
+ // Unified publication may remain OFF; reject missing/malformed flags rather
+ // than granting publication to make checkout validation pass.
+ if(!['0','1'].includes(v.PRODUCTION_UNIFIED_PUBLISH_ENABLED)||v.PRODUCTION_STOREFRONT_PUBLISH_ENABLED!=='1')fail('SALES_VERIFICATION_PROFILE_REQUIRED');
  if(v.PRODUCTION_INVENTORY_WRITER_APPROVAL!=='shared-purchase-do-single-writer-v1')fail('EXISTING_INVENTORY_APPROVAL_REQUIRED');
  if(v.PRODUCTION_MANAGEMENT_CATALOG_ENABLED!=='0'||v.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED!=='1'||v.STOREFRONT_RETIRE_GOLDENROD!=='1')fail('CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID');
  if(!['0','1'].includes(v.PRODUCTION_MANAGED_CHECKOUT_ENABLED))fail('MANAGED_CHECKOUT_FLAG_INVALID');
  if(Object.keys(v).some(k=>k.startsWith('SQUARE_SANDBOX'))||v.LOCAL_TEST_MODE)fail('SANDBOX_OR_LOCAL_BINDING_FORBIDDEN');
  return c;
 }
+export function validateOffConfig(input){
+ validateBase(input);if(input.vars.PRODUCTION_CHECKOUT_ENABLED!=='0')fail('CHECKOUT_OFF_INPUT_REQUIRED');return input;
+}
+export function validateOnConfig(input){
+ validateBase(input);if(input.vars.PRODUCTION_CHECKOUT_ENABLED!=='1'||input.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED!=='1')fail('CHECKOUT_ON_PROFILE_REQUIRED');return input;
+}
 export function onConfig(input){
- validateBase(input);if(input.vars.PRODUCTION_CHECKOUT_ENABLED!=='0')fail('CHECKOUT_OFF_INPUT_REQUIRED');
+ validateOffConfig(input);
  const output=structuredClone(input);
  output.vars.PRODUCTION_CHECKOUT_ENABLED='1';output.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED='1';
- return output;
+ return validateOnConfig(output);
+}
+export async function checkProfile(input,mode='off'){
+ if(!['off','on'].includes(mode))fail('PROFILE_MODE_INVALID');
+ let meta;try{meta=await lstat(input);}catch{fail('EXISTING_OFF_PROFILE_NOT_FOUND');}if(!meta.isFile()||meta.isSymbolicLink())fail('INPUT_MUST_BE_REGULAR_FILE');
+ const c=parseConfig(await readFile(input,'utf8'));
+ return mode==='off'?validateOffConfig(c):validateOnConfig(c);
 }
 export async function writeOnConfig(input,output){
  const a=path.resolve(input),b=path.resolve(output);if(a===b)fail('INPUT_MUST_NOT_BE_OVERWRITTEN');
@@ -56,8 +71,9 @@ export async function writeOnConfig(input,output){
  return {changedSettings:['PRODUCTION_CHECKOUT_ENABLED','PRODUCTION_MANAGED_CHECKOUT_ENABLED']};
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
- const input=process.argv[2]||'production/release/ready-inventory.local.jsonc';
+ const check=process.argv[2]==='--check-off'?'off':process.argv[2]==='--check-on'?'on':null;
+ const input=(check?process.argv[3]:process.argv[2])||(check==='on'?'production/release/ready-checkout-v58.local.jsonc':'production/release/ready-inventory.local.jsonc');
  const output=process.argv[3]||'production/release/ready-checkout-v58.local.jsonc';
- try{await writeOnConfig(input,output);console.log('V58 local ON profile prepared; OFF source and all other settings retained. No deployment.');}
- catch(error){const allowed=['INVALID_JSONC','PRODUCTION_IDENTITY_INVALID','STOREFRONT_ENTRY_INVALID','EXISTING_CUSTOM_DOMAIN_REQUIRED','EXISTING_D1_REQUIRED','EXISTING_DO_REQUIRED','EXISTING_R2_REQUIRED','EXISTING_MANAGEMENT_REQUIRED','SALES_VERIFICATION_PROFILE_REQUIRED','EXISTING_INVENTORY_APPROVAL_REQUIRED','CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID','MANAGED_CHECKOUT_FLAG_INVALID','SANDBOX_OR_LOCAL_BINDING_FORBIDDEN','CHECKOUT_OFF_INPUT_REQUIRED','INPUT_MUST_NOT_BE_OVERWRITTEN','EXISTING_OFF_PROFILE_NOT_FOUND','INPUT_MUST_BE_REGULAR_FILE','OUTPUT_MUST_SHARE_CONFIG_DIRECTORY','OUTPUT_EXISTS_NOT_OVERWRITTEN'];console.error('STOP: '+(allowed.includes(error.message)?error.message:'PROFILE_PREPARATION_FAILED'));process.exitCode=1;}
+ try{if(check){await checkProfile(input,check);console.log('V58 '+check.toUpperCase()+' profile verified locally; no files or settings changed.');}else{await writeOnConfig(input,output);console.log('V58 local ON profile prepared; OFF source and all other settings retained. No deployment.');}}
+ catch(error){const allowed=['INVALID_JSONC','PRODUCTION_IDENTITY_INVALID','STOREFRONT_ENTRY_INVALID','EXISTING_CUSTOM_DOMAIN_REQUIRED','EXISTING_D1_REQUIRED','EXISTING_DO_REQUIRED','EXISTING_R2_REQUIRED','EXISTING_MANAGEMENT_REQUIRED','SALES_VERIFICATION_PROFILE_REQUIRED','EXISTING_INVENTORY_APPROVAL_REQUIRED','CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID','MANAGED_CHECKOUT_FLAG_INVALID','SANDBOX_OR_LOCAL_BINDING_FORBIDDEN','CHECKOUT_OFF_INPUT_REQUIRED','CHECKOUT_ON_PROFILE_REQUIRED','PROFILE_MODE_INVALID','INPUT_MUST_NOT_BE_OVERWRITTEN','EXISTING_OFF_PROFILE_NOT_FOUND','INPUT_MUST_BE_REGULAR_FILE','OUTPUT_MUST_SHARE_CONFIG_DIRECTORY','OUTPUT_EXISTS_NOT_OVERWRITTEN'];console.error('STOP: '+(allowed.includes(error.message)?error.message:'PROFILE_PREPARATION_FAILED'));process.exitCode=1;}
 }
