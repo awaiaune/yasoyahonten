@@ -47,8 +47,17 @@
         catch(error){if(error.status===404&&metadata(id).state==='prepared')return null;if(error.status===404)throw new Error('送信済み注文の結果を確認できません。再決済せず、同じ画面で処理状況を確認してください。');throw error;}
     }
     function complete(result){
-        if(result?.status==='declined'){localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);throw new Error('決済が完了しなかったことを確認しました。再度お試しください。');}
-        if(!result?.ok||!result.paymentId||!result.orderReference)throw new Error('注文の処理状況を確認中です。再購入せず「処理状況を確認」を押してください。');
+        if(result?.status==='declined' && result.retryAllowed===true){
+            localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);
+            throw new Error('決済の不成立をSquareとの照合で確認しました。課金・在庫減算は行っていません。画面を更新してカード情報を確認してください。本番ではSandboxテストカードは使用できません。');
+        }
+        if(!result?.ok||!result.paymentId||!result.orderReference){
+            const evidence=result?.paymentFailure;
+            const detail=evidence?' ［Square HTTP '+Number(evidence.httpStatus)+'／'+(evidence.codes||[]).join('・')+'］':'';
+            if(result?.manualReview)throw new Error('注文は管理者による確認が必要です。再購入せずお問い合わせください。'+detail);
+            if(result?.paymentOutcome==='rejected')throw new Error('Squareが支払い要求を拒否しました。'+detail+' 再課金を防ぐため注文番号と在庫保留は維持しています。「処理状況を確認」から照合し、解消しない場合は管理者へお問い合わせください。本番ではSandboxテストカードは使えません。');
+            throw new Error('注文の処理状況を確認中です。決済結果は未確定です。再購入せず「処理状況を確認」を押してください。'+detail);
+        }
         // Keep a short-lived, tab-scoped receipt reference for the thank-you verification.
         // Never store the card token. If storage is unavailable, do not interrupt a paid order.
         try {
@@ -79,7 +88,8 @@
     }
 
     async function api(path, options = {}) {
-        const response = await fetch(`${config.workerBaseUrl}${path}`, {
+        let response;
+        try { response = await fetch(`${config.workerBaseUrl}${path}`, {
             cache: "no-store",
             ...options,
             signal:options.signal||AbortSignal.timeout(15000),
@@ -87,7 +97,11 @@
                 "Content-Type": "application/json",
                 ...(options.headers || {})
             }
-        });
+        }); } catch {
+            throw new Error(path.endsWith('/payments') || path.endsWith('/payments/status')
+                ? '決済結果を受信できませんでした。注文番号は維持しています。再購入せず「処理状況を確認」を押してください。'
+                : '通信を完了できませんでした。通信環境と認証状態を確認してください。');
+        }
 
         const body = await response.json().catch(() => ({}));
 
@@ -247,12 +261,13 @@
                 billingContact: contact
             };
 
-            const tokenResult = await card.tokenize(verificationDetails);
+            let tokenResult;
+            try { tokenResult = await card.tokenize(verificationDetails); }
+            catch { throw new Error('カードの本人認証・トークン化に失敗しました。決済要求は送信していません。入力内容と通信環境を確認してください。'); }
 
-            if (tokenResult.status !== "OK" || !tokenResult.token) {
+            if (tokenResult?.status !== "OK" || !tokenResult?.token) {
                 throw new Error(
-                    tokenResult.errors?.[0]?.message ||
-                    "カード情報を確認できませんでした。"
+                    "カード情報の認証・トークン化を完了できませんでした。決済要求は送信していません。入力内容と本人認証を確認してください。本番ではSandboxテストカードは使用できません。"
                 );
             }
 
@@ -271,8 +286,10 @@
             complete(paymentResult);
         } catch (error) {
 
-            status.textContent = error.message || "決済に失敗しました。";
-            if(error.code==='CHECKOUT_DISABLED'){const id=localStorage.getItem(ATTEMPT_KEY);if(id)remember(id,'prepared');capabilities={...capabilities,checkoutEnabled:false};}
+            status.textContent = error.message || "決済結果を確認できません。再購入せず処理状況を確認してください。";
+            // An OFF response must never turn an already submitted attempt back
+            // into a new charge after a later 404, reload or reopening of sales.
+            if(error.code==='CHECKOUT_DISABLED')capabilities={...capabilities,checkoutEnabled:false};
         } finally {
             submitting = false;
             buttonState();

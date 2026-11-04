@@ -55,3 +55,27 @@ test('V58 ON: actual product ADD TO CART -> cart -> Production-shaped card -> on
 test('V58 OFF: actual product button disabled and thank-you direct link never grants success',{timeout:30000},t=>verifyOff(t));
 test('unified publication OFF supports the full managed checkout and verified receipt without Catalog writes',{timeout:45000},t=>verifyOn(t,'0'));
 test('actual 0/1/0/0/0/1 profile keeps product purchase disabled and thank-you neutral',{timeout:30000},t=>verifyOff(t,'0'));
+for(const [httpStatus,code,label] of [[400,'CARD_DECLINED','要求を拒否'],[500,'INTERNAL_SERVER_ERROR','未確定']])test(`V59 mobile real checkout ${httpStatus}: status, reload and double tap never charge again`,{timeout:45000},async t=>{
+ const f=await setup(t,false,'0'),fetch=f.fake.fetch.bind(f.fake);let posts=0;
+ f.fake.fetch=async request=>{
+  if(new URL(request.url).pathname==='/v2/payments'&&request.method==='POST'){posts++;return Response.json({errors:[{code,detail:'private provider detail'}]},{status:httpStatus});}
+  return fetch(request);
+ };
+ await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');await f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]').click();
+ await f.page.locator('#cartCheckout:not([aria-disabled="true"])').waitFor({state:'visible'});await f.page.locator('#cartCheckout').click();
+ await f.page.waitForURL('**/checkout.html');await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');
+ await fill(f.page);await f.page.locator('#paymentButton').click();
+ await f.page.waitForFunction(text=>document.getElementById('paymentStatus')?.textContent.includes(text),label);
+ assert.match(await f.page.locator('#paymentStatus').innerText(),new RegExp('HTTP '+httpStatus+'／'+code));
+ assert(await f.page.locator('#paymentButton').isDisabled());
+ const id=await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1'));assert(id);
+ await f.page.locator('#checkPaymentStatus').click();await f.page.reload();
+ await f.page.waitForFunction(text=>document.getElementById('paymentStatus')?.textContent.includes(text),label);
+ await f.page.locator('#checkPaymentStatus').click();
+ assert.equal(await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1')),id);
+ assert.equal(posts,1);assert.equal(f.count().payments,1);assert.equal(f.count().tokens,1);
+ assert.equal(f.fake.payments.size,0);assert.equal(f.fake.counts.get(products[1].variationId),3);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,1);assert.equal(f.mails.length,0);
+ assert(!(await f.page.locator('body').innerText()).includes('private provider detail'));
+ assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
+});

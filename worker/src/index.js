@@ -12,6 +12,7 @@ import { renderPage } from './management/storefront.js';
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
 import { SANDBOX_CATALOG } from "../../validation/catalog.js";
 import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
+import { SquarePaymentFailure } from './payment-failure.js';
 import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
 const JSON_HEADERS = {
@@ -633,15 +634,10 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
 
     const result = await response.json().catch(() => ({}));
 
-    if (!response.ok || !result.payment) {
-        console.error("Square error:", result);
-
-        const squareMessage =
-            result?.errors?.[0]?.detail ||
-            result?.errors?.[0]?.code ||
-            "Squareで決済を完了できませんでした。";
-
-        throw new HttpError(400, squareMessage);
+    // A failed payment object is usable only after the ledger verifies its
+    // reference, location, amount and currency. Never log the provider body.
+    if ((!response.ok && !['FAILED','CANCELED'].includes(result.payment?.status)) || !result.payment) {
+        throw new SquarePaymentFailure(response.status, result);
     }
 
     return result.payment;

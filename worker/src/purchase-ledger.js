@@ -1,4 +1,5 @@
 import {OrderMailOutbox} from './order-mail-outbox.js';
+import {SquarePaymentFailure} from './payment-failure.js';
 // DO is the durable purchase journal; D1 remains a retryable projection.
 const RETRY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 8;
@@ -95,9 +96,10 @@ export class PurchaseLedger {
             const payment = await this.services.charge(r, body.sourceId);
             this.verifyPayment(r, payment);
             r.payment = paymentSnapshot(payment);
-            r.phase = payment.status === 'COMPLETED' ? 'paid' : 'unknown';
-        } catch {
+            r.phase = payment.status === 'COMPLETED' ? 'paid' : ['FAILED','CANCELED'].includes(payment.status) ? 'declined' : 'unknown';
+        } catch (error) {
             r.phase = 'unknown'; r.warning = 'payment_result_unknown';
+            if (error instanceof SquarePaymentFailure) r.paymentFailure = error.evidence;
         }
         await this.write(r);
         return this.recover(r.id, true);
@@ -114,6 +116,9 @@ export class PurchaseLedger {
             amount: r.quote.total, inventoryAdjusted: r.inventory === 'applied',
             phase: r.phase, inventoryState: r.inventory, orderState: r.projection,
             recoveryRequired: !this.closed(r), warning: r.warning, manualReview: Boolean(r.manual),
+            paymentOutcome: r.phase === 'paid' ? 'paid' : r.phase === 'declined' ? 'failed' : r.paymentFailure?.outcome || 'unknown',
+            paymentFailure: r.phase === 'paid' ? null : r.paymentFailure || null,
+            retryAllowed: r.phase === 'declined' && ['FAILED','CANCELED'].includes(r.payment?.status),
             pausedVariations: this.holdsStock(r) ? this.stockKeys(r) : [],
             notificationState: r.notificationState || 'not_required', emailQueued: Boolean(r.emailQueued) };
     }
