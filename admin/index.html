@@ -36,6 +36,12 @@
         </div>
         <div class="quick-actions"><button id="homeNewProduct" class="primary">＋ 商品を登録</button><button data-go="inventoryPanel" class="secondary">入庫・棚卸し</button></div>
         <div class="home-grid"><section class="surface"><div class="section-heading"><h2>最近の注文</h2><button class="text-button" data-go="ordersPanel">すべて見る →</button></div><div id="recentOrders"></div><p class="hint">注文集計は各状態の直近200件までです。</p></section><section class="surface"><div class="section-heading"><h2>在庫の確認が必要</h2><button class="text-button" data-go="inventoryPanel">在庫へ →</button></div><div id="lowStockList"></div></section></div>
+        <section class="surface payment-attempts" aria-labelledby="paymentAttemptsTitle">
+          <div class="section-heading"><h2 id="paymentAttemptsTitle">未解決の決済</h2><button type="button" id="checkPaymentAttempts" class="secondary">未解決決済を確認</button></div>
+          <p class="hint">読み取り専用です。復旧・再決済・在庫保留の解除は行いません。</p>
+          <p id="paymentAttemptsMessage" class="message" role="status" aria-live="polite">未確認</p>
+          <ul id="paymentAttemptsList" class="payment-attempt-list" aria-label="未解決の決済試行"></ul>
+        </section>
       </section>
       <section id="ordersPanel" class="screen" hidden aria-labelledby="ordersTitle">
         <div class="page-heading"><div><h1 id="ordersTitle" tabindex="-1">注文</h1></div><button id="reloadOrders" class="secondary">更新</button></div>

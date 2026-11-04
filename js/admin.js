@@ -93,6 +93,34 @@
     return response;
   }
   const data = async (path, options) => (await api(path, options)).json();
+  let checkingPaymentAttempts = false;
+  async function checkPaymentAttempts() {
+    if (checkingPaymentAttempts) return;
+    checkingPaymentAttempts = true;
+    const button = $('checkPaymentAttempts'), list = $('paymentAttemptsList');
+    button.disabled = true; button.setAttribute('aria-busy', 'true');
+    list.innerHTML = ''; message('paymentAttemptsMessage', '未確認：確認しています…', 'loading');
+    try {
+      const result = await data('/api/admin/payment-attempts', {
+        method:'GET', cache:'no-store', credentials:'same-origin', redirect:'manual', signal:AbortSignal.timeout(10000)
+      });
+      if (!Array.isArray(result?.attempts) || result.attempts.some(r => !r || typeof r !== 'object' || Array.isArray(r))) throw Error('Invalid response');
+      const phases = {prepared:'決済準備中・要確認',submitting:'決済要求を送信中',unknown:'決済結果が不明',paid:'決済成功・後処理を確認中',COMPLETED:'決済成功・後処理を確認中',declined:'決済不成立'};
+      const inventory = {pending:'未反映・保留中',applied:'反映済み',retry_required:'再確認が必要'};
+      const orders = {pending:'未保存',stored:'保存済み',retry_required:'保存の再確認が必要'};
+      const label = (labels, value, fallback = '未確認') => typeof value === 'string' && Object.hasOwn(labels, value) ? labels[value] : fallback;
+      // Render only fixed state labels. Never interpolate IDs, contacts, card
+      // data, provider details, or credentials returned as unexpected fields.
+      list.innerHTML = result.attempts.map((r, i) => `<li class="management-card"><strong>試行 ${i + 1}：${r.manualReview === true ? '管理者の確認が必要' : r.paymentOutcome === 'rejected' ? 'Squareが要求を拒否・照合が必要' : label(phases, r.phase || r.status, '状態未確認')}</strong><small>在庫：${label(inventory, r.inventoryState)} ／ 注文：${label(orders, r.orderState)}</small></li>`).join('');
+      message('paymentAttemptsMessage', `未解決の決済試行：${result.attempts.length}件（確認時点）。` +
+        (result.attempts.length ? ' 再決済してよいか、この一覧だけでは判断できません。再購入せず、試行IDと在庫保留を維持して照合してください。' : ' 購入受付の再開可否は別途確認してください。'), result.attempts.length ? 'error' : 'success');
+    } catch {
+      list.innerHTML = '';
+      message('paymentAttemptsMessage', '未確認：取得できませんでした。通信とCloudflare Access・管理者認証を確認し、もう一度確認してください。0件とは判断できません。', 'error');
+    } finally {
+      checkingPaymentAttempts = false; button.disabled = false; button.removeAttribute('aria-busy');
+    }
+  }
   async function write(path, body, method = 'POST') {
     // Keep the original operation ID after a lost response. A changed payload is a separate operation.
     const key = method + path + JSON.stringify(body);
@@ -163,6 +191,7 @@
   $('detail').addEventListener('cancel',e => { if (shipping) e.preventDefault(); });
   $('orders').onclick = e => { const b = e.target.closest('[data-order]'); if (b) openOrder(b.dataset.order); };
   $('reloadOrders').onclick = loadOrders;
+  $('checkPaymentAttempts')?.addEventListener('click', checkPaymentAttempts);
   document.querySelectorAll('.tab').forEach(b => b.onclick = () => { current = b.dataset.status; document.querySelectorAll('.tab').forEach(x => { x.classList.toggle('active',x === b); x.setAttribute('aria-pressed',String(x === b)); }); loadOrders(); });
   if (local) $('loginHelp').textContent = 'ローカル専用：local-development-only を入力してください。実際の認証情報は使いません。';
   if (token) { $('token').value = token; login(); }

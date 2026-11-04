@@ -37,6 +37,64 @@ test('mobile login and dashboard show real local aggregates, photos and accessib
  for(const button of await page.getByRole('navigation').getByRole('button').all()){const b=await button.boundingBox();assert(b.width>=44&&b.height>=44);}
  await noOverflow();await screenshot('home-390');
 });
+test('mobile unresolved payment review uses authenticated GET only, hides private data and prevents duplicate reads',async()=>{
+ await nav('ホーム');
+ assert.equal(await page.locator('#paymentAttemptsMessage').innerText(),'未確認');
+ const button=page.getByRole('button',{name:'未解決決済を確認',exact:true});
+ const box=await button.boundingBox();assert(box.width>=44&&box.height>=44);await noOverflow();
+ let release,requested;const gate=new Promise(r=>release=r),started=new Promise(r=>requested=r),calls=[];
+ const route=async r=>{
+  const req=r.request();calls.push({method:req.method(),path:new URL(req.url()).pathname,authenticated:req.headers().authorization==='Bearer local-development-only',body:req.postData()});
+  requested();await gate;
+  await r.fulfill({json:{attempts:[
+   {phase:'unknown',inventoryState:'pending',orderState:'pending',attemptId:'PRIVATE_ATTEMPT',contact:{email:'PRIVATE_EMAIL'},sourceId:'PRIVATE_CARD',paymentFailure:{detail:'PRIVATE_PROVIDER'}},
+   {phase:'unknown',paymentOutcome:'rejected',inventoryState:'pending',orderState:'pending'},
+   {phase:'paid',inventoryState:'applied',orderState:'retry_required'},
+   {manualReview:true,phase:'unknown'},
+   {phase:'<img src=x onerror=alert(1)>',inventoryState:'constructor',orderState:'__proto__'}
+  ]}});
+ };
+ await page.route('**/api/admin/payment-attempts**',route);
+ const squareCalls=runtime.square.calls.length;
+ try{
+  await button.evaluate(b=>{b.click();b.click();});await started;
+  assert(await button.isDisabled());assert.equal(await button.getAttribute('aria-busy'),'true');
+  assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/未確認/);
+  release();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
+  assert.deepEqual(calls,[{method:'GET',path:'/api/admin/payment-attempts',authenticated:true,body:null}]);
+  const text=await page.locator('.payment-attempts').innerText();
+  for(const expected of ['5件','決済結果が不明','Squareが要求を拒否','決済成功・後処理','管理者の確認が必要','状態未確認','この一覧だけでは判断できません'])assert(text.includes(expected));
+  assert(!text.includes('PRIVATE_'));assert(!text.includes('constructor'));assert(!text.includes('__proto__'));
+  assert.equal(await page.locator('#paymentAttemptsList li').count(),5);assert.equal(await page.locator('#paymentAttemptsList img').count(),0);
+  assert.equal(runtime.square.calls.length,squareCalls);await noOverflow();
+ }finally{release();await page.unroute('**/api/admin/payment-attempts**',route);}
+});
+test('unresolved payment HTTP/auth/network/redirect and malformed responses show unconfirmed and discard stale results',async()=>{
+ await nav('ホーム');const button=page.locator('#checkPaymentAttempts');
+ const cases=[{status:401,json:{error:{message:'PRIVATE_ERROR'}}},{status:403,json:{}},{status:503,json:{}},
+  {status:200,contentType:'text/html',body:'PRIVATE_ACCESS_PAGE'}, {json:{}},{json:{attempts:[null]}},
+  {status:302,headers:{Location:'https://access.invalid/private'}},{abort:true}];
+ for(const response of cases){
+  const route=r=>response.abort?r.abort():r.fulfill(response);
+  await page.route('**/api/admin/payment-attempts**',route);
+  try{
+   await button.click();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
+   const text=await page.locator('#paymentAttemptsMessage').innerText();assert.match(text,/未確認/);assert.match(text,/0件とは判断できません/);assert(!text.includes('PRIVATE_'));
+   assert.equal(await page.locator('#paymentAttemptsList li').count(),0);
+  }finally{await page.unroute('**/api/admin/payment-attempts**',route);}
+ }
+});
+test('unresolved payment review can retry a read and shows confirmed zero without authorizing payment restart',async()=>{
+ await nav('ホーム');let count=0;
+ const route=r=>{assert.equal(r.request().method(),'GET');count++;return r.fulfill({json:{attempts:[]}});};
+ await page.route('**/api/admin/payment-attempts**',route);
+ try{
+  await page.locator('#checkPaymentAttempts').click();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
+  assert.equal(count,1);assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/0件（確認時点）/);
+  assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/再開可否は別途/);
+  assert.equal(await page.locator('#paymentAttemptsList li').count(),0);await noOverflow();
+ }finally{await page.unroute('**/api/admin/payment-attempts**',route);}
+});
 test('products support authenticated thumbnails, search, status filters and no-result feedback',async()=>{
  await nav('商品');await page.waitForFunction(()=>[...document.querySelectorAll('#productList img')].every(i=>i.complete&&i.naturalWidth>0));
  assert.equal(await page.locator('.product-card').count(),3);
