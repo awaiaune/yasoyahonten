@@ -7,7 +7,7 @@ const root=new URL('../',import.meta.url),ready=JSON.parse(await readFile(new UR
 const products=JSON.parse(await readFile(new URL('production/existing-products.json',root),'utf8')).products;
 const code=(await build({entryPoints:[new URL('production/storefront-worker.js',root).pathname],bundle:true,write:false,format:'esm',platform:'browser'})).outputFiles[0].text;
 const sdk=`window.Square={payments:(app,location)=>{window.offlineSdkArgs=[app,location];return {card:async()=>({attach:async selector=>{const iframe=document.createElement('iframe');iframe.src='https://pci-connect.squareup.com/offline';iframe.title='Offline card form';document.querySelector(selector).append(iframe);await new Promise(resolve=>iframe.onload=resolve);},tokenize:async()=>{await window.offlineTokenized();return {status:'OK',token:'offline-not-a-real-card-token'};}})};}};`;
-async function setup(t,off=false,unified='1'){
+async function setup(t,off=false,unified='1',options={}){
  const f=await fixture(t,{...ready.vars,PRODUCTION_UNIFIED_PUBLISH_ENABLED:unified,PRODUCTION_STOREFRONT_PUBLISH_ENABLED:'1',PRODUCTION_CATALOG_CUTOVER_APPROVAL:unified==='0'?'0':ready.vars.PRODUCTION_CATALOG_CUTOVER_APPROVAL,PRODUCTION_INSTANCE_ID:instance,PRODUCTION_ACCESS_TEAM_DOMAIN:baseEnv.PRODUCTION_ACCESS_TEAM_DOMAIN,PRODUCTION_ACCESS_AUDIENCE:baseEnv.PRODUCTION_ACCESS_AUDIENCE,PRODUCTION_CHECKOUT_ENABLED:off?'0':'1',PRODUCTION_MANAGED_CHECKOUT_ENABLED:off&&unified==='0'?'0':'1',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1'},true,{backendScript:code,assetsDir:new URL('production/.generated/v53',root).pathname});
  f.fake.objects.clear();f.fake.counts.clear();
  for(const p of products){
@@ -27,6 +27,7 @@ async function setup(t,off=false,unified='1'){
   if(u.origin==='https://web.squarecdn.com')return route.fulfill({contentType:'application/javascript',body:sdk});
   if(u.origin==='https://pci-connect.squareup.com')return route.fulfill({contentType:'text/html',body:'<label>Card number<input></label><label>Expiry<input></label><label>CVV<input></label>'});
   if(u.origin!==f.env.SITE_URL){if(!['fonts.googleapis.com','fonts.gstatic.com'].includes(u.hostname))unexpected.push(u.origin);return route.abort();}
+  if(u.pathname==='/api/inventory'&&options.inventoryGate){options.inventoryStarted?.();await options.inventoryGate;}
   if(u.pathname==='/api/v1/payments')payments++;
   if(u.pathname==='/api/v1/payments/status')status++;
   const data=req.postDataBuffer();const r=await f.mf.dispatchFetch(req.url(),{method:req.method(),headers:req.headers(),...(data?{body:data}:{})});
@@ -36,8 +37,14 @@ async function setup(t,off=false,unified='1'){
  return{...f,page,context,errors,unexpected,count:()=>({tokens,payments,status})};
 }
 async function fill(p){for(const [id,value]of Object.entries({familyName:'試験',givenName:'購入者',email:'buyer@example.invalid',phone:'09012345678',postalCode:'1000001',state:'東京都',city:'試験市',address1:'架空住所1'}))await p.locator('#'+id).fill(value);}
+// Visibility does not mean readiness: managed-storefront disables the button
+// until the asynchronous inventory response has been applied. A persistent
+// flag/product/inventory failure must still time out and fail this assertion.
+async function waitForPurchasable(page){
+ await page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]:enabled').waitFor({state:'visible',timeout:12000});
+}
 async function verifyOn(t,unified='1'){
- const f=await setup(t,false,unified);if(unified==='0')assert.deepEqual(['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED','PRODUCTION_CHECKOUT_ENABLED','PRODUCTION_MANAGED_CHECKOUT_ENABLED','PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED'].map(k=>f.env[k]),['0','1','1','1','0','1']);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');const add=f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]');await add.waitFor();assert(await add.isEnabled());await add.click();
+ const f=await setup(t,false,unified);if(unified==='0')assert.deepEqual(['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED','PRODUCTION_CHECKOUT_ENABLED','PRODUCTION_MANAGED_CHECKOUT_ENABLED','PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED'].map(k=>f.env[k]),['0','1','1','1','0','1']);await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');const add=f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]');await waitForPurchasable(f.page);assert(await add.isEnabled());await add.click();
  await f.page.locator('#cartCheckout:not([aria-disabled="true"])').waitFor({state:'visible'});await f.page.locator('#cartCheckout').click();await f.page.waitForURL('**/checkout.html');
  await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');assert.deepEqual(await f.page.evaluate(()=>window.offlineSdkArgs),[f.env.SQUARE_PRODUCTION_APPLICATION_ID,'LQ693S4H2NBZ8']);
  await f.page.frameLocator('#card-container iframe').getByLabel('Card number',{exact:true}).fill('offline-test');await fill(f.page);assert.match(await f.page.locator('#checkoutTotal').innerText(),/1,330/);
@@ -78,4 +85,24 @@ for(const [httpStatus,code,label] of [[400,'CARD_DECLINED','要求を拒否'],[5
  assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,1);assert.equal(f.mails.length,0);
  assert(!(await f.page.locator('body').innerText()).includes('private provider detail'));
  assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
+});
+
+test('inventory initialization keeps purchase disabled until the delayed API response is applied',{timeout:30000},async t=>{
+ let release,started;
+ const inventoryGate=new Promise(resolve=>release=resolve),requested=new Promise(resolve=>started=resolve);
+ const f=await setup(t,false,'0',{inventoryGate,inventoryStarted:started});
+ try{
+  await f.page.goto(f.env.SITE_URL+'/products/yomogi.html');await requested;
+  const add=f.page.locator('[data-add-to-cart][data-product-id="yomogi-10g"]');
+  assert(await add.isVisible());assert(await add.isDisabled());
+  assert.equal(await add.getAttribute('data-site-disabled'),null);
+  const response=f.page.waitForResponse(r=>new URL(r.url()).pathname==='/api/inventory');
+  const ready=waitForPurchasable(f.page);release();
+  const inventory=await response;assert.equal(inventory.status(),200);
+  const data=await inventory.json();assert.equal(data.inventory.find(i=>i.id==='yomogi-10g').availableQuantity,3);
+  await ready;assert(await add.isEnabled());
+  assert.equal(f.fake.counts.get(products[1].variationId),3);
+  assert.deepEqual(f.count(),{tokens:0,payments:0,status:0});
+  assert.equal(f.fake.payments.size,0);assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
+ }finally{release();}
 });
