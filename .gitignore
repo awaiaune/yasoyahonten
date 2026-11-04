@@ -13,3 +13,5 @@ dev/.state/
 **/yasoya-orders*.sql
 **/restore-verification.sqlite
 **/backup-verification.json
+# Local release profiles can contain private settings; never publish these.
+production/release/*.local.jsonc
