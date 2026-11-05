@@ -73,7 +73,7 @@ for(const [httpStatus,code,label] of [[400,'CARD_DECLINED','要求を拒否'],[5
  await f.page.waitForURL('**/checkout.html');await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');
  await fill(f.page);await f.page.locator('#paymentButton').click();
  await f.page.waitForFunction(text=>document.getElementById('paymentStatus')?.textContent.includes(text),label);
- assert.match(await f.page.locator('#paymentStatus').innerText(),new RegExp('HTTP '+httpStatus+'／'+code));
+ assert.match(await f.page.locator('#paymentStatus').innerText(),httpStatus===400?/カード会社/:/決済サービス/);assert(!(await f.page.locator('#paymentStatus').innerText()).includes(code));
  assert(await f.page.locator('#paymentButton').isDisabled());
  const id=await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1'));assert(id);
  await f.page.locator('#checkPaymentStatus').click();await f.page.reload();
@@ -105,4 +105,29 @@ test('inventory initialization keeps purchase disabled until the delayed API res
   assert.deepEqual(f.count(),{tokens:0,payments:0,status:0});
   assert.equal(f.fake.payments.size,0);assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
  }finally{release();}
+});
+
+test('mobile confirmed FAILED 3DS response shows Japanese diagnosis and retains safe administrator evidence',{timeout:45000},async t=>{
+ const f=await setup(t,false,'0'),fetch=f.fake.fetch.bind(f.fake);
+ f.fake.fetch=async request=>{
+  if(new URL(request.url).pathname==='/v2/payments'&&request.method==='POST'){
+   const sent=await request.json();return Response.json({payment:{id:'offline-3ds-failed',status:'FAILED',reference_id:sent.reference_id,location_id:sent.location_id,amount_money:sent.amount_money,
+    card_details:{status:'FAILED',errors:[{code:'CARD_DECLINED_VERIFICATION_REQUIRED',category:'PAYMENT_METHOD_ERROR',detail:'PRIVATE_PROVIDER'}],card:{last_4:'PRIVATE_CARD'}}}},{status:200});
+  }
+  return fetch(request);
+ };
+ // The existing verifyOn cases cover the full product/cart journey. Seed
+ // this isolated browser's cart to focus this case on the failed-card response.
+ await f.context.addInitScript(origin=>{if(location.origin===origin&&location.pathname==='/checkout.html')localStorage.setItem('yasoya_honten_cart_v1',JSON.stringify([{id:'yomogi-10g',name:'試験商品',quantity:1,price:980}]));},f.env.SITE_URL);
+ await f.page.goto(f.env.SITE_URL+'/checkout.html');await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');
+ await fill(f.page);assert(await f.page.locator('#paymentForm').evaluate(form=>form.checkValidity()));
+ const posted=f.page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/payments');
+ await f.page.locator('#paymentButton').click();
+ const response=await posted;assert.equal(response.status(),202);assert.equal((await response.json()).squarePaymentStatus,'FAILED');
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('不成立'));
+ const text=await f.page.locator('#paymentStatus').innerText();assert.match(text,/3Dセキュア/);assert(!text.includes('PRIVATE_'));assert(!text.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));
+ const result=await f.api('/api/admin/payment-attempts?include_failed=1');assert.equal(result.attempts.length,0);assert.equal(result.failures.length,1);
+ assert.deepEqual(result.failures[0].paymentFailure.codes,['CARD_DECLINED_VERIFICATION_REQUIRED']);assert.equal(result.failures[0].paymentFailure.httpStatus,200);
+ assert.deepEqual(f.count(),{tokens:1,payments:1,status:0});assert.equal(f.fake.counts.get(products[1].variationId),3);assert.equal(f.mails.length,0);
+ assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,1);assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
 });

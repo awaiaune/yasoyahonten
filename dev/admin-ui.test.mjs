@@ -44,3 +44,11 @@ test('unresolved-payment review fails unconfirmed before any request when admini
  assert.equal(requests,0);assert.match(get('paymentAttemptsMessage').textContent,/未確認/);
  assert.equal(get('paymentAttemptsList').innerHTML,'');assert.equal(get('checkPaymentAttempts').disabled,false);
 });
+
+test('administrator diagnostic code/category allowlists match the official server enums',async()=>{
+ const {SQUARE_ERROR_CODES,SQUARE_ERROR_CATEGORIES}=await import('../worker/src/square-error-codes.js');
+ const text=await readFile(new URL('../js/admin.js',import.meta.url),'utf8');
+ assert.deepEqual(JSON.parse(text.match(/const diagnosticCodes = new Set\((\[.*\])\);/)[1]),SQUARE_ERROR_CODES);
+ assert.deepEqual(JSON.parse(text.match(/const diagnosticCategories = new Set\((\[.*\])\);/)[1]),SQUARE_ERROR_CATEGORIES);
+ assert(SQUARE_ERROR_CODES.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));
+});

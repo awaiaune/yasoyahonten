@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fixture,body,advance,products} from './production-native-fixture.mjs';
-import {SquarePaymentFailure} from '../worker/src/payment-failure.js';
+import {SquarePaymentFailure, paymentFailureEvidence} from '../worker/src/payment-failure.js';
 const flags={PRODUCTION_UNIFIED_PUBLISH_ENABLED:'0',PRODUCTION_STOREFRONT_PUBLISH_ENABLED:'1',
     PRODUCTION_CHECKOUT_ENABLED:'1',PRODUCTION_MANAGED_CHECKOUT_ENABLED:'1',
     PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1'};
@@ -28,7 +28,8 @@ for(const [status,code,outcome] of [[400,'CARD_DECLINED','rejected'],[400,'INVAL
         const f=await setup(t),posts=refuse(f,{status,code}),b=body();
         const r=await f.call('/api/v1/payments',b),result=await r.json();
         assert.equal(r.status,202);assert.equal(result.paymentOutcome,outcome);
-        assert.deepEqual(result.paymentFailure,{httpStatus:status,codes:[code],outcome});
+        assert.deepEqual(result.paymentFailure,paymentFailureEvidence(status,{errors:[{code}]}));
+        assert.equal(result.paymentFailure.outcome,outcome);
         assert.equal(result.retryAllowed,false);assert.equal(result.recoveryRequired,true);
         assert.equal(result.ok,false);assert.equal(result.inventoryAdjusted,false);
         assert.equal(result.pausedVariations.length,1);
@@ -104,6 +105,65 @@ test('V59 no evidence is fabricated for legacy unknown attempts',async t=>{
 });
 test('V59 unrecognized provider fields and error codes never enter evidence',()=>{
     const error=new SquarePaymentFailure(400,{errors:[{code:'private provider information',detail:'secret'}]});
-    assert.deepEqual(error.evidence,{httpStatus:400,codes:[],outcome:'unknown'});
+    assert.equal(error.evidence.httpStatus,400);assert.deepEqual(error.evidence.codes,[]);assert.equal(error.evidence.classification,'unknown');assert.equal(error.evidence.unrecognizedCode,true);assert.equal(error.evidence.outcome,'unknown');
     assert(!JSON.stringify(error).includes('secret'));
+});
+
+// Schema: square/connect-api-specification@0689c901bdfe1ff73f47aa28b17ccd6e0c40bf2d
+// CreatePaymentResponse.errors, Payment.card_details.errors, Error.code/category.
+for(const [http,status,code,field] of [[200,'FAILED','CARD_DECLINED','card'],[200,'CANCELED','CARD_TOKEN_EXPIRED','top'],[400,'FAILED','CARD_DECLINED_VERIFICATION_REQUIRED','both'],[403,'FAILED','INSUFFICIENT_PERMISSIONS','top'],[500,'CANCELED',null,'none']]){
+ test(`diagnosis ${http}/${status}/${code||'missing'}: preserves safe evidence, snapshot and read-only failed history`,async t=>{
+  const f=await setup(t),b=body(),fetch=f.fake.fetch.bind(f.fake);let posts=0;
+  f.fake.fetch=async request=>{
+   if(new URL(request.url).pathname==='/v2/payments'&&request.method==='POST'){
+    posts++;const sent=await request.json();
+    const error={code,category:'PAYMENT_METHOD_ERROR',detail:'PRIVATE_RESPONSE',field:'PRIVATE_FIELD'};
+    const p={id:'offline-failed-diagnostic',status,reference_id:sent.reference_id,
+     amount_money:{...sent.amount_money,unexpected:'PRIVATE_MONEY'},location_id:sent.location_id,
+     card_details:{status:status==='CANCELED'?'VOIDED':'FAILED',verification_results:'FAILURE',card:{last_4:'PRIVATE_CARD',fingerprint:'PRIVATE_FINGERPRINT'},...(field==='card'||field==='both'?{errors:[error]}:{})},verification_token:'PRIVATE_TOKEN'};
+    return Response.json({payment:p,...(field==='top'||field==='both'?{errors:[error]}:{})},{status:http});
+   }
+   return fetch(request);
+  };
+  const result=await (await f.call('/api/v1/payments',b)).json();
+  assert.equal(result.status,'declined');assert.equal(result.retryAllowed,true);assert.equal(result.squarePaymentStatus,status);
+  const evidence=result.paymentFailure;
+  assert.equal(evidence.httpStatus,http);assert.equal(evidence.source,'create');
+  assert.deepEqual(evidence.codes,code?[code]:[]);assert.deepEqual(evidence.categories,code?['PAYMENT_METHOD_ERROR']:[]);
+  assert.equal(evidence.classification,code==='CARD_DECLINED_VERIFICATION_REQUIRED'?'three_ds_required':code==='CARD_DECLINED'?'card_declined':code==='CARD_TOKEN_EXPIRED'?'token_invalid':code==='INSUFFICIENT_PERMISSIONS'?'authentication':'unknown');
+  const saved=await f.coordinator.ledger.read(b.attemptId);assert.deepEqual(saved.payment.failure,evidence);
+  assert(!JSON.stringify([...f.storage.data]).includes('PRIVATE_'));assert(!JSON.stringify(saved).includes(b.sourceId));
+  f.env.PRODUCTION_CHECKOUT_ENABLED='0';f.env.PRODUCTION_MANAGED_CHECKOUT_ENABLED='0';
+  const before=JSON.stringify([...f.storage.data]),calls=f.squareCalls.length;
+  const response=await f.call('/api/admin/payment-attempts?include_failed=1');assert.equal(response.status,200);
+  const listed=await response.json();assert.equal(listed.attempts.length,0);assert.equal(listed.failures.length,1);
+  assert.deepEqual(listed.failures[0].paymentFailure,evidence);assert.equal(JSON.stringify([...f.storage.data]),before);assert.equal(f.squareCalls.length,calls);
+  const legacy=await (await f.call('/api/admin/payment-attempts')).json();assert.deepEqual(legacy,{attempts:[]});
+  assert([401,403].includes((await f.call('/api/admin/payment-attempts?include_failed=1',undefined,false)).status));
+  await f.call('/api/v1/payments/status',{attemptId:b.attemptId,contractVersion:1});
+  assert.equal(posts,1);assert.equal(f.fake.counts.get(products[1].variationId),3);
+  assert.equal(f.native.prepare('SELECT COUNT(*) n FROM orders').get().n,2);assert.equal(f.mails.length,0);
+ });
+}
+test('read-only reconciliation retains original rejection HTTP and combines safe card error codes',async t=>{
+ const f=await setup(t),b=body();refuse(f,{status:400,code:'CARD_DECLINED_VERIFICATION_REQUIRED'});
+ const initial=await (await f.call('/api/v1/payments',b)).json();assert.equal(initial.retryAllowed,false);
+ const record=await f.coordinator.ledger.read(b.attemptId);
+ f.fake.payments.set('offline-final-failure',{id:'offline-final-failure',status:'FAILED',reference_id:record.orderReference,amount_money:{amount:1330,currency:'JPY'},location_id:f.env.SQUARE_LOCATION_ID,
+  card_details:{errors:[{code:'CARD_DECLINED',category:'PAYMENT_METHOD_ERROR',detail:'PRIVATE_RESPONSE'}]}});
+ advance(f);const r=await (await f.call('/api/v1/payments/status',{attemptId:b.attemptId,contractVersion:1})).json();
+ assert.equal(r.status,'declined');assert.equal(r.paymentFailure.httpStatus,400);assert.equal(r.paymentFailure.source,'create');
+ assert.deepEqual(r.paymentFailure.codes,['CARD_DECLINED_VERIFICATION_REQUIRED','CARD_DECLINED']);assert.equal(r.paymentFailure.classification,'three_ds_required');
+ const saved=await f.coordinator.ledger.read(b.attemptId);assert.equal(saved.payment.failure.httpStatus,200);assert.equal(saved.payment.failure.source,'lookup');
+ assert.equal(f.squareCalls.filter(c=>c.method==='POST'&&c.path==='/v2/payments').length,1);
+ assert(!JSON.stringify(saved).includes('PRIVATE_RESPONSE'));
+});
+test('EMV verification_results and unknown fields cannot be interpreted as a 3DS result or saved as a reason',()=>{
+ const evidence=paymentFailureEvidence(200,{payment:{status:'FAILED',card_details:{verification_results:'FAILURE',three_ds_result:'PRIVATE_CARD',error:{code:'CARD_DECLINED'}}}});
+ assert.deepEqual(evidence.codes,[]);assert.equal(evidence.classification,'unknown');assert.deepEqual(evidence.categories,[]);
+ assert(!JSON.stringify(evidence).includes('PRIVATE_'));
+});
+for(const [code,classification] of [['CARD_DECLINED_VERIFICATION_REQUIRED','three_ds_required'],['CARD_DECLINED_CALL_ISSUER','card_declined'],['VERIFY_AVS_FAILURE','card_invalid'],['ACCESS_TOKEN_REVOKED','authentication'],['LOCATION_MISMATCH','location'],['INVALID_PHONE_NUMBER','request_invalid'],['CARD_TOKEN_USED','token_invalid'],['SERVICE_UNAVAILABLE','provider_unavailable']])test(`official error ${code} has a safe classification`,()=>{
+ const evidence=paymentFailureEvidence(400,{errors:[{code,category:'PAYMENT_METHOD_ERROR',detail:'PRIVATE_RESPONSE'}]});
+ assert.deepEqual(evidence.codes,[code]);assert.equal(evidence.classification,classification);assert(!JSON.stringify(evidence).includes('PRIVATE_RESPONSE'));
 });

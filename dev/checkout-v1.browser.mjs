@@ -36,7 +36,12 @@ test('mobile new checkout contract completes once on double submit and preserves
  await f.page.evaluate(()=>{document.getElementById('paymentForm').requestSubmit();document.getElementById('paymentForm').requestSubmit();});await f.page.waitForURL('**/thanks.html?*');assert.equal(f.tokens(),1);assert.equal(f.fake.payments.size,1);assert.deepEqual(f.errors,[]);
 });
 test('mobile pending checkout survives reload and confirms the original order without tokenizing again',async t=>{
- const f=await browser(t);f.fake.loseAfter='/v2/payments';f.fake.lookupFails=true;await f.page.waitForFunction(()=>!document.getElementById('paymentButton').disabled);await fill(f.page);await f.page.locator('#paymentButton').click();await f.page.waitForFunction(()=>document.getElementById('paymentStatus').textContent.includes('処理状況'));
+ const f=await browser(t);f.fake.loseAfter='/v2/payments';f.fake.lookupFails=true;await f.page.waitForFunction(()=>!document.getElementById('paymentButton').disabled);await fill(f.page);
+ assert(await f.page.locator('#paymentForm').evaluate(form=>form.checkValidity()));
+ const posted=f.page.waitForResponse(r=>new URL(r.url()).pathname==='/api/v1/payments');
+ await f.page.locator('#paymentButton').click();
+ const response=await posted;assert.equal(response.status(),202);const pending=await response.json();assert.equal(pending.phase,'unknown');assert.equal(pending.retryAllowed,false);
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus').textContent.includes('処理状況'));
  const id=await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1'));assert(id);assert.equal(f.tokens(),1);await f.page.reload();assert.equal(await f.page.locator('#checkoutNotice').count(),0);await f.page.locator('#checkPaymentStatus').waitFor({state:'visible'});assert(await f.page.locator('#paymentButton').isDisabled());
  f.fake.lookupFails=false;await f.api('/api/admin/payment-attempts/'+id+'/recover','POST',{});await f.page.locator('#checkPaymentStatus').click();await f.page.waitForURL('**/thanks.html?*');assert.equal(f.tokens(),1);assert.equal(f.fake.payments.size,1);assert.deepEqual(f.errors,[]);
 });

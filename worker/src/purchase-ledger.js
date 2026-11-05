@@ -1,5 +1,5 @@
 import {OrderMailOutbox} from './order-mail-outbox.js';
-import {SquarePaymentFailure} from './payment-failure.js';
+import {SquarePaymentFailure, diagnosticsForPayment, mergePaymentFailure} from './payment-failure.js';
 // DO is the durable purchase journal; D1 remains a retryable projection.
 const RETRY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 8;
@@ -95,7 +95,7 @@ export class PurchaseLedger {
         try {
             const payment = await this.services.charge(r, body.sourceId);
             this.verifyPayment(r, payment);
-            r.payment = paymentSnapshot(payment);
+            this.capturePayment(r, payment);
             r.phase = payment.status === 'COMPLETED' ? 'paid' : ['FAILED','CANCELED'].includes(payment.status) ? 'declined' : 'unknown';
         } catch (error) {
             r.phase = 'unknown'; r.warning = 'payment_result_unknown';
@@ -118,9 +118,14 @@ export class PurchaseLedger {
             recoveryRequired: !this.closed(r), warning: r.warning, manualReview: Boolean(r.manual),
             paymentOutcome: r.phase === 'paid' ? 'paid' : r.phase === 'declined' ? 'failed' : r.paymentFailure?.outcome || 'unknown',
             paymentFailure: r.phase === 'paid' ? null : r.paymentFailure || null,
+            squarePaymentStatus: ['APPROVED','PENDING','COMPLETED','FAILED','CANCELED'].includes(r.payment?.status) ? r.payment.status : null,
             retryAllowed: r.phase === 'declined' && ['FAILED','CANCELED'].includes(r.payment?.status),
             pausedVariations: this.holdsStock(r) ? this.stockKeys(r) : [],
             notificationState: r.notificationState || 'not_required', emailQueued: Boolean(r.emailQueued) };
+    }
+    capturePayment(r, payment) {
+        r.payment = paymentSnapshot(payment);
+        if (r.payment.failure) r.paymentFailure = mergePaymentFailure(r.paymentFailure, r.payment.failure);
     }
     async recover(id, force = false) {
         await this.initialize();
@@ -137,7 +142,7 @@ export class PurchaseLedger {
                     if (payment) {
                         this.verifyPayment(r, payment);
                         if (['COMPLETED', 'FAILED', 'CANCELED'].includes(payment.status)) {
-                            r.payment = paymentSnapshot(payment);
+                            this.capturePayment(r, payment);
                             r.phase = payment.status === 'COMPLETED' ? 'paid' : 'declined';
                             r.manual = false; r.recoveryAttempts = 0; r.warning = null;
                             r.nextDue = this.now(); await this.write(r);
@@ -165,7 +170,7 @@ export class PurchaseLedger {
             if (!payment) { r.phase = 'unknown'; r.warning = 'payment_not_confirmed'; await this.write(r); return this.summary(r); }
             try { this.verifyPayment(r, payment); }
             catch { return this.manual(r, 'payment_mismatch'); }
-            r.payment = paymentSnapshot(payment);
+            this.capturePayment(r, payment);
             if (['FAILED', 'CANCELED'].includes(payment.status)) {
                 r.phase = 'declined'; r.warning = 'payment_not_completed'; await this.write(r); return this.summary(r);
             }
@@ -243,6 +248,11 @@ export class PurchaseLedger {
         }
         return records;
     }
+    async failures() {
+        // Explicit authenticated read only: never reconcile or submit a charge.
+        const rows = (await this.entries('attempt:')).map(([, r]) => r).filter(r => r?.phase === 'declined');
+        return rows.sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)).map(r => this.summary(r));
+    }
     async alarm() {
         await this.initialize();
         // Safety heartbeat survives an exception while scanning or saving a single order.
@@ -274,5 +284,8 @@ async function digest(value) {
 }
 function paymentSnapshot(payment) {
     const { id, status, reference_id, amount_money, location_id, created_at } = payment;
-    return { id, status, reference_id, amount_money, location_id, created_at };
+    const failure = diagnosticsForPayment(payment);
+    return { id, status:['APPROVED','PENDING','COMPLETED','FAILED','CANCELED'].includes(status) ? status : 'UNKNOWN', reference_id, amount_money:{amount:amount_money.amount,currency:amount_money.currency}, location_id,
+        created_at:typeof created_at === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(created_at) && Number.isFinite(Date.parse(created_at)) ? created_at : undefined,
+        ...(failure ? {failure} : {}) };
 }

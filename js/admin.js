@@ -93,15 +93,29 @@
     return response;
   }
   const data = async (path, options) => (await api(path, options)).json();
+  // Official enum allowlists: keep raw details, identifiers and unknown strings out of the DOM.
+  const diagnosticCodes = new Set(["INTERNAL_SERVER_ERROR", "UNAUTHORIZED", "ACCESS_TOKEN_EXPIRED", "ACCESS_TOKEN_REVOKED", "CLIENT_DISABLED", "FORBIDDEN", "INSUFFICIENT_SCOPES", "APPLICATION_DISABLED", "V1_APPLICATION", "V1_ACCESS_TOKEN", "CARD_PROCESSING_NOT_ENABLED", "MERCHANT_SUBSCRIPTION_NOT_FOUND", "BAD_REQUEST", "MISSING_REQUIRED_PARAMETER", "INCORRECT_TYPE", "INVALID_TIME", "INVALID_TIME_RANGE", "INVALID_VALUE", "INVALID_CURSOR", "UNKNOWN_QUERY_PARAMETER", "CONFLICTING_PARAMETERS", "EXPECTED_JSON_BODY", "INVALID_SORT_ORDER", "VALUE_REGEX_MISMATCH", "VALUE_TOO_SHORT", "VALUE_TOO_LONG", "VALUE_TOO_LOW", "VALUE_TOO_HIGH", "VALUE_EMPTY", "ARRAY_LENGTH_TOO_LONG", "ARRAY_LENGTH_TOO_SHORT", "ARRAY_EMPTY", "EXPECTED_BOOLEAN", "EXPECTED_INTEGER", "EXPECTED_FLOAT", "EXPECTED_STRING", "EXPECTED_OBJECT", "EXPECTED_ARRAY", "EXPECTED_MAP", "EXPECTED_BASE64_ENCODED_BYTE_ARRAY", "INVALID_ARRAY_VALUE", "INVALID_ENUM_VALUE", "INVALID_CONTENT_TYPE", "INVALID_FORM_VALUE", "CUSTOMER_NOT_FOUND", "ONE_INSTRUMENT_EXPECTED", "NO_FIELDS_SET", "TOO_MANY_MAP_ENTRIES", "MAP_KEY_LENGTH_TOO_SHORT", "MAP_KEY_LENGTH_TOO_LONG", "CUSTOMER_MISSING_NAME", "CUSTOMER_MISSING_EMAIL", "INVALID_PAUSE_LENGTH", "INVALID_DATE", "UNSUPPORTED_COUNTRY", "UNSUPPORTED_CURRENCY", "APPLE_TTP_PIN_TOKEN", "CARD_EXPIRED", "INVALID_EXPIRATION", "INVALID_EXPIRATION_YEAR", "INVALID_EXPIRATION_DATE", "UNSUPPORTED_CARD_BRAND", "UNSUPPORTED_ENTRY_METHOD", "INVALID_ENCRYPTED_CARD", "INVALID_CARD", "PAYMENT_AMOUNT_MISMATCH", "GENERIC_DECLINE", "CVV_FAILURE", "ADDRESS_VERIFICATION_FAILURE", "INVALID_ACCOUNT", "CURRENCY_MISMATCH", "INSUFFICIENT_FUNDS", "INSUFFICIENT_PERMISSIONS", "CARDHOLDER_INSUFFICIENT_PERMISSIONS", "INVALID_LOCATION", "TRANSACTION_LIMIT", "VOICE_FAILURE", "PAN_FAILURE", "EXPIRATION_FAILURE", "CARD_NOT_SUPPORTED", "READER_DECLINED", "INVALID_PIN", "MISSING_PIN", "MISSING_ACCOUNT_TYPE", "INVALID_POSTAL_CODE", "INVALID_FEES", "MANUALLY_ENTERED_PAYMENT_NOT_SUPPORTED", "PAYMENT_LIMIT_EXCEEDED", "GIFT_CARD_AVAILABLE_AMOUNT", "ACCOUNT_UNUSABLE", "BUYER_REFUSED_PAYMENT", "DELAYED_TRANSACTION_EXPIRED", "DELAYED_TRANSACTION_CANCELED", "DELAYED_TRANSACTION_CAPTURED", "DELAYED_TRANSACTION_FAILED", "CARD_TOKEN_EXPIRED", "CARD_TOKEN_USED", "AMOUNT_TOO_HIGH", "AMOUNT_TOO_LOW", "UNSUPPORTED_INSTRUMENT_TYPE", "REFUND_AMOUNT_INVALID", "REFUND_ALREADY_PENDING", "PAYMENT_NOT_REFUNDABLE", "PAYMENT_NOT_REFUNDABLE_DUE_TO_DISPUTE", "REFUND_ERROR_PAYMENT_NEEDS_COMPLETION", "REFUND_DECLINED", "INSUFFICIENT_PERMISSIONS_FOR_REFUND", "INVALID_CARD_DATA", "SOURCE_USED", "SOURCE_EXPIRED", "UNSUPPORTED_LOYALTY_REWARD_TIER", "LOCATION_MISMATCH", "ORDER_UNPAID_NOT_RETURNABLE", "PARTIAL_PAYMENT_DELAY_CAPTURE_NOT_SUPPORTED", "IDEMPOTENCY_KEY_REUSED", "UNEXPECTED_VALUE", "SANDBOX_NOT_SUPPORTED", "INVALID_EMAIL_ADDRESS", "INVALID_PHONE_NUMBER", "CHECKOUT_EXPIRED", "BAD_CERTIFICATE", "INVALID_SQUARE_VERSION_FORMAT", "API_VERSION_INCOMPATIBLE", "CARD_PRESENCE_REQUIRED", "UNSUPPORTED_SOURCE_TYPE", "CARD_MISMATCH", "PLAID_ERROR", "PLAID_ERROR_ITEM_LOGIN_REQUIRED", "PLAID_ERROR_RATE_LIMIT", "PLAID_ERROR_INVALID_ACCESS_TOKEN", "PLAID_ERROR_INVALID_ACCOUNT_ID", "PLAID_ERROR_NO_ACCOUNTS", "PLAID_ERROR_ITEM_NOT_FOUND", "PLAID_ERROR_INSUFFICIENT_CREDENTIALS", "PLAID_ERROR_ITEM_NOT_SUPPORTED", "PLAID_ERROR_PRODUCT_NOT_READY", "PAYMENT_SOURCE_NOT_ENABLED_FOR_TARGET", "CARD_DECLINED", "VERIFY_CVV_FAILURE", "VERIFY_AVS_FAILURE", "CARD_DECLINED_CALL_ISSUER", "CARD_DECLINED_VERIFICATION_REQUIRED", "BAD_EXPIRATION", "CHIP_INSERTION_REQUIRED", "ALLOWABLE_PIN_TRIES_EXCEEDED", "RESERVATION_DECLINED", "UNKNOWN_BODY_PARAMETER", "CART_INELIGIBLE_FOR_EBT", "NOT_FOUND", "APPLE_PAYMENT_PROCESSING_CERTIFICATE_HASH_NOT_FOUND", "METHOD_NOT_ALLOWED", "NOT_ACCEPTABLE", "REQUEST_TIMEOUT", "CONFLICT", "GONE", "REQUEST_ENTITY_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "UNPROCESSABLE_ENTITY", "RATE_LIMITED", "NOT_IMPLEMENTED", "BAD_GATEWAY", "SERVICE_UNAVAILABLE", "TEMPORARY_ERROR", "GATEWAY_TIMEOUT"]);
+  const diagnosticCategories = new Set(["API_ERROR", "AUTHENTICATION_ERROR", "INVALID_REQUEST_ERROR", "RATE_LIMIT_ERROR", "PAYMENT_METHOD_ERROR", "REFUND_ERROR", "MERCHANT_SUBSCRIPTION_ERROR", "EXTERNAL_VENDOR_ERROR"]);
+  function paymentDiagnostic(failure) {
+    const reasons={three_ds_required:'本人認証（3Dセキュア）が必要',card_declined:'カード会社による拒否',card_invalid:'カード情報の確認が必要',token_invalid:'決済トークンが無効・期限切れ',authentication:'決済認証設定の確認が必要',location:'Location設定の確認が必要',request_invalid:'決済要求の確認が必要',provider_unavailable:'決済サービスの応答を確認できない',unknown:'原因不明'};
+    const reason=typeof failure?.classification==='string'&&Object.hasOwn(reasons,failure.classification)?reasons[failure.classification]:reasons.unknown;
+    const codes=Array.isArray(failure?.codes)?failure.codes.filter(c=>diagnosticCodes.has(c)).slice(0,8):[];
+    const categories=Array.isArray(failure?.categories)?failure.categories.filter(c=>diagnosticCategories.has(c)).slice(0,8):[];
+    const http=Number.isInteger(failure?.httpStatus)&&failure.httpStatus>=100&&failure.httpStatus<=599?String(failure.httpStatus):'未確認';
+    const source={create:'決済作成応答',lookup:'照会応答',payment:'保存記録',legacy:'旧保存記録'};
+    return esc(reason+' ／ HTTP '+http+'（'+(Object.hasOwn(source,failure?.source||'')?source[failure.source]:'取得元未確認')+'） ／ コード：'+(codes.join('・')||'原因不明')+' ／ 分類：'+(categories.join('・')||'未確認'));
+  }
   let checkingPaymentAttempts = false;
   async function checkPaymentAttempts() {
     if (checkingPaymentAttempts) return;
     checkingPaymentAttempts = true;
-    const button = $('checkPaymentAttempts'), list = $('paymentAttemptsList');
+    const button = $('checkPaymentAttempts'), list = $('paymentAttemptsList'), failures = $('paymentFailuresList');
     button.disabled = true; button.setAttribute('aria-busy', 'true');
-    list.innerHTML = ''; message('paymentAttemptsMessage', '未確認：確認しています…', 'loading');
+    list.innerHTML = ''; if(failures)failures.innerHTML='';
+    message('paymentAttemptsMessage', '未確認：確認しています…', 'loading');
+    if($('paymentFailuresMessage'))message('paymentFailuresMessage','未確認：確認しています…','loading');
     try {
-      const result = await data('/api/admin/payment-attempts', {
+      const result = await data('/api/admin/payment-attempts?include_failed=1', {
         method:'GET', cache:'no-store', credentials:'same-origin', redirect:'manual', signal:AbortSignal.timeout(10000)
       });
       if (!Array.isArray(result?.attempts) || result.attempts.some(r => !r || typeof r !== 'object' || Array.isArray(r))) throw Error('Invalid response');
@@ -111,11 +125,20 @@
       const label = (labels, value, fallback = '未確認') => typeof value === 'string' && Object.hasOwn(labels, value) ? labels[value] : fallback;
       // Render only fixed state labels. Never interpolate IDs, contacts, card
       // data, provider details, or credentials returned as unexpected fields.
-      list.innerHTML = result.attempts.map((r, i) => `<li class="management-card"><strong>試行 ${i + 1}：${r.manualReview === true ? '管理者の確認が必要' : r.paymentOutcome === 'rejected' ? 'Squareが要求を拒否・照合が必要' : label(phases, r.phase || r.status, '状態未確認')}</strong><small>在庫：${label(inventory, r.inventoryState)} ／ 注文：${label(orders, r.orderState)}</small></li>`).join('');
+      list.innerHTML = result.attempts.map((r, i) => `<li class="management-card"><strong>試行 ${i + 1}：${r.manualReview === true ? '管理者の確認が必要' : r.paymentOutcome === 'rejected' ? 'Squareが要求を拒否・照合が必要' : label(phases, r.phase || r.status, '状態未確認')}</strong><small>在庫：${label(inventory, r.inventoryState)} ／ 注文：${label(orders, r.orderState)}</small><small>${paymentDiagnostic(r.paymentFailure)}</small></li>`).join('');
+      if(failures){
+        if(result.failures!==undefined&&!Array.isArray(result.failures))throw Error('Invalid failure history');
+        if(Array.isArray(result.failures)){
+          if(result.failures.some(r=>!r||typeof r!=='object'||Array.isArray(r)))throw Error('Invalid failure history');
+          failures.innerHTML=result.failures.map((r,i)=>`<li class="management-card"><strong>不成立の試行 ${i+1}：${r.squarePaymentStatus==='FAILED'?'決済失敗（FAILED）':r.squarePaymentStatus==='CANCELED'?'取消（CANCELED）':r.status==='declined'?'決済不成立':'状態未確認'}</strong><small>${paymentDiagnostic(r.paymentFailure)}</small></li>`).join('');
+          message('paymentFailuresMessage',`不成立の決済：${result.failures.length}件（確認時点）。この一覧から再決済・復旧は実行しません。`);
+        }else message('paymentFailuresMessage','未確認：現在のAPIから不成立の診断履歴を取得できません。','error');
+      }
       message('paymentAttemptsMessage', `未解決の決済試行：${result.attempts.length}件（確認時点）。` +
         (result.attempts.length ? ' 再決済してよいか、この一覧だけでは判断できません。再購入せず、試行IDと在庫保留を維持して照合してください。' : ' 購入受付の再開可否は別途確認してください。'), result.attempts.length ? 'error' : 'success');
     } catch {
-      list.innerHTML = '';
+      list.innerHTML = ''; if(failures)failures.innerHTML='';
+      if($('paymentFailuresMessage'))message('paymentFailuresMessage','未確認：診断履歴を取得できませんでした。','error');
       message('paymentAttemptsMessage', '未確認：取得できませんでした。通信とCloudflare Access・管理者認証を確認し、もう一度確認してください。0件とは判断できません。', 'error');
     } finally {
       checkingPaymentAttempts = false; button.disabled = false; button.removeAttribute('aria-busy');

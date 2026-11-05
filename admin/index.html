@@ -41,6 +41,9 @@
           <p class="hint">読み取り専用です。復旧・再決済・在庫保留の解除は行いません。</p>
           <p id="paymentAttemptsMessage" class="message" role="status" aria-live="polite">未確認</p>
           <ul id="paymentAttemptsList" class="payment-attempt-list" aria-label="未解決の決済試行"></ul>
+          <h3>不成立の決済の診断</h3>
+          <p id="paymentFailuresMessage" class="message" role="status" aria-live="polite">未確認</p>
+          <ul id="paymentFailuresList" class="payment-attempt-list" aria-label="不成立の決済試行"></ul>
         </section>
       </section>
       <section id="ordersPanel" class="screen" hidden aria-labelledby="ordersTitle">

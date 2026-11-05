@@ -48,11 +48,11 @@ test('mobile unresolved payment review uses authenticated GET only, hides privat
   requested();await gate;
   await r.fulfill({json:{attempts:[
    {phase:'unknown',inventoryState:'pending',orderState:'pending',attemptId:'PRIVATE_ATTEMPT',contact:{email:'PRIVATE_EMAIL'},sourceId:'PRIVATE_CARD',paymentFailure:{detail:'PRIVATE_PROVIDER'}},
-   {phase:'unknown',paymentOutcome:'rejected',inventoryState:'pending',orderState:'pending'},
+   {phase:'unknown',paymentOutcome:'rejected',inventoryState:'pending',orderState:'pending',paymentFailure:{httpStatus:400,codes:['CARD_DECLINED_VERIFICATION_REQUIRED','PRIVATE_CARD'],categories:['PAYMENT_METHOD_ERROR','PRIVATE_CATEGORY'],classification:'three_ds_required',source:'create'}},
    {phase:'paid',inventoryState:'applied',orderState:'retry_required'},
    {manualReview:true,phase:'unknown'},
    {phase:'<img src=x onerror=alert(1)>',inventoryState:'constructor',orderState:'__proto__'}
-  ]}});
+  ],failures:[{status:'declined',squarePaymentStatus:'FAILED',paymentFailure:{httpStatus:200,codes:['CARD_DECLINED'],categories:['PAYMENT_METHOD_ERROR'],classification:'card_declined',source:'create',detail:'PRIVATE_RESPONSE'}}]}});
  };
  await page.route('**/api/admin/payment-attempts**',route);
  const squareCalls=runtime.square.calls.length;
@@ -65,6 +65,7 @@ test('mobile unresolved payment review uses authenticated GET only, hides privat
   const text=await page.locator('.payment-attempts').innerText();
   for(const expected of ['5件','決済結果が不明','Squareが要求を拒否','決済成功・後処理','管理者の確認が必要','状態未確認','この一覧だけでは判断できません'])assert(text.includes(expected));
   assert(!text.includes('PRIVATE_'));assert(!text.includes('constructor'));assert(!text.includes('__proto__'));
+  assert(text.includes('HTTP 400'));assert(text.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));assert(text.includes('PAYMENT_METHOD_ERROR'));assert(text.includes('3Dセキュア'));assert.equal(await page.locator('#paymentFailuresList li').count(),1);assert(text.includes('HTTP 200'));assert(text.includes('決済失敗（FAILED）'));assert(text.includes('CARD_DECLINED'));
   assert.equal(await page.locator('#paymentAttemptsList li').count(),5);assert.equal(await page.locator('#paymentAttemptsList img').count(),0);
   assert.equal(runtime.square.calls.length,squareCalls);await noOverflow();
  }finally{release();await page.unroute('**/api/admin/payment-attempts**',route);}
@@ -80,17 +81,17 @@ test('unresolved payment HTTP/auth/network/redirect and malformed responses show
   try{
    await button.click();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
    const text=await page.locator('#paymentAttemptsMessage').innerText();assert.match(text,/未確認/);assert.match(text,/0件とは判断できません/);assert(!text.includes('PRIVATE_'));
-   assert.equal(await page.locator('#paymentAttemptsList li').count(),0);
+   assert.equal(await page.locator('#paymentAttemptsList li').count(),0);assert.equal(await page.locator('#paymentFailuresList li').count(),0);
   }finally{await page.unroute('**/api/admin/payment-attempts**',route);}
  }
 });
 test('unresolved payment review can retry a read and shows confirmed zero without authorizing payment restart',async()=>{
  await nav('ホーム');let count=0;
- const route=r=>{assert.equal(r.request().method(),'GET');count++;return r.fulfill({json:{attempts:[]}});};
+ const route=r=>{assert.equal(r.request().method(),'GET');count++;return r.fulfill({json:{attempts:[],failures:[]}});};
  await page.route('**/api/admin/payment-attempts**',route);
  try{
   await page.locator('#checkPaymentAttempts').click();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
-  assert.equal(count,1);assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/0件（確認時点）/);
+  assert.equal(count,1);assert.match(await page.locator('#paymentFailuresMessage').innerText(),/0件/);assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/0件（確認時点）/);
   assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/再開可否は別途/);
   assert.equal(await page.locator('#paymentAttemptsList li').count(),0);await noOverflow();
  }finally{await page.unroute('**/api/admin/payment-attempts**',route);}

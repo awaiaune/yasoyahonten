@@ -46,14 +46,18 @@
         try{return await api('/api/v1/payments/status',{method:'POST',body:JSON.stringify({attemptId:id,contractVersion:1})});}
         catch(error){if(error.status===404&&metadata(id).state==='prepared')return null;if(error.status===404)throw new Error('送信済み注文の結果を確認できません。再決済せず、同じ画面で処理状況を確認してください。');throw error;}
     }
+    function paymentExplanation(result){
+        const explanations={three_ds_required:'カードの本人認証（3Dセキュア）が必要、または完了していません。',card_declined:'カード会社に支払いが承認されませんでした。',card_invalid:'カード情報・有効期限・セキュリティコード等の確認が必要です。',token_invalid:'カード情報の送信に使う情報が無効、または期限切れです。',authentication:'店舗側の決済認証設定を確認する必要があります。',location:'店舗側の決済店舗設定を確認する必要があります。',request_invalid:'決済要求の内容を確認する必要があります。',provider_unavailable:'決済サービスの応答を確認できません。',unknown:'原因不明です。'};
+        const key=result?.paymentFailure?.classification;
+        return typeof key==='string'&&Object.hasOwn(explanations,key)?explanations[key]:explanations.unknown;
+    }
     function complete(result){
         if(result?.status==='declined' && result.retryAllowed===true){
             localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);
-            throw new Error('決済の不成立をSquareとの照合で確認しました。課金・在庫減算は行っていません。画面を更新してカード情報を確認してください。本番ではSandboxテストカードは使用できません。');
+            throw new Error(paymentExplanation(result)+' 決済の不成立をSquareとの照合で確認しました。課金・在庫減算は行っていません。画面を更新してカード情報を確認してください。本番ではSandboxテストカードは使用できません。');
         }
         if(!result?.ok||!result.paymentId||!result.orderReference){
-            const evidence=result?.paymentFailure;
-            const detail=evidence?' ［Square HTTP '+Number(evidence.httpStatus)+'／'+(evidence.codes||[]).join('・')+'］':'';
+            const detail=' '+paymentExplanation(result);
             if(result?.manualReview)throw new Error('注文は管理者による確認が必要です。再購入せずお問い合わせください。'+detail);
             if(result?.paymentOutcome==='rejected')throw new Error('Squareが支払い要求を拒否しました。'+detail+' 再課金を防ぐため注文番号と在庫保留は維持しています。「処理状況を確認」から照合し、解消しない場合は管理者へお問い合わせください。本番ではSandboxテストカードは使えません。');
             throw new Error('注文の処理状況を確認中です。決済結果は未確定です。再購入せず「処理状況を確認」を押してください。'+detail);

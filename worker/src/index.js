@@ -12,7 +12,7 @@ import { renderPage } from './management/storefront.js';
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
 import { SANDBOX_CATALOG } from "../../validation/catalog.js";
 import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
-import { SquarePaymentFailure } from './payment-failure.js';
+import { SquarePaymentFailure, withPaymentDiagnostics } from './payment-failure.js';
 import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
 const JSON_HEADERS = {
@@ -167,7 +167,7 @@ export default {
                     if ((recovery && request.method !== "POST") || (!recovery && request.method !== "GET")) throw new HttpError(405, "Method not allowed.");
                     const attemptId = recovery ? url.pathname.split("/")[4] : null;
                     const response = await stub.fetch(`https://purchase.internal/${recovery ? "recover" : "warnings"}`, {
-                        method: "POST", body: JSON.stringify({ attemptId })
+                        method: "POST", body: JSON.stringify({ attemptId, ...(!recovery && url.searchParams.get('include_failed') === '1' ? {includeFailed:true} : {}) })
                     });
                     return corsJson(await response.json(), response.status, origin, allowedOrigins);
                 }
@@ -407,7 +407,8 @@ async function lookupSquarePayment(env, record) {
     if (record.payment?.id) {
         const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments/${encodeURIComponent(record.payment.id)}`, { headers: squareHeaders(env) });
         if (!response.ok) throw new Error("Payment lookup unavailable");
-        return (await response.json()).payment;
+        const result = await response.json();
+        return withPaymentDiagnostics(result.payment, response.status, result, 'lookup');
     }
     // Square has no assumed 'retrieve by idempotency key' endpoint. Absence from this
     // bounded scan is NOT proof of no charge: keep unknown and never charge again.
@@ -419,7 +420,7 @@ async function lookupSquarePayment(env, record) {
         const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments?${query}`, { headers: squareHeaders(env), signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now()))) });
         if (!response.ok) throw new Error("Payment reconciliation unavailable");
         const result = await response.json();
-        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference));
+        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference).map(p => withPaymentDiagnostics(p, response.status, {payment:p}, 'lookup')));
         cursor = result.cursor;
         if (!cursor) {
             if (matches.length > 1) throw new Error("Multiple matching payments");
@@ -640,7 +641,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
         throw new SquarePaymentFailure(response.status, result);
     }
 
-    return result.payment;
+    return withPaymentDiagnostics(result.payment, response.status, result);
 }
 
 function buildOrderMessages({ env, payment, quote, contact, orderReference }) {
@@ -1199,7 +1200,7 @@ export class PurchaseCoordinator {
                     const ref = requireString(body.orderReference, '注文番号が必要です。', 100);
                     return Response.json({mail:await this.ledger.mailStatus(ref)});
                 }
-                if (path === "/warnings") result = { attempts: await this.ledger.warnings() };
+                if (path === "/warnings") result = { attempts: await this.ledger.warnings(), ...(body.includeFailed === true ? {failures:await this.ledger.failures()} : {}) };
                 else if (path === "/status" || path === "/recover") {
                     body.attemptId = validateAttemptId(body.attemptId);
                     result = await this.ledger.recover(body.attemptId, path === "/recover");
