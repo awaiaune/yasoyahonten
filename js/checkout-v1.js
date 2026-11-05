@@ -7,13 +7,40 @@
     const productionPage=config?.environment==='production'&&config?.managedStorefront===true&&config?.workerBaseUrl===location.origin;
     const managedPage=sandboxPage||productionPage;
     let cardStage='準備',cardViolation=null;
+    let rejectAuthentication=null;
     function cardFeedback(text,state='loading'){const el=document.getElementById('cardInitializationStatus');if(el){el.textContent=text;if(el.dataset)el.dataset.state=state;}}
     document.addEventListener('securitypolicyviolation',event=>{
         if(!managedPage)return;
+        if(event.disposition==='report')return;
+        // Issuer URLs may contain authentication data. Do not read, log or save
+        // the blocked URL. An enforced frame/form directive proves site CSP;
+        // missing events do not prove Brave Shields or another specific cause.
+        if(rejectAuthentication && event.disposition==='enforce' && ['frame-src','child-src','form-action'].includes(event.effectiveDirective)){
+            rejectAuthentication(authenticationError('CARD_AUTH_CSP_BLOCKED','本人認証画面がサイトのCSP（'+event.effectiveDirective+'）で遮断されました。決済要求は送信していません。画面を更新せず、表示された診断コードを管理者へお知らせください。'));
+            return;
+        }
         let host;try{host=new URL(event.blockedURI).hostname;}catch{return;}
         if((host==='sandbox.web.squarecdn.com'||host==='web.squarecdn.com'||host.endsWith('.squareupsandbox.com')||host.endsWith('.squareup.com'))&&['script-src-elem','script-src','style-src-elem','style-src','frame-src','connect-src','font-src'].includes(event.effectiveDirective))cardViolation=event.effectiveDirective;
     });
     function cardFailure(code,message){const error=new Error(message+' ［'+code+'／'+cardStage+'］');error.code=code;return error;}
+    class AuthenticationError extends Error {constructor(code,message){super(message+' ［'+code+'］');this.code=code;}}
+    function authenticationError(code,message){return new AuthenticationError(code,message);}
+    async function tokenizeCard(details){
+        let timer;
+        try {
+            const interrupted=new Promise((_,reject)=>{
+                rejectAuthentication=reject;
+                timer=setTimeout(()=>reject(authenticationError('CARD_AUTH_TIMEOUT','本人認証の完了を確認できませんでした。決済要求は送信していません。ブラウザ保護・通信・認証操作・発行会社側の制限などが考えられますが、原因は未確認です。')),300000);
+            });
+            return await Promise.race([Promise.resolve().then(()=>card.tokenize(details)),interrupted]);
+        } catch(error) {
+            const old=card;card=undefined;
+            try{Promise.resolve(old?.destroy?.()).catch(()=>{});}catch{}
+            const failure=error instanceof AuthenticationError?error:
+                authenticationError('CARD_AUTH_UNCONFIRMED','カードの本人認証・トークン化の完了を確認できません。決済要求は送信していません。サイト側CSP違反は検出していませんが、Brave Shieldsなどのブラウザ保護・通信・認証操作・発行会社側の制限のどれかは未確認です。');
+            cardFeedback(failure.message,'error');throw failure;
+        } finally {clearTimeout(timer);rejectAuthentication=null;}
+    }
     async function boundedCard(task){let timer;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(cardFailure('CARD_INIT_TIMEOUT','カード入力フォームの'+cardStage+'が時間内に完了しませんでした。通信・認証・CSPを確認して画面を再読み込みしてください。')),12000);})]);}finally{clearTimeout(timer);}}
     async function waitSquare(){
         if(productionPage&&[...document.scripts].some(script=>script.src==='https://sandbox.web.squarecdn.com/v1/square.js'))throw cardFailure('CARD_SDK_ENVIRONMENT','Production画面でSandbox SDKを検出したため停止しました。');
@@ -266,8 +293,8 @@
             };
 
             let tokenResult;
-            try { tokenResult = await card.tokenize(verificationDetails); }
-            catch { throw new Error('カードの本人認証・トークン化に失敗しました。決済要求は送信していません。入力内容と通信環境を確認してください。'); }
+            status.textContent='カード情報・本人認証を確認しています。決済要求はまだ送信していません。';
+            tokenResult = await tokenizeCard(verificationDetails);
 
             if (tokenResult?.status !== "OK" || !tokenResult?.token) {
                 throw new Error(

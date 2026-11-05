@@ -14,7 +14,7 @@ async function client(options={}){
  const el=id=>{if(!elements.has(id))elements.set(id,{value:'offline',textContent:'',hidden:false,disabled:false,reportValidity:()=>true,addEventListener:(event,fn)=>{if(event==='submit')submit=fn;else elements.get(id)[event]=fn;}});return elements.get(id);};
  const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
  const session={getItem:k=>sessionValues.get(k)||null,setItem:(k,v)=>sessionValues.set(k,v),removeItem:k=>sessionValues.delete(k)};
- const context={crypto,URL,AbortSignal,Date,console:{error(){}},localStorage:storage,sessionStorage:session,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async details=>{state.verificationDetails=details;state.tokens++;if(state.tokenError)throw Error('private SDK error');if(state.gate)await state.gate;return state.tokenResult||{status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
+ const context={crypto,URL,AbortSignal,Date,setTimeout,clearTimeout,console:{error(){}},localStorage:storage,sessionStorage:session,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async details=>{state.verificationDetails=details;state.tokens++;if(state.tokenError)throw Error('private SDK error');if(state.gate)await state.gate;return state.tokenResult||{status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
   state.requests.push({url,cache:options.cache});
   if(url.endsWith('/checkout-capabilities'))return Response.json({contractVersion:state.version??1,supportedContracts:[1],checkoutEnabled:state.enabled});
   if(url.endsWith('/quote'))return Response.json({total:1330,subtotal:980,shipping:350,items:[]});
@@ -42,7 +42,7 @@ for(const tokenOptions of [{tokenError:true},{tokenResult:{status:'INVALID',erro
  const c=await client(tokenOptions);await c.click();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,0);
  assert.match(c.el('paymentStatus').textContent,/トークン化/);assert(!c.el('paymentStatus').textContent.includes('private SDK error'));
  const id=c.values.get('yasoya_checkout_attempt_v1');assert.equal(JSON.parse(c.values.get('yasoya_checkout_attempt_meta_v1')).state,'prepared');
- assert(id);assert(!c.el('paymentButton').disabled);
+ assert(id);assert.equal(c.el('paymentButton').disabled,Boolean(tokenOptions.tokenError));
 });
 test('V59 rejected response and repeated status checks retain the attempt and disable another charge',async()=>{
  const c=await client({paymentResponse:{ok:false,status:'unknown',paymentOutcome:'rejected',paymentFailure:{httpStatus:400,codes:['CARD_DECLINED']},retryAllowed:false}});
