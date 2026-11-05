@@ -84,7 +84,7 @@
     function remember(id,state){localStorage.setItem(META_KEY,JSON.stringify({id,state}));}
     function attemptId(){let id=localStorage.getItem(ATTEMPT_KEY);if(!id){id=crypto.randomUUID();localStorage.setItem(ATTEMPT_KEY,id);remember(id,'prepared');}return id;}
     function feedback(text){document.getElementById('paymentStatus').textContent=text;}
-    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?'PAY NOW':'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check)check.hidden=!id;}
+    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?'PAY NOW':'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check){check.hidden=!id;check.disabled=submitting||completed;}}
     async function refreshCapabilities(){
         capabilities=await api('/api/v1/checkout-capabilities');
         if(capabilities.contractVersion!==1||!Array.isArray(capabilities.supportedContracts)||!capabilities.supportedContracts.includes(1))throw new Error('購入画面とAPIの版が一致しません。画面を更新してください。');
@@ -297,6 +297,7 @@
         const storedId=localStorage.getItem(ATTEMPT_KEY);
         if(storedId&&metadata(storedId).state==='submitted')return;
         submitting = true;
+        buttonState();
         button.disabled = true;
         button.textContent = "PROCESSING";
         status.textContent = "";

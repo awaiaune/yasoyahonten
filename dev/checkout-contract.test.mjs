@@ -19,7 +19,7 @@ async function client(options={}){
   if(url.endsWith('/checkout-capabilities'))return Response.json({contractVersion:state.version??1,supportedContracts:[1],checkoutEnabled:state.enabled});
   if(url.endsWith('/quote'))return Response.json({total:1330,subtotal:980,shipping:350,items:[]});
   if(url.endsWith('/payments/status'))return state.saved&&!state.notFound?Response.json(state.saved,{status:state.saved.ok?200:202}):Response.json({error:{message:'not started'}},{status:404});
-  if(url.endsWith('/payments')){state.payments++;const body=JSON.parse(options.body);state.paymentBody=body;assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');if(state.disabledOnSubmit)return Response.json({error:{code:'CHECKOUT_DISABLED',message:'受付停止'}},{status:503});state.saved=state.paymentResponse||(state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'});if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.saved.ok?200:202});}
+  if(url.endsWith('/payments')){state.payments++;if(state.paymentGate)await state.paymentGate;const body=JSON.parse(options.body);state.paymentBody=body;assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');if(state.disabledOnSubmit)return Response.json({error:{code:'CHECKOUT_DISABLED',message:'受付停止'}},{status:503});state.saved=state.paymentResponse||(state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'});if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.saved.ok?200:202});}
   throw Error('unexpected request');
  }};
  vm.runInNewContext(source,context);await init();return {state,values,sessionValues,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
@@ -120,4 +120,13 @@ for(const [classification,text] of [['three_ds_required','3Dセキュア'],['car
 test('confirmed FAILED/CANCELED diagnosis is shown before enabling a separately refreshed attempt',async()=>{
  const c=await client({paymentResponse:{ok:false,status:'declined',retryAllowed:true,paymentFailure:{classification:'three_ds_required',codes:['CARD_DECLINED_VERIFICATION_REQUIRED']}}});
  await c.click();assert.match(c.el('paymentStatus').textContent,/3Dセキュア/);assert.match(c.el('paymentStatus').textContent,/不成立/);assert.equal(c.values.size,0);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);
+});
+
+test('status control is disabled while payment response is pending, then enables for the same unknown attempt',async()=>{
+ let release,releaseToken;const gate=new Promise(r=>releaseToken=r),paymentGate=new Promise(r=>release=r);const id=crypto.randomUUID();const values=new Map([['yasoya_checkout_attempt_v1',id],['yasoya_checkout_attempt_meta_v1',JSON.stringify({id,state:'prepared'})]]);const c=await client({pending:true,paymentGate,gate,values});
+ const pending=c.click();await new Promise(r=>setImmediate(r));assert.equal(c.state.tokens,1);assert.equal(c.state.payments,0);assert.equal(c.el('checkPaymentStatus').hidden,false);assert.equal(c.el('checkPaymentStatus').disabled,true);
+ releaseToken();await new Promise(r=>setImmediate(r));assert.equal(c.state.payments,1);assert.equal(c.el('checkPaymentStatus').hidden,false);assert.equal(c.el('checkPaymentStatus').disabled,true);
+ await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);
+ release();await pending;assert.equal(c.el('checkPaymentStatus').disabled,false);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+ await c.check();assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
 });
