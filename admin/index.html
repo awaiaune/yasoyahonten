@@ -44,6 +44,10 @@
           <h3>不成立の決済の診断</h3>
           <p id="paymentFailuresMessage" class="message" role="status" aria-live="polite">未確認</p>
           <ul id="paymentFailuresList" class="payment-attempt-list" aria-label="不成立の決済試行"></ul>
+          <h3>決済段階の診断履歴</h3>
+          <p class="hint">最大7日・直近200試行。ブラウザ報告は決済成立の証拠ではありません。欠落は未確認として扱います。</p>
+          <p id="paymentTraceMessage" role="status">未確認</p>
+          <div id="paymentTraceList" class="payment-attempt-list"></div>
         </section>
       </section>
       <section id="ordersPanel" class="screen" hidden aria-labelledby="ordersTitle">

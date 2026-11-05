@@ -295,9 +295,10 @@ test('running and restarted validation DOs gate fetch and Alarm before ledger or
     const ctx={storage:new Proxy({}, {get(){throw new Error('No durable storage operation allowed in gate test');}}),blockConcurrencyWhile:fn=>(init=fn())};
     const coordinator=new SandboxPurchaseCoordinator(ctx,env);await init;
     for(const method of ['submit','recover','warnings','alarm','mailAlarm'])coordinator.ledger[method]=async()=>{events.push(method);return method==='warnings'?[]:{ok:true};};
+    coordinator.traces.prune=async()=>events.push('trace-expiry');
     const request=path=>new Request('https://do.internal/'+path,{method:'POST',body:JSON.stringify({attemptId:crypto.randomUUID()})});
     for(const path of ['pay','status','recover','warnings']){events.length=0;assert.equal((await coordinator.fetch(request(path))).status,200);assert.equal(events[0],'marker-select');assert.equal(events.length,2);}
-    events.length=0;await coordinator.alarm();assert.deepEqual(events,['marker-select','alarm','mailAlarm']);
+    events.length=0;await coordinator.alarm();assert.deepEqual(events,['marker-select','alarm','mailAlarm','trace-expiry']);
     valid=false;
     for(const path of ['pay','status','recover','warnings']){events.length=0;await assert.rejects(coordinator.fetch(request(path)));assert.deepEqual(events,['marker-select']);}
     events.length=0;await assert.rejects(coordinator.alarm());assert.deepEqual(events,['marker-select']);

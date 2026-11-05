@@ -11,10 +11,12 @@ export class PurchaseLedger {
         this.storage = storage; this.services = services;
         if (services.mail) this.mail = new OrderMailOutbox(storage, {
             prepare: record => this.services.mail.prepare(record),
-            send: task => this.services.mail.send(task)
+            send: task => this.services.mail.send(task),
+            observe: (id,event) => this.services.trace?.(id,event)
         }, () => this.now());
     }
     now() { return this.services.now?.() ?? Date.now(); }
+    async trace(r,stage,fields={}){try{await this.services.trace?.(r.id,{stage,...fields});}catch{/* Never alter purchase/recovery because diagnostics are unavailable. */}}
     key(id) { return `attempt:${id}`; }
     read(id) { return this.storage.get(this.key(id)); }
     closed(r) { return r.phase === 'declined' || (r.phase === 'paid' && r.inventory === 'applied' && r.projection === 'stored'); }
@@ -102,6 +104,7 @@ export class PurchaseLedger {
             if (error instanceof SquarePaymentFailure) r.paymentFailure = error.evidence;
         }
         await this.write(r);
+        await this.trace(r,r.phase==='paid'?'payment_paid':r.phase==='declined'?'payment_declined':'payment_unknown');
         return this.recover(r.id, true);
     }
     verifyPayment(r, p) {
@@ -175,7 +178,7 @@ export class PurchaseLedger {
                 r.phase = 'declined'; r.warning = 'payment_not_completed'; await this.write(r); return this.summary(r);
             }
             if (payment.status !== 'COMPLETED') { r.phase = 'unknown'; r.warning = 'payment_not_completed'; await this.write(r); return this.summary(r); }
-            r.phase = 'paid'; r.warning = null; await this.write(r);
+            r.phase = 'paid'; r.warning = null; await this.write(r);await this.trace(r,'payment_paid');
         }
         if (r.inventory !== 'applied') {
             if (!r.inventoryOperation) {
@@ -192,10 +195,12 @@ export class PurchaseLedger {
                 }
             }
             await this.write(r);
+            await this.trace(r,r.inventory==='applied'?'inventory_applied':'inventory_pending');
         }
         try { await this.services.project(r); r.projection = 'stored'; }
         catch { r.projection = 'retry_required'; if (!r.manual) r.warning = 'order_projection_required'; }
         await this.write(r); // releases only this order's locks once inventory is confirmed
+        await this.trace(r,r.projection==='stored'?'order_stored':'order_pending');
         await this.recoverMail(r);
         if (r.manual) await this.notify(r);
         return this.summary(r);
@@ -204,7 +209,10 @@ export class PurchaseLedger {
         if (!this.mail) return;
         // Email outages/storage failures never turn a confirmed purchase into a
         // failed charge response. The preinstalled Alarm retries the outbox.
-        try { await this.mail.ensure(r); await this.mail.process(r.id); }
+        try { await this.mail.ensure(r); await this.mail.process(r.id);
+            const status=await this.mail.status(r.orderReference);
+            await this.trace(r,'mail_state',{admin:status.admin?.state,customer:status.customer?.state});
+        }
         catch { try { await this.arm(this.now() + 60_000); } catch { /* durable mail-create remains pending */ } }
     }
     async mailStatus(orderReference) {

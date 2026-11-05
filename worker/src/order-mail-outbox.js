@@ -17,6 +17,7 @@ export class OrderMailOutbox {
         await this.storage.put({ [this.key(r.id)]: r, [`order-mail-ref:${r.orderReference}`]: r.id,
             [`mail-pending:${r.id}`]: this.pending(r), [`mail-create:${r.id}`]:false,
             ...(record ? {[`attempt:${record.id}`]:record} : {}) });
+        try{await this.services.observe?.(r.id,{stage:'mail_state',admin:r.tasks.admin?.state,customer:r.tasks.customer?.state});}catch{/* Diagnostic failure cannot change mail acceptance or retry semantics. */}
         if (this.pending(r)) await this.arm(this.due(r));
     }
     due(r) { return r.prepared ? Math.min(...Object.values(r.tasks).filter(t => !terminal(t)).map(t => t.nextDue)) : r.nextDue; }

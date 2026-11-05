@@ -6,7 +6,7 @@ export function checkoutRoute(request){
  const url=new URL(request.url),originalPath=url.pathname;
  const match=url.pathname.match(/^\/api\/v([^/]+)\/(.*)$/);
  if(!match)return {request,originalPath,version:null};
- if(match[1]!=='1'||!['payments','payments/status','quote','inventory','checkout-capabilities'].includes(match[2]))throw new CheckoutContractError('CHECKOUT_CONTRACT_UNSUPPORTED','購入画面の更新が必要です。再決済せず最新の画面を開いてください。',426);
+ if(match[1]!=='1'||!['payments','payments/status','quote','inventory','checkout-capabilities','payment-diagnostics'].includes(match[2]))throw new CheckoutContractError('CHECKOUT_CONTRACT_UNSUPPORTED','購入画面の更新が必要です。再決済せず最新の画面を開いてください。',426);
  url.pathname='/api/'+match[2];return {request:new Request(url,request),originalPath,version:1};
 }
 export function productionCheckoutEnabled(env){

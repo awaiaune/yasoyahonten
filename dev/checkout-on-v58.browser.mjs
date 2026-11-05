@@ -49,7 +49,8 @@ async function verifyOn(t,unified='1'){
  await f.page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');assert.deepEqual(await f.page.evaluate(()=>window.offlineSdkArgs),[f.env.SQUARE_PRODUCTION_APPLICATION_ID,'LQ693S4H2NBZ8']);
  await f.page.frameLocator('#card-container iframe').getByLabel('Card number',{exact:true}).fill('offline-test');await fill(f.page);assert.match(await f.page.locator('#checkoutTotal').innerText(),/1,330/);
  await f.page.locator('#paymentButton').click();await f.page.waitForURL('**/thanks.html?*');await f.page.waitForFunction(()=>document.getElementById('thankYouHeading')?.textContent==='Thank you.');
- assert.deepEqual(f.count(),{tokens:1,payments:1,status:1});assert.equal(f.fake.payments.size,1);assert.equal(f.fake.counts.get(products[1].variationId),2);assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,2);
+ // One pre-charge read-only check plus thank-you verification; still one charge.
+ assert.deepEqual(f.count(),{tokens:1,payments:1,status:2});assert.equal(f.fake.payments.size,1);assert.equal(f.fake.counts.get(products[1].variationId),2);assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,2);
  const row=await f.db.prepare("SELECT * FROM orders WHERE order_reference!='existing-order'").first();assert.deepEqual([row.total,row.inventory_adjusted],[1330,1]);assert.equal(f.mails.length,2);
  const receipt=await f.page.evaluate(()=>sessionStorage.getItem('yasoya_verified_checkout_v1'));assert(receipt);assert(!receipt.includes('offline-not-a-real-card-token'));assert.equal(await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1')),null);
  await f.page.reload();await f.page.waitForFunction(()=>document.getElementById('thankYouHeading')?.textContent==='Thank you.');assert.equal(f.count().payments,1);assert.equal(f.count().tokens,1);assert.equal(f.fake.counts.get(products[1].variationId),2);assert.equal(f.mails.length,2);
@@ -128,6 +129,6 @@ test('mobile confirmed FAILED 3DS response shows Japanese diagnosis and retains 
  const text=await f.page.locator('#paymentStatus').innerText();assert.match(text,/3Dセキュア/);assert(!text.includes('PRIVATE_'));assert(!text.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));
  const result=await f.api('/api/admin/payment-attempts?include_failed=1');assert.equal(result.attempts.length,0);assert.equal(result.failures.length,1);
  assert.deepEqual(result.failures[0].paymentFailure.codes,['CARD_DECLINED_VERIFICATION_REQUIRED']);assert.equal(result.failures[0].paymentFailure.httpStatus,200);
- assert.deepEqual(f.count(),{tokens:1,payments:1,status:0});assert.equal(f.fake.counts.get(products[1].variationId),3);assert.equal(f.mails.length,0);
+ assert.deepEqual(f.count(),{tokens:1,payments:1,status:1});assert.equal(f.fake.counts.get(products[1].variationId),3);assert.equal(f.mails.length,0);
  assert.equal((await f.db.prepare('SELECT COUNT(*) n FROM orders').first()).n,1);assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
 });

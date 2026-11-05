@@ -195,14 +195,15 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
   const geometry=()=>page.evaluate(()=>Object.fromEntries(['.v30-top','.v30-product-line','.v30-price','.v30-qty select','.v30-cart-button'].map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return [selector,{x:r.x,y:r.y,width:r.width,height:r.height}];})));
   for(const viewport of [{width:360,height:640},{width:390,height:844},{width:768,height:1024},{width:1440,height:900}]){
    await page.setViewportSize(viewport);await page.goto(env.SITE_URL+'/__v53_reference');await page.locator('.v30-cart-button').waitFor();const original=await geometry();
-   await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button:enabled').waitFor();const generated=await geometry();
+   await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button').waitFor();if(checkout==='1')await page.locator('.v30-cart-button:enabled').waitFor();else assert(await page.locator('.v30-cart-button').isDisabled(),'checkout OFF must not enable purchase');const generated=await geometry();
    for(const selector of Object.keys(original))for(const key of ['x','y','width','height'])assert(Math.abs(original[selector][key]-generated[selector][key])<2,`${viewport.width}: ${selector} ${key}: ${original[selector][key]} vs ${generated[selector][key]}`);
    assert(generated['.v30-product-line'].y+generated['.v30-product-line'].height<=generated['.v30-qty select'].y,'name/price must not overlap quantity');
    assert(generated['.v30-qty select'].x+generated['.v30-qty select'].width<generated['.v30-cart-button'].x,'quantity and cart hit targets must not overlap');
   }
-  await page.setViewportSize({width:390,height:844});await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button:enabled').waitFor();
-  await page.locator('.v30-qty select').selectOption('2');await page.screenshot({path:'/tmp/v53-managed-product-mobile.png',fullPage:false});const button=page.locator('.v30-cart-button');const box=await button.boundingBox();await button.click({position:{x:box.width-12,y:box.height/2}});
+  await page.setViewportSize({width:390,height:844});await page.goto(env.SITE_URL+'/products/browser-v53.html');await page.locator('.v30-cart-button').waitFor();if(checkout==='1')await page.locator('.v30-cart-button:enabled').waitFor();
+  await page.locator('.v30-qty select').selectOption('2');await page.screenshot({path:'/tmp/v53-managed-product-mobile.png',fullPage:false});const button=page.locator('.v30-cart-button');const box=await button.boundingBox();if(checkout==='1'){await button.click({position:{x:box.width-12,y:box.height/2}});
   assert.equal(await page.evaluate(()=>window.YasoyaCart.read()[0].quantity),2);assert.equal(await page.evaluate(()=>window.YasoyaCart.read()[0].id),browserProduct.draft.variants[0].id);
+  }else{assert(await button.isDisabled());assert.equal(await page.evaluate(()=>window.YasoyaCart.read().length),0,'checkout OFF must not add an item');}
   await page.screenshot({path:'/tmp/v53-managed-mobile.png',fullPage:false});
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM mg_products').first()).n,3);
   await page.goto(env.SITE_URL+'/products.html');assert(await page.locator('.v35-all-card').filter({hasText:'ブラウザ編集済み商品'}).count());assert.deepEqual(errors,[]);

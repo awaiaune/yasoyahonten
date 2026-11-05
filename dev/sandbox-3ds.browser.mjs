@@ -4,6 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
+import {execFileSync} from 'node:child_process';
 import {chromium} from 'playwright-core';
 const root=new URL('../',import.meta.url),origin='https://staging.awaiaune.com';
 const square='https://pci-connect.squareupsandbox.com',issuer='https://bank-acs.example.test';
@@ -12,7 +13,7 @@ const productionPolicy=(await readFile(new URL('production/storefront-worker.js'
 const sandboxAssets=new URL('staging/.generated/site/',root);
 const fontHosts=['https://square-fonts-production-f.squarecdn.com','https://d1g145x70srn7h.cloudfront.net'];
 const fontPath=['/usr/share/fonts/openai-sans/OpenAISans-Regular.woff2','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf'].find(existsSync);
-async function setup(t,mode,{production=false,missingFonts=false}={}){
+async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay=0,baseline=false,checkoutCloses=false,quoteChanges=false,statusUnavailable=false}={}){
  const site=production?'https://yasoyahonten.awaiaune.com':origin;
  const pci=production?'https://pci-connect.squareup.com':square;
  const sdkHost=production?'https://web.squarecdn.com':'https://sandbox.web.squarecdn.com';
@@ -26,13 +27,14 @@ async function setup(t,mode,{production=false,missingFonts=false}={}){
   document.addEventListener('securitypolicyviolation',e=>window.offlineViolations.push({directive:e.effectiveDirective,disposition:e.disposition}));
   if(['issuer-denied','timeout'].includes(mode)){const timer=window.setTimeout;window.setTimeout=(fn,ms,...args)=>timer(fn,ms===300000?1500:ms,...args);}
  },{site,mode});
- const calls=[],unexpected=[],errors=[],fontRequests=[];
+ const calls=[],unexpected=[],errors=[],fontRequests=[];let capabilityCalls=0,quoteCalls=0;
  let currentPolicy=production?productionPolicy:policy;
  if(missingFonts)for(const host of fontHosts)currentPolicy=currentPolicy.replace(host,'');
  const sdk=`window.Square={payments:(app,location)=>({card:async()=>{let cardFrame,authFrame;return {
  attach:async selector=>{cardFrame=document.createElement('iframe');cardFrame.title='Offline Sandbox card';cardFrame.src=${JSON.stringify(pci+'/card')};document.querySelector(selector).append(cardFrame);await new Promise(r=>cardFrame.onload=r);},
  destroy:async()=>{window.offlineDestroyed=true;authFrame?.remove();cardFrame?.remove();},
- tokenize:async details=>{window.offlineVerification={amount:details.amount,currencyCode:details.currencyCode};window.offlineTokenizing=true;
+ tokenize:async details=>{window.offlineVerification={amount:details.amount,currencyCode:details.currencyCode};window.offlineTokenizing=true;window.offlineActivation=navigator.userActivation.isActive;
+  if(${JSON.stringify(mode)}==='activation')return {status:'OK',token:'offline-sandbox-3ds-token'};
   if(${JSON.stringify(mode)}==='spoofed')throw Object.assign(Error('PRIVATE_SDK_AUTH_DATA'),{code:'CARD_AUTH_CSP_BLOCKED'});
   if(${JSON.stringify(mode)}==='browser-blocked'){await fetch(${JSON.stringify(pci+'/auth-dispatch')});throw Error('PRIVATE_BROWSER_DETAIL');}
   if(${JSON.stringify(mode)}==='timeout')return new Promise(()=>{});
@@ -59,14 +61,16 @@ async function setup(t,mode,{production=false,missingFonts=false}={}){
   if(u.origin!==site){if(!['fonts.googleapis.com','fonts.gstatic.com'].includes(u.hostname))unexpected.push(u.origin);return route.abort();}
   if(u.pathname.startsWith('/api/')){
    calls.push({path:u.pathname,method:request.method()});
-   if(u.pathname==='/api/v1/checkout-capabilities')return route.fulfill({json:{contractVersion:1,supportedContracts:[1],checkoutEnabled:true}});
-   if(u.pathname==='/api/v1/quote')return route.fulfill({json:{items:[{id:'offline-herb',name:'試験商品',quantity:1,lineTotal:980}],subtotal:980,shipping:350,total:1330}});
+   if(u.pathname==='/api/v1/checkout-capabilities'){capabilityCalls++;if(capabilityDelay)await new Promise(r=>setTimeout(r,capabilityDelay));return route.fulfill({json:{contractVersion:1,supportedContracts:[1],checkoutEnabled:!(checkoutCloses&&capabilityCalls>1)}});}
+   if(u.pathname==='/api/v1/quote'){quoteCalls++;return route.fulfill({json:{items:[{id:'offline-herb',name:'試験商品',quantity:1,lineTotal:980}],subtotal:980,shipping:350,total:quoteChanges&&quoteCalls>1?1340:1330}});}
    if(u.pathname==='/api/inventory')return route.fulfill({json:{inventory:[{id:'offline-herb',availableQuantity:3}]}});
    if(u.pathname==='/api/v1/payments'){assert.equal(JSON.parse(request.postData()).sourceId,'offline-sandbox-3ds-token');return route.fulfill({status:202,json:{ok:false,phase:'unknown'}});}
-   if(u.pathname==='/api/v1/payments/status')return route.fulfill({status:404,json:{error:{message:'未送信'}}});
+   if(u.pathname==='/api/v1/payments/status')return route.fulfill({status:statusUnavailable?503:404,json:{error:{message:statusUnavailable?'照合通信失敗':'未送信'}}});
+   if(u.pathname==='/api/v1/payment-diagnostics')return route.fulfill({json:{ok:true}});
    return route.fulfill({status:404,json:{}});
   }
   if(u.pathname==='/js/store-config.js')return route.fulfill({contentType:'application/javascript',body:'window.YASOYA_STORE_CONFIG='+JSON.stringify({environment:production?'production':'sandbox',managedStorefront:production,workerBaseUrl:site,squareApplicationId:production?'sq0idp-offline':'sandbox-sq0idb-offline',squareLocationId:production?'LQ693S4H2NBZ8':'OFFLINE_SANDBOX',currency:'JPY'})});
+  if(baseline&&u.pathname==='/js/checkout-v1.js')return route.fulfill({contentType:'application/javascript',body:execFileSync('git',['show','18cc5fa:js/checkout-v1.js'],{cwd:root,encoding:'utf8'})});
   try{const p=u.pathname.endsWith('/')?u.pathname+'index.html':u.pathname;return route.fulfill({body:await readFile(new URL('.'+p,assets)),headers:{'Content-Type':p.endsWith('.html')?'text/html':p.endsWith('.js')?'application/javascript':p.endsWith('.css')?'text/css':'image/jpeg',...(p.endsWith('.html')?{'Content-Security-Policy':currentPolicy}:{})}});}catch{return route.fulfill({status:404,body:'missing local asset'});}
  });
  const page=await context.newPage();page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));
@@ -126,4 +130,22 @@ test('a missing font permission causes a font CSP event but does not establish a
  await f.page.locator('#paymentButton').click();const approve=f.page.frameLocator('#card-container iframe').frameLocator('iframe').getByRole('button',{name:'Sandbox本人認証を完了'});await approve.waitFor({state:'visible'});await approve.click();
  await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('処理状況'));
  assert.equal(paymentCount(f),1);assert(!(await f.page.locator('#paymentStatus').innerText()).includes('CARD_AUTH_CSP_BLOCKED'));assert.deepEqual(f.errors,[]);
+});
+
+// Real Chromium activation, simulated SDK/network. Six seconds exceeds this
+// browser's transient activation lifetime; no assertion that it caused live 402.
+for(const baseline of [true,false])test(`real Chromium ${baseline?'baseline loses':'fixed preserves'} activation with six-second preflight latency`,{timeout:45000},async t=>{
+ const f=await setup(t,'activation',{baseline,capabilityDelay:6100});
+ await f.page.locator('#paymentButton').click();
+ await f.page.waitForFunction(()=>window.offlineTokenizing===true,{},{timeout:12000});
+ assert.equal(await f.page.evaluate(()=>window.offlineActivation),!baseline);
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('処理状況'),{},{timeout:15000});
+ assert.equal(paymentCount(f),1);assert.deepEqual(f.errors,[]);
+});
+for(const [option,message]of [['checkoutCloses','停止'],['quoteChanges','変わりました'],['statusUnavailable','照合通信失敗']])test(`post-authentication ${option} fails closed without payment`,{timeout:30000},async t=>{
+ const f=await setup(t,'activation',{[option]:true});await f.page.locator('#paymentButton').click();
+ await f.page.waitForFunction(text=>document.getElementById('paymentStatus')?.textContent.includes(text),message);
+ assert.equal(paymentCount(f),0);assert.equal(await f.page.evaluate(()=>window.offlineActivation),true);
+ assert.equal(await f.page.evaluate(()=>JSON.parse(localStorage.getItem('yasoya_checkout_attempt_meta_v1')).state),'prepared');
+ assert.deepEqual(f.errors,[]);
 });

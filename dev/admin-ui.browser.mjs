@@ -52,7 +52,12 @@ test('mobile unresolved payment review uses authenticated GET only, hides privat
    {phase:'paid',inventoryState:'applied',orderState:'retry_required'},
    {manualReview:true,phase:'unknown'},
    {phase:'<img src=x onerror=alert(1)>',inventoryState:'constructor',orderState:'__proto__'}
-  ],failures:[{status:'declined',squarePaymentStatus:'FAILED',paymentFailure:{httpStatus:200,codes:['CARD_DECLINED'],categories:['PAYMENT_METHOD_ERROR'],classification:'card_declined',source:'create',detail:'PRIVATE_RESPONSE'}}]}});
+  ],failures:[{status:'declined',squarePaymentStatus:'FAILED',paymentFailure:{httpStatus:200,codes:['CARD_DECLINED'],categories:['PAYMENT_METHOD_ERROR'],classification:'card_declined',source:'create',detail:'PRIVATE_RESPONSE'}}],diagnostics:[{attemptId:'00000000-0000-4000-8000-000000000001',createdAt:1793850000000,events:[
+   {stage:'sdk_start',source:'browser',activation:true,at:1793850000000,token:'PRIVATE_TOKEN',url:'PRIVATE_URL'},
+   {stage:'square_response',source:'server',httpStatus:402,requestId:'safe-request-id',codes:['CARD_DECLINED_VERIFICATION_REQUIRED','PRIVATE_CODE'],at:1793850000100},
+   {stage:'mail_state',source:'server',admin:'accepted',customer:'manual_review',at:1793850000200},
+   {stage:'PRIVATE_STAGE',source:'server',at:1793850000300}
+  ]}]}});
  };
  await page.route('**/api/admin/payment-attempts**',route);
  const squareCalls=runtime.square.calls.length;
@@ -62,8 +67,11 @@ test('mobile unresolved payment review uses authenticated GET only, hides privat
   assert.match(await page.locator('#paymentAttemptsMessage').innerText(),/未確認/);
   release();await page.waitForFunction(()=>!document.getElementById('checkPaymentAttempts').disabled);
   assert.deepEqual(calls,[{method:'GET',path:'/api/admin/payment-attempts',authenticated:true,body:null}]);
+  await page.locator('#paymentTraceList summary').click();
   const text=await page.locator('.payment-attempts').innerText();
   for(const expected of ['5件','決済結果が不明','Squareが要求を拒否','決済成功・後処理','管理者の確認が必要','状態未確認','この一覧だけでは判断できません'])assert(text.includes(expected));
+  assert(text.includes('操作有効：あり'));assert(text.includes('safe-request-id'));assert(text.includes('ブラウザ報告・未検証'));assert(text.includes('受付済み（配信未確認）'));assert(text.includes('試行ID：00000000-0000-4000-8000-000000000001'));
+  await noOverflow();
   assert(!text.includes('PRIVATE_'));assert(!text.includes('constructor'));assert(!text.includes('__proto__'));
   assert(text.includes('HTTP 400'));assert(text.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));assert(text.includes('PAYMENT_METHOD_ERROR'));assert(text.includes('3Dセキュア'));assert.equal(await page.locator('#paymentFailuresList li').count(),1);assert(text.includes('HTTP 200'));assert(text.includes('決済失敗（FAILED）'));assert(text.includes('CARD_DECLINED'));
   assert.equal(await page.locator('#paymentAttemptsList li').count(),5);assert.equal(await page.locator('#paymentAttemptsList img').count(),0);

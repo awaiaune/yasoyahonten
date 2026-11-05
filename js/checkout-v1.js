@@ -12,6 +12,7 @@
     document.addEventListener('securitypolicyviolation',event=>{
         if(!managedPage)return;
         if(event.disposition==='report')return;
+        if(['frame-src','child-src','form-action','connect-src','script-src','script-src-elem','font-src'].includes(event.effectiveDirective))diagnostic('csp_blocked',{directive:event.effectiveDirective});
         // Issuer URLs may contain authentication data. Do not read, log or save
         // the blocked URL. An enforced frame/form directive proves site CSP;
         // missing events do not prove Brave Shields or another specific cause.
@@ -32,14 +33,22 @@
                 rejectAuthentication=reject;
                 timer=setTimeout(()=>reject(authenticationError('CARD_AUTH_TIMEOUT','本人認証の完了を確認できませんでした。決済要求は送信していません。ブラウザ保護・通信・認証操作・発行会社側の制限などが考えられますが、原因は未確認です。')),300000);
             });
-            return await Promise.race([Promise.resolve().then(()=>card.tokenize(details)),interrupted]);
+            // Invoke SDK in the original trusted submit call stack, before any
+            // network wait or microtask. Verification itself remains mandatory.
+            diagnostic('sdk_start',{activation:activationState()});
+            const tokenizing=card.tokenize(details);
+            flushDiagnostics();
+            const result=await Promise.race([tokenizing,interrupted]);
+            diagnostic(result?.status==='OK'&&result?.token?'sdk_ok':'sdk_failed');
+            return result;
         } catch(error) {
+            diagnostic('sdk_failed');
             const old=card;card=undefined;
             try{Promise.resolve(old?.destroy?.()).catch(()=>{});}catch{}
             const failure=error instanceof AuthenticationError?error:
                 authenticationError('CARD_AUTH_UNCONFIRMED','カードの本人認証・トークン化の完了を確認できません。決済要求は送信していません。サイト側CSP違反は検出していませんが、Brave Shieldsなどのブラウザ保護・通信・認証操作・発行会社側の制限のどれかは未確認です。');
             cardFeedback(failure.message,'error');throw failure;
-        } finally {clearTimeout(timer);rejectAuthentication=null;}
+        } finally {clearTimeout(timer);rejectAuthentication=null;flushDiagnostics();}
     }
     async function boundedCard(task){let timer;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(cardFailure('CARD_INIT_TIMEOUT','カード入力フォームの'+cardStage+'が時間内に完了しませんでした。通信・認証・CSPを確認して画面を再読み込みしてください。')),12000);})]);}finally{clearTimeout(timer);}}
     async function waitSquare(){
@@ -57,6 +66,20 @@
 
     const META_KEY='yasoya_checkout_attempt_meta_v1';
     let capabilities=null;
+    const CLIENT_RELEASE='checkout-auth-activation-20261105';
+    const activationState=()=>typeof globalThis.navigator?.userActivation?.isActive==='boolean'?globalThis.navigator.userActivation.isActive:undefined;
+    let diagnosticAttempt=null, diagnosticSequence=0, diagnosticBuffer=[];
+    function diagnostic(stage,fields={}) {
+        if(!diagnosticAttempt)return;
+        diagnosticBuffer.push({stage,sequence:++diagnosticSequence,...fields});
+        diagnosticBuffer=diagnosticBuffer.slice(-16);
+    }
+    function flushDiagnostics() {
+        if(!diagnosticAttempt||!diagnosticBuffer.length)return;
+        const events=diagnosticBuffer.splice(0,16),id=diagnosticAttempt;
+        // Best effort, no token/contact/URL. Never blocks SDK, payment or recovery.
+        void api('/api/v1/payment-diagnostics',{method:'POST',body:JSON.stringify({attemptId:id,clientRelease:CLIENT_RELEASE,events}),keepalive:true}).catch(()=>{});
+    }
     function metadata(id){try{const m=JSON.parse(localStorage.getItem(META_KEY)||'null');return m?.id===id&&['prepared','submitted'].includes(m.state)?m:{id,state:'submitted'};}catch{return {id,state:'submitted'};}}
     function remember(id,state){localStorage.setItem(META_KEY,JSON.stringify({id,state}));}
     function attemptId(){let id=localStorage.getItem(ATTEMPT_KEY);if(!id){id=crypto.randomUUID();localStorage.setItem(ATTEMPT_KEY,id);remember(id,'prepared');}return id;}
@@ -271,17 +294,24 @@
             return;
         }
 
+        const storedId=localStorage.getItem(ATTEMPT_KEY);
+        if(storedId&&metadata(storedId).state==='submitted')return;
         submitting = true;
         button.disabled = true;
         button.textContent = "PROCESSING";
         status.textContent = "";
 
         try {
-            const previous = await existingResult();
-            if (previous) { complete(previous); return; }
-            if(!(await refreshCapabilities()).checkoutEnabled)return;
+            // The initial status/capability/quote checks already completed before
+            // enabling this button. A submitted/foreign attempt is never tokenized.
             const id = attemptId();
+            if(metadata(id).state!=='prepared'||!capabilities?.checkoutEnabled)return;
+            if(diagnosticAttempt!==id){diagnosticAttempt=id;diagnosticSequence=0;}
+            diagnostic('pay_click',{activation:activationState()});
             const contact = formContact();
+            const items=getCartPayload();
+            const quoted=JSON.stringify(serverQuote);
+            const cart=JSON.stringify(items);
 
             const verificationDetails = {
                 amount: String(serverQuote.total),
@@ -302,14 +332,26 @@
                 );
             }
 
+            // Read-only rechecks happen AFTER authentication but BEFORE payment.
+            // A timeout, changed quote/cart, shutdown, or another tab's submission
+            // must discard this token rather than charging an unverified amount.
+            const previous=await existingResult();
+            if(previous){complete(previous);return;}
+            if(!(await refreshCapabilities()).checkoutEnabled)return;
+            await loadQuote();
+            if(quoted!==JSON.stringify(serverQuote)||cart!==JSON.stringify(getCartPayload()))
+                throw new Error('商品・送料・在庫の確認内容が変わりました。決済要求は送信していません。内容を確認して画面を更新してください。');
+            if(localStorage.getItem(ATTEMPT_KEY)!==id||metadata(id).state!=='prepared')
+                throw new Error('別の画面で注文操作が行われました。再決済せず処理状況を確認してください。');
             remember(id,'submitted');
+            diagnostic('payment_dispatch');flushDiagnostics();
             const paymentResult = await api("/api/v1/payments", {
                 method: "POST",
                 body: JSON.stringify({
                     contractVersion: 1,
                     attemptId: id,
                     sourceId: tokenResult.token,
-                    items: getCartPayload(),
+                    items,
                     contact
                 })
             });
@@ -322,6 +364,7 @@
             // into a new charge after a later 404, reload or reopening of sales.
             if(error.code==='CHECKOUT_DISABLED')capabilities={...capabilities,checkoutEnabled:false};
         } finally {
+            flushDiagnostics();
             submitting = false;
             buttonState();
         }
