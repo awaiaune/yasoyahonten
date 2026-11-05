@@ -24,7 +24,9 @@ for(const env of ['production','sandbox']){
   const square=env==='production'?'https://*.squareup.com':'https://*.squareupsandbox.com';
   assert.deepEqual(p['script-src'],["'self'","'unsafe-inline'",sdk]);
   assert.deepEqual(p['frame-src'],["'self'",square,sdk]);
-  assert.deepEqual(p['frame-ancestors'],["'none'"]);assert.deepEqual(p['form-action'],["'self'"]);assert.deepEqual(p['base-uri'],["'self'"]);
+  assert.deepEqual(p['frame-ancestors'],["'none'"]);assert.deepEqual(p['form-action'],["'self'",env==='production'?'https://api.squareup.com':'https://api.squareupsandbox.com']);
+  assert(!matches(p['form-action'],'https://bank-acs.example.test'));
+  assert(!matches(p['form-action'],env==='production'?'https://api.squareupsandbox.com':'https://api.squareup.com'));assert.deepEqual(p['base-uri'],["'self'"]);
   for(const [directive,values]of Object.entries(p)){assert(!values.some(v=>['*','https:','http:'].includes(v)));if(directive!=='img-src')assert(!values.includes('data:'));}
   assert(!Object.values(p).flat().some(v=>v.startsWith('http://')));
   assert(!p['script-src'].includes("'unsafe-eval'"));assert(!p['script-src'].includes('https://o160250.ingest.sentry.io'));

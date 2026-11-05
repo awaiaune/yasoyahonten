@@ -16,6 +16,7 @@ const fontPath=['/usr/share/fonts/openai-sans/OpenAISans-Regular.woff2','/usr/sh
 async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay=0,baseline=false,checkoutCloses=false,quoteChanges=false,statusUnavailable=false}={}){
  const site=production?'https://yasoyahonten.awaiaune.com':origin;
  const pci=production?'https://pci-connect.squareup.com':square;
+ const formOrigin=production?'https://api.squareup.com':'https://api.squareupsandbox.com';
  const sdkHost=production?'https://web.squarecdn.com':'https://sandbox.web.squarecdn.com';
  const assets=production?new URL('production/.generated/v53/',root):sandboxAssets;
  const browser=await chromium.launch({executablePath:process.env.YASOYA_CHROMIUM_PATH||'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-background-networking']});t.after(()=>browser.close());
@@ -27,7 +28,7 @@ async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay
   document.addEventListener('securitypolicyviolation',e=>window.offlineViolations.push({directive:e.effectiveDirective,disposition:e.disposition}));
   if(['issuer-denied','timeout'].includes(mode)){const timer=window.setTimeout;window.setTimeout=(fn,ms,...args)=>timer(fn,ms===300000?1500:ms,...args);}
  },{site,mode});
- const calls=[],unexpected=[],errors=[],fontRequests=[];let capabilityCalls=0,quoteCalls=0;
+ const calls=[],unexpected=[],errors=[],fontRequests=[],formRequests=[];let capabilityCalls=0,quoteCalls=0;
  let currentPolicy=production?productionPolicy:policy;
  if(missingFonts)for(const host of fontHosts)currentPolicy=currentPolicy.replace(host,'');
  const sdk=`window.Square={payments:(app,location)=>({card:async()=>{let cardFrame,authFrame;return {
@@ -39,8 +40,12 @@ async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay
   if(${JSON.stringify(mode)}==='browser-blocked'){await fetch(${JSON.stringify(pci+'/auth-dispatch')});throw Error('PRIVATE_BROWSER_DETAIL');}
   if(${JSON.stringify(mode)}==='timeout')return new Promise(()=>{});
   return new Promise(resolve=>{
-   const done=e=>{if(e.data?.type!=='offline-auth-ok')return;if(![${JSON.stringify(pci)},${JSON.stringify(issuer)}].includes(e.origin))return;window.removeEventListener('message',done);resolve({status:'OK',token:'offline-sandbox-3ds-token'});};window.addEventListener('message',done);
-   if(['direct','late'].includes(${JSON.stringify(mode)})){authFrame=document.createElement('iframe');authFrame.title='Direct Sandbox issuer';authFrame.src=${JSON.stringify(issuer+'/challenge?authentication=PRIVATE_AUTH_DATA')};document.body.append(authFrame);if(${JSON.stringify(mode)}==='late')setTimeout(()=>{window.offlineLateResolved=true;resolve({status:'OK',token:'offline-late-token'});},250);}
+   const done=e=>{if(e.data?.type!=='offline-auth-ok')return;if(![${JSON.stringify(pci)},${JSON.stringify(issuer)},${JSON.stringify(formOrigin)}].includes(e.origin))return;window.removeEventListener('message',done);resolve({status:'OK',token:'offline-sandbox-3ds-token'});};window.addEventListener('message',done);
+   if(['square-form','issuer-form'].includes(${JSON.stringify(mode)})){
+    authFrame=document.createElement('iframe');authFrame.name='offline-square-buyer-verification';document.body.append(authFrame);
+    const form=document.createElement('form');form.method='POST';form.target=authFrame.name;form.action=(${JSON.stringify(mode)}==='square-form'?${JSON.stringify(formOrigin)}:${JSON.stringify(issuer)})+'/offline-verification';
+    const input=document.createElement('input');input.name='notificationData';input.type='hidden';input.value='offline-no-card-data';form.append(input);document.body.append(form);form.submit();
+   }else if(['direct','late'].includes(${JSON.stringify(mode)})){authFrame=document.createElement('iframe');authFrame.title='Direct Sandbox issuer';authFrame.src=${JSON.stringify(issuer+'/challenge?authentication=PRIVATE_AUTH_DATA')};document.body.append(authFrame);if(${JSON.stringify(mode)}==='late')setTimeout(()=>{window.offlineLateResolved=true;resolve({status:'OK',token:'offline-late-token'});},250);}
    else cardFrame.contentWindow.postMessage({type:'offline-auth-start'},${JSON.stringify(pci)});
   });
  }
@@ -57,6 +62,7 @@ async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay
    if(u.pathname==='/auth-dispatch')return route.abort('blockedbyclient');
    return route.fulfill({contentType:'text/html',body:squareFrame,headers:{'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; frame-src "+issuer}});
   }
+  if(u.origin===formOrigin){formRequests.push({method:request.method(),host:u.hostname});assert.equal(request.postData(),'notificationData=offline-no-card-data');return route.fulfill({contentType:'text/html',body:'<script>parent.postMessage({type: unescape("offline-auth-ok")},'+JSON.stringify(site)+');</script>'});}
   if(u.origin===issuer)return route.fulfill({contentType:'text/html',body:bank,headers:mode==='issuer-denied'?{'X-Frame-Options':'DENY'}:{}});
   if(u.origin!==site){if(!['fonts.googleapis.com','fonts.gstatic.com'].includes(u.hostname))unexpected.push(u.origin);return route.abort();}
   if(u.pathname.startsWith('/api/')){
@@ -77,7 +83,7 @@ async function setup(t,mode,{production=false,missingFonts=false,capabilityDelay
  await page.goto(site+'/checkout.html');await page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');
  for(const [id,value]of Object.entries({familyName:'試験',givenName:'購入者',email:'buyer@example.invalid',phone:'09012345678',postalCode:'1000001',city:'試験市',address1:'架空住所1'}))await page.locator('#'+id).fill(value);
  const state=page.locator('#state');if(await state.evaluate(e=>e.tagName==='SELECT'))await state.selectOption({label:'東京都'});else await state.fill('東京都');
- return {page,calls,unexpected,errors,fontRequests,pci};
+ return {page,calls,unexpected,errors,fontRequests,formRequests,pci};
 }
 function paymentCount(f){return f.calls.filter(c=>c.path==='/api/v1/payments').length;}
 for(const production of [false,true])test(`${production?'Production-shaped':'Sandbox'} direct issuer frame is blocked by existing CSP before payment API`,{timeout:30000},async t=>{
@@ -148,4 +154,16 @@ for(const [option,message]of [['checkoutCloses','停止'],['quoteChanges','変�
  assert.equal(paymentCount(f),0);assert.equal(await f.page.evaluate(()=>window.offlineActivation),true);
  assert.equal(await f.page.evaluate(()=>JSON.parse(localStorage.getItem('yasoya_checkout_attempt_meta_v1')).state),'prepared');
  assert.deepEqual(f.errors,[]);
+});
+
+for(const production of [false,true])test(`${production?'Production-shaped':'Sandbox'} SDK verification form reaches only the exact Square API origin before payment`,{timeout:30000},async t=>{
+ const f=await setup(t,'square-form',{production});await f.page.locator('#paymentButton').click();
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('処理状況'));
+ assert.equal(paymentCount(f),1);assert.deepEqual(f.formRequests,[{method:'POST',host:production?'api.squareup.com':'api.squareupsandbox.com'}]);
+ assert(!(await f.page.locator('#paymentStatus').innerText()).includes('CARD_AUTH_CSP_BLOCKED'));assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
+});
+test('unrelated issuer form submission stays blocked and never sends a payment',{timeout:30000},async t=>{
+ const f=await setup(t,'issuer-form');await f.page.locator('#paymentButton').click();
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('CARD_AUTH_CSP_BLOCKED'));
+ assert.match(await f.page.locator('#paymentStatus').innerText(),/form-action/);assert.equal(paymentCount(f),0);assert.equal(f.formRequests.length,0);assert.deepEqual(f.errors,[]);
 });
