@@ -24,7 +24,8 @@ export default {async fetch(request,env,ctx){
   else response=await renderV53(request,env)||await env.ASSETS.fetch(request);
   const h=new Headers(response.headers);for(const [k,v]of Object.entries(headers))h.set(k,v);
   h.set('X-Content-Type-Options','nosniff');
-  h.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com; connect-src 'self' https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; frame-src https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://sandbox.web.squarecdn.com; font-src 'self' https://fonts.gstatic.com https://sandbox.web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
+  // Square official Sandbox vendor origins; no arbitrary issuer/frame/script sources.
+  h.set('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' https://sandbox.web.squarecdn.com; connect-src 'self' https://*.squareupsandbox.com https://sandbox.web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareupsandbox.com https://sandbox.web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://sandbox.web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://sandbox.web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
   return new Response(request.method==='HEAD'?null:response.body,{status:response.status,headers:h});
  }catch(error){
   // Only controlled reason codes; never log errors, requests, headers, claims or env.

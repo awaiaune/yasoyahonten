@@ -3,13 +3,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {chromium} from 'playwright-core';
 const root=new URL('../',import.meta.url),origin='https://staging.awaiaune.com';
 const square='https://pci-connect.squareupsandbox.com',issuer='https://bank-acs.example.test';
 const policy=(await readFile(new URL('staging/worker.js',root),'utf8')).match(/h.set\('Content-Security-Policy',"([^"]+)"\)/)[1];
 const productionPolicy=(await readFile(new URL('production/storefront-worker.js',root),'utf8')).match(/const csp="([^"]+)"/)[1];
 const sandboxAssets=new URL('staging/.generated/site/',root);
-async function setup(t,mode,{production=false}={}){
+const fontHosts=['https://square-fonts-production-f.squarecdn.com','https://d1g145x70srn7h.cloudfront.net'];
+const fontPath=['/usr/share/fonts/openai-sans/OpenAISans-Regular.woff2','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf','/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf'].find(existsSync);
+async function setup(t,mode,{production=false,missingFonts=false}={}){
  const site=production?'https://yasoyahonten.awaiaune.com':origin;
  const pci=production?'https://pci-connect.squareup.com':square;
  const sdkHost=production?'https://web.squarecdn.com':'https://sandbox.web.squarecdn.com';
@@ -23,7 +26,9 @@ async function setup(t,mode,{production=false}={}){
   document.addEventListener('securitypolicyviolation',e=>window.offlineViolations.push({directive:e.effectiveDirective,disposition:e.disposition}));
   if(['issuer-denied','timeout'].includes(mode)){const timer=window.setTimeout;window.setTimeout=(fn,ms,...args)=>timer(fn,ms===300000?1500:ms,...args);}
  },{site,mode});
- const calls=[],unexpected=[],errors=[];
+ const calls=[],unexpected=[],errors=[],fontRequests=[];
+ let currentPolicy=production?productionPolicy:policy;
+ if(missingFonts)for(const host of fontHosts)currentPolicy=currentPolicy.replace(host,'');
  const sdk=`window.Square={payments:(app,location)=>({card:async()=>{let cardFrame,authFrame;return {
  attach:async selector=>{cardFrame=document.createElement('iframe');cardFrame.title='Offline Sandbox card';cardFrame.src=${JSON.stringify(pci+'/card')};document.querySelector(selector).append(cardFrame);await new Promise(r=>cardFrame.onload=r);},
  destroy:async()=>{window.offlineDestroyed=true;authFrame?.remove();cardFrame?.remove();},
@@ -42,8 +47,11 @@ async function setup(t,mode,{production=false}={}){
  const bank=`<meta charset="utf-8"><button id="approve">Sandbox本人認証を完了</button><script>document.getElementById('approve').onclick=()=>parent.postMessage({type:'offline-auth-ok'},'*');</script>`;
  await context.route('**/*',async route=>{
   const request=route.request(),u=new URL(request.url());
+  if(fontHosts.includes(u.origin)){assert(fontPath,'A system font is required');fontRequests.push(u.origin);return route.fulfill({body:await readFile(fontPath),headers:{'Content-Type':fontPath.endsWith('.woff2')?'font/woff2':'font/ttf','Access-Control-Allow-Origin':site}});}
+  if(u.origin==='https://o160250.ingest.sentry.io')return route.fulfill({json:{ok:true},headers:{'Access-Control-Allow-Origin':site}});
   if(u.origin===sdkHost)return route.fulfill({contentType:'application/javascript',body:sdk});
   if(u.origin===pci){
+   if(u.pathname==='/csp-probe')return route.fulfill({json:{ok:true},headers:{'Access-Control-Allow-Origin':site}});
    if(u.pathname==='/auth-dispatch')return route.abort('blockedbyclient');
    return route.fulfill({contentType:'text/html',body:squareFrame,headers:{'Content-Security-Policy':"default-src 'none'; script-src 'unsafe-inline'; frame-src "+issuer}});
   }
@@ -59,13 +67,13 @@ async function setup(t,mode,{production=false}={}){
    return route.fulfill({status:404,json:{}});
   }
   if(u.pathname==='/js/store-config.js')return route.fulfill({contentType:'application/javascript',body:'window.YASOYA_STORE_CONFIG='+JSON.stringify({environment:production?'production':'sandbox',managedStorefront:production,workerBaseUrl:site,squareApplicationId:production?'sq0idp-offline':'sandbox-sq0idb-offline',squareLocationId:production?'LQ693S4H2NBZ8':'OFFLINE_SANDBOX',currency:'JPY'})});
-  try{const p=u.pathname.endsWith('/')?u.pathname+'index.html':u.pathname;return route.fulfill({body:await readFile(new URL('.'+p,assets)),headers:{'Content-Type':p.endsWith('.html')?'text/html':p.endsWith('.js')?'application/javascript':p.endsWith('.css')?'text/css':'image/jpeg',...(p.endsWith('.html')?{'Content-Security-Policy':production?productionPolicy:policy}:{})}});}catch{return route.fulfill({status:404,body:'missing local asset'});}
+  try{const p=u.pathname.endsWith('/')?u.pathname+'index.html':u.pathname;return route.fulfill({body:await readFile(new URL('.'+p,assets)),headers:{'Content-Type':p.endsWith('.html')?'text/html':p.endsWith('.js')?'application/javascript':p.endsWith('.css')?'text/css':'image/jpeg',...(p.endsWith('.html')?{'Content-Security-Policy':currentPolicy}:{})}});}catch{return route.fulfill({status:404,body:'missing local asset'});}
  });
  const page=await context.newPage();page.setDefaultTimeout(12000);page.on('pageerror',e=>errors.push(e.message));
  await page.goto(site+'/checkout.html');await page.waitForFunction(()=>document.getElementById('cardInitializationStatus')?.dataset.state==='ready');
  for(const [id,value]of Object.entries({familyName:'試験',givenName:'購入者',email:'buyer@example.invalid',phone:'09012345678',postalCode:'1000001',city:'試験市',address1:'架空住所1'}))await page.locator('#'+id).fill(value);
  const state=page.locator('#state');if(await state.evaluate(e=>e.tagName==='SELECT'))await state.selectOption({label:'東京都'});else await state.fill('東京都');
- return {page,calls,unexpected,errors};
+ return {page,calls,unexpected,errors,fontRequests,pci};
 }
 function paymentCount(f){return f.calls.filter(c=>c.path==='/api/v1/payments').length;}
 for(const production of [false,true])test(`${production?'Production-shaped':'Sandbox'} direct issuer frame is blocked by existing CSP before payment API`,{timeout:30000},async t=>{
@@ -98,4 +106,24 @@ test('a late token after enforced CSP cancellation never submits a payment or re
  await f.page.waitForFunction(()=>window.offlineLateResolved===true);
  assert.equal(paymentCount(f),0);assert.equal(await f.page.evaluate(()=>localStorage.getItem('yasoya_checkout_attempt_v1')),id);
  assert.equal(await f.page.evaluate(()=>JSON.parse(localStorage.getItem('yasoya_checkout_attempt_meta_v1')).state),'prepared');assert.deepEqual(f.errors,[]);
+});
+
+for(const production of [false,true])test(`${production?'Production-shaped':'Sandbox'} official PCI connection, error transport and both font origins pass CSP`,{timeout:30000},async t=>{
+ const f=await setup(t,'nested',{production});
+ const loaded=await f.page.evaluate(async({pci,hosts})=>{
+  const results=await Promise.all([fetch(pci+'/csp-probe').then(r=>r.ok),fetch('https://o160250.ingest.sentry.io/csp-probe').then(r=>r.ok)]);
+  for(const [i,host]of hosts.entries()){const font=new FontFace('CspProbe'+i,'url('+host+'/offline-font)');await font.load();document.fonts.add(font);results.push(font.status==='loaded');}
+  return results;
+ },{pci:f.pci,hosts:fontHosts});
+ assert.deepEqual(loaded,[true,true,true,true]);assert.deepEqual([...new Set(f.fontRequests)].sort(),[...fontHosts].sort());
+ assert.deepEqual(await f.page.evaluate(()=>window.offlineViolations),[]);assert.equal(paymentCount(f),0);assert.deepEqual(f.errors,[]);assert.deepEqual(f.unexpected,[]);
+});
+test('a missing font permission causes a font CSP event but does not establish a 3DS frame failure', {timeout:30000},async t=>{
+ const f=await setup(t,'nested',{missingFonts:true});
+ const loaded=await f.page.evaluate(async host=>{try{await new FontFace('DeniedCspProbe','url('+host+'/offline-font)').load();return true;}catch{return false;}},fontHosts[0]);
+ assert.equal(loaded,false);await f.page.waitForFunction(()=>window.offlineViolations.some(e=>e.directive==='font-src'));
+ assert.equal(await f.page.locator('#cardInitializationStatus').getAttribute('data-state'),'ready');assert.equal(paymentCount(f),0);
+ await f.page.locator('#paymentButton').click();const approve=f.page.frameLocator('#card-container iframe').frameLocator('iframe').getByRole('button',{name:'Sandbox本人認証を完了'});await approve.waitFor({state:'visible'});await approve.click();
+ await f.page.waitForFunction(()=>document.getElementById('paymentStatus')?.textContent.includes('処理状況'));
+ assert.equal(paymentCount(f),1);assert(!(await f.page.locator('#paymentStatus').innerText()).includes('CARD_AUTH_CSP_BLOCKED'));assert.deepEqual(f.errors,[]);
 });
