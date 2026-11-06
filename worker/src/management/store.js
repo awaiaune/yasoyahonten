@@ -21,7 +21,13 @@ export class Store {
  async retiredVariantIds(){if(!retirementEnabled(this.env))return [];const ids=await this.retiredProductIds();return [...new Set(['goldenrod-leaf-10g','goldenrod-leaf-stem-20g',...(await this.products()).filter(p=>ids.has(p.id)).flatMap(p=>p.draft.variants.map(v=>v.id))])];}
  async publicProducts(){
   const rows=await this.all("SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.published_revision WHERE p.status IN ('published','stopped') ORDER BY p.sort_order,p.id");
-  const mappings=production(this.env)||this.env.RUNTIME_TIER==='staging'?await this.all('SELECT variant_id FROM mg_mappings'):null;
+  const mappings=this.env.RUNTIME_TIER==='staging'
+   ?(await this.all('SELECT * FROM mg_mappings')).filter(m=>
+     this.env.SQUARE_ENVIRONMENT==='sandbox'&&this.env.SQUARE_LOCATION_ID&&this.env.SQUARE_LOCATION_ID!=='LQ693S4H2NBZ8'&&
+     m.environment==='sandbox'&&m.location_id===this.env.SQUARE_LOCATION_ID&&
+     /^[A-Z0-9]{8,64}$/.test(m.item_id)&&/^[A-Z0-9]{8,64}$/.test(m.variation_id)&&
+     !Object.values(CATALOG).some(v=>v.squareVariationId===m.variation_id))
+   :production(this.env)?await this.all('SELECT variant_id FROM mg_mappings'):null;
   const retired=await this.retiredProductIds();
   return rows.filter(p=>!retired.has(p.id)).map(p=>({id:p.id,slug:p.slug,status:p.status,revision:p.published_revision,...JSON.parse(p.data_json),...(mappings?{checkoutVariantIds:JSON.parse(p.data_json).variants.filter(v=>mappings.some(m=>m.variant_id===v.id)).map(v=>v.id)}:{})}));
  }
