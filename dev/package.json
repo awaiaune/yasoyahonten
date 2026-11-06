@@ -5,8 +5,8 @@
   "scripts": {
     "start": "node server.mjs",
     "management": "node management-server.mjs",
-    "test": "node --test staging-product-checkout.test.mjs payment-trace.test.mjs square-csp.test.mjs payment-error-v59.test.mjs checkout-unified-off-v58.test.mjs checkout-on-v58-config.test.mjs checkout-on-v58.test.mjs featured-image.test.mjs production-site-only-photos.test.mjs order-mail-outbox.test.mjs production-payment-mail.test.mjs checkout-contract.test.mjs production-management.test.mjs external-policy.test.mjs isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-supervision.test.mjs management-local.test.mjs admin-ui.test.mjs",
-    "test:ui": "node --test admin-ui.browser.mjs production-ui.browser.mjs checkout-v1.browser.mjs thanks-verified-v57.browser.mjs checkout-on-v58.browser.mjs sandbox-3ds.browser.mjs",
+    "test": "node --test staging-recipient.test.mjs staging-product-checkout.test.mjs payment-trace.test.mjs square-csp.test.mjs payment-error-v59.test.mjs checkout-unified-off-v58.test.mjs checkout-on-v58-config.test.mjs checkout-on-v58.test.mjs featured-image.test.mjs production-site-only-photos.test.mjs order-mail-outbox.test.mjs production-payment-mail.test.mjs checkout-contract.test.mjs production-management.test.mjs external-policy.test.mjs isolation.test.mjs payment-safety.test.mjs checkout-safety.test.mjs sandbox-safety.test.mjs square-seed.test.mjs actions-review.test.mjs management.test.mjs management-supervision.test.mjs management-local.test.mjs admin-ui.test.mjs",
+    "test:ui": "node --test staging-recipient.browser.mjs admin-ui.browser.mjs production-ui.browser.mjs checkout-v1.browser.mjs thanks-verified-v57.browser.mjs checkout-on-v58.browser.mjs sandbox-3ds.browser.mjs",
     "test:payment-error": "node --test payment-error-v59.test.mjs checkout-contract.test.mjs",
     "test:checkout-on": "node --test checkout-unified-off-v58.test.mjs checkout-on-v58-config.test.mjs checkout-on-v58.test.mjs checkout-on-v58.browser.mjs",
     "test:3ds": "node --test sandbox-3ds.browser.mjs"

@@ -66,6 +66,24 @@
 
     const META_KEY='yasoya_checkout_attempt_meta_v1';
     let capabilities=null;
+    const recipientCheckRequired=sandboxPage&&config.stagingEmailPreflight===true;
+    let approvedRecipient=null,recipientCheckedAt=0,recipientSequence=0,recipientChecking=false;
+    const currentEmail=()=>document.getElementById('email').value.trim();
+    const recipientReady=()=>!recipientCheckRequired||(approvedRecipient===currentEmail()&&Date.now()-recipientCheckedAt<120000);
+    function invalidateRecipient(){recipientSequence++;approvedRecipient=null;recipientChecking=false;buttonState();}
+    async function checkRecipient(){
+        if(!recipientCheckRequired||submitting||completed)return;
+        const id=localStorage.getItem(ATTEMPT_KEY);if(id&&metadata(id).state==='submitted')return;
+        const email=currentEmail(),sequence=++recipientSequence;approvedRecipient=null;recipientChecking=true;buttonState();
+        feedback('Stagingのテスト用メールアドレスを確認しています。本人認証・決済要求はまだ開始していません。');
+        try{
+            const result=await api('/api/v1/checkout-preflight',{method:'POST',body:JSON.stringify({email})});
+            if(sequence!==recipientSequence||email!==currentEmail())return;
+            if(result.ok!==true||result.recipientAllowed!==true)throw new Error('メールアドレスの許可を確認できません。');
+            approvedRecipient=email;recipientCheckedAt=Date.now();feedback('テスト用メールアドレスを確認しました。PAY NOWを押すと本人認証を開始します。');
+        }catch(error){if(sequence===recipientSequence)feedback((error.message||'許可メールの確認に失敗しました。')+(error.status?' HTTP '+error.status:'')+' 本人認証・決済要求は開始していません。');}
+        finally{if(sequence===recipientSequence){recipientChecking=false;buttonState();}}
+    }
     const CLIENT_RELEASE='checkout-auth-activation-20261105';
     const activationState=()=>typeof globalThis.navigator?.userActivation?.isActive==='boolean'?globalThis.navigator.userActivation.isActive:undefined;
     let diagnosticAttempt=null, diagnosticSequence=0, diagnosticBuffer=[];
@@ -84,7 +102,7 @@
     function remember(id,state){localStorage.setItem(META_KEY,JSON.stringify({id,state}));}
     function attemptId(){let id=localStorage.getItem(ATTEMPT_KEY);if(!id){id=crypto.randomUUID();localStorage.setItem(ATTEMPT_KEY,id);remember(id,'prepared');}return id;}
     function feedback(text){document.getElementById('paymentStatus').textContent=text;}
-    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?'PAY NOW':'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check){check.hidden=!id;check.disabled=submitting||completed;}}
+    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||recipientChecking||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?(recipientReady()?'PAY NOW':'テスト用メールを確認'):'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check){check.hidden=!id;check.disabled=submitting||completed;}}
     async function refreshCapabilities(){
         capabilities=await api('/api/v1/checkout-capabilities');
         if(capabilities.contractVersion!==1||!Array.isArray(capabilities.supportedContracts)||!capabilities.supportedContracts.includes(1))throw new Error('購入画面とAPIの版が一致しません。画面を更新してください。');
@@ -290,12 +308,15 @@
         const button = document.getElementById("paymentButton");
         const status = document.getElementById("paymentStatus");
 
-        if (completed || submitting || !serverQuote || !card || !form.reportValidity()) {
+        if (completed || submitting || recipientChecking || !serverQuote || !card || !form.reportValidity()) {
             return;
         }
 
         const storedId=localStorage.getItem(ATTEMPT_KEY);
         if(storedId&&metadata(storedId).state==='submitted')return;
+        // Never continue to SDK from this asynchronous preflight. A fresh user
+        // gesture after approval invokes tokenize directly, retaining activation.
+        if(!recipientReady()){await checkRecipient();return;}
         submitting = true;
         buttonState();
         button.disabled = true;
@@ -360,6 +381,8 @@
             complete(paymentResult);
         } catch (error) {
 
+            if(error.code==='STAGING_RECIPIENT_NOT_ALLOWED')error.message='今回のリクエストは許可メール不一致で入口拒否され、決済処理へ渡されていません。HTTP '+error.status+' ［STAGING_RECIPIENT_NOT_ALLOWED］。ただし過去・並行試行の成否は未確認のため、送信済み試行IDは維持します。再決済せず管理者へ照合を依頼してください。';
+            else if(error.status&&localStorage.getItem(ATTEMPT_KEY)&&metadata(localStorage.getItem(ATTEMPT_KEY)).state==='submitted')error.message=(error.message||'応答を確認できません。')+' HTTP '+error.status+'。この応答だけでは課金の成否は未確認です。送信済み試行IDを維持しています。再購入せず処理状況を確認してください。';
             status.textContent = error.message || "決済結果を確認できません。再購入せず処理状況を確認してください。";
             // An OFF response must never turn an already submitted attempt back
             // into a new charge after a later 404, reload or reopening of sales.
@@ -382,6 +405,7 @@
             return;
         }
 
+        if(recipientCheckRequired){const email=document.getElementById('email');email.addEventListener('input',invalidateRecipient);email.addEventListener('change',()=>{void checkRecipient();});}
         document.getElementById('checkPaymentStatus')?.addEventListener('click',checkResult);
         document.getElementById('refreshCheckout')?.addEventListener('click',()=>{const url=new URL(location.href);url.searchParams.set('checkoutClient','v1');url.searchParams.set('refresh',String(Date.now()));location.replace(url.href);});
         try {

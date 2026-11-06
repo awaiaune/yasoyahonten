@@ -14,12 +14,13 @@ async function client(options={}){
  const el=id=>{if(!elements.has(id))elements.set(id,{value:'offline',textContent:'',hidden:false,disabled:false,reportValidity:()=>true,addEventListener:(event,fn)=>{if(event==='submit')submit=fn;else elements.get(id)[event]=fn;}});return elements.get(id);};
  const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
  const session={getItem:k=>sessionValues.get(k)||null,setItem:(k,v)=>sessionValues.set(k,v),removeItem:k=>sessionValues.delete(k)};
- const context={crypto,URL,AbortSignal,Date,setTimeout,clearTimeout,console:{error(){}},localStorage:storage,sessionStorage:session,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async details=>{state.verificationDetails=details;state.tokens++;if(state.tokenError)throw Error('private SDK error');if(state.gate)await state.gate;return state.tokenResult||{status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
+ const context={crypto,URL,AbortSignal,Date,setTimeout,clearTimeout,console:{error(){}},localStorage:storage,sessionStorage:session,location:{origin:'https://shop.invalid',href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{scripts:[],querySelector:()=>({}),getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:options.stagingRecipient?{environment:'sandbox',stagingEmailPreflight:true,workerBaseUrl:'https://shop.invalid',squareApplicationId:'sandbox-sq0idb-offline',squareLocationId:'SANDBOXLOCATION'}:options.productionRecipient?{environment:'production',managedStorefront:true,stagingEmailPreflight:true,workerBaseUrl:'https://shop.invalid',squareApplicationId:'sq0idp-offline',squareLocationId:'LQ693S4H2NBZ8'}:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async details=>{state.verificationDetails=details;state.tokens++;if(state.tokenError)throw Error('private SDK error');if(state.gate)await state.gate;return state.tokenResult||{status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
   state.requests.push({url,cache:options.cache});
   if(url.endsWith('/checkout-capabilities'))return Response.json({contractVersion:state.version??1,supportedContracts:[1],checkoutEnabled:state.enabled});
+  if(url.endsWith('/checkout-preflight')){state.preflights=(state.preflights||0)+1;state.preflightBody=JSON.parse(options.body);if(state.preflightGate)await state.preflightGate;if(state.preflightLost)throw Error('offline preflight disconnect');return state.preflightDenied?Response.json({error:{code:'STAGING_RECIPIENT_NOT_ALLOWED',message:'許可メールを確認してください。'}},{status:400}):Response.json({ok:true,recipientAllowed:true});}
   if(url.endsWith('/quote'))return Response.json({total:1330,subtotal:980,shipping:350,items:[]});
   if(url.endsWith('/payments/status'))return state.saved&&!state.notFound?Response.json(state.saved,{status:state.saved.ok?200:202}):Response.json({error:{message:'not started'}},{status:404});
-  if(url.endsWith('/payments')){state.payments++;if(state.paymentGate)await state.paymentGate;const body=JSON.parse(options.body);state.paymentBody=body;assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');if(state.disabledOnSubmit)return Response.json({error:{code:'CHECKOUT_DISABLED',message:'受付停止'}},{status:503});state.saved=state.paymentResponse||(state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'});if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.saved.ok?200:202});}
+  if(url.endsWith('/payments')){state.payments++;if(state.paymentGate)await state.paymentGate;const body=JSON.parse(options.body);state.paymentBody=body;assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');if(state.recipientRejected)return Response.json({error:{code:'STAGING_RECIPIENT_NOT_ALLOWED',message:'許可メールを確認してください。'},currentRequestForwarded:false,retryAllowed:false},{status:400});if(state.other400)return Response.json({error:{code:'INVALID_REQUEST',message:'要求形式を確認してください。'}},{status:400});if(state.disabledOnSubmit)return Response.json({error:{code:'CHECKOUT_DISABLED',message:'受付停止'}},{status:503});state.saved=state.paymentResponse||(state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'});if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.saved.ok?200:202});}
   throw Error('unexpected request');
  }};
  vm.runInNewContext(source,context);await init();return {state,values,sessionValues,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
@@ -129,4 +130,37 @@ test('status control is disabled while payment response is pending, then enables
  await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);
  release();await pending;assert.equal(c.el('checkPaymentStatus').disabled,false);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
  await c.check();assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+});
+
+test('staging recipient is checked before any SDK call, and only a fresh click starts authentication',async()=>{
+ const c=await client({stagingRecipient:true});await c.click();assert.equal(c.state.preflights,1);assert.equal(c.state.tokens,0);assert.equal(c.state.payments,0);assert.equal(c.values.size,0);assert.match(c.el('paymentStatus').textContent,/PAY NOW/);
+ const payment=c.click();assert.equal(c.state.tokens,1,'SDK starts synchronously in the second user gesture');await payment;assert.equal(c.state.payments,1);
+ assert.equal(c.state.preflightBody.email,c.state.verificationDetails.billingContact.email);
+});
+for(const reason of ['preflightDenied','preflightLost'])test('staging '+reason+' never starts authentication or marks an attempt submitted',async()=>{
+ const c=await client({stagingRecipient:true,[reason]:true});await c.click();await c.click();assert.equal(c.state.tokens,0);assert.equal(c.state.payments,0);assert.equal(c.values.size,0);assert.match(c.el('paymentStatus').textContent,/開始していません/);
+});
+test('editing recipient invalidates approval and an old asynchronous result cannot approve the new address',async()=>{
+ let release;const gate=new Promise(r=>release=r);const c=await client({stagingRecipient:true,preflightGate:gate});
+ const pending=c.click();c.el('email').value='another@example.invalid';c.el('email').input();release();await pending;
+ assert.equal(c.state.tokens,0);assert.notEqual(c.el('paymentButton').textContent,'PAY NOW');c.state.preflightGate=null;
+ await c.click();assert.equal(c.state.preflights,2);assert.equal(c.state.tokens,0);assert.equal(c.state.preflightBody.email,'another@example.invalid');
+ c.el('email').value='third@example.invalid';c.el('email').input();await c.click();assert.equal(c.state.preflights,3);assert.equal(c.state.tokens,0);
+});
+test('preflight double tap sends no SDK request while approval is pending',async()=>{
+ let release;const gate=new Promise(r=>release=r);const c=await client({stagingRecipient:true,preflightGate:gate});const a=c.click(),b=c.click();assert(c.el('paymentButton').disabled);assert.equal(c.state.preflights,1);release();await Promise.all([a,b]);assert.equal(c.state.tokens,0);assert.equal(c.state.payments,0);
+});
+test('Production does not apply the staging recipient restriction even if a staging marker is present',async()=>{
+ const c=await client({productionRecipient:true,preflightDenied:true});await c.click();assert.equal(c.state.preflights,undefined);assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);
+});
+for(const kind of ['recipientRejected','other400'])test(kind+' after dispatch preserves submitted ID on 404 and reload without another charge',async()=>{
+ const c=await client({stagingRecipient:true,[kind]:true});await c.click();await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');
+ assert.equal(JSON.parse(c.values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');
+ if(kind==='recipientRejected'){assert.match(c.el('paymentStatus').textContent,/入口拒否/);assert.match(c.el('paymentStatus').textContent,/HTTP 400/);assert.match(c.el('paymentStatus').textContent,/過去・並行試行/);}
+ if(kind==='other400'){assert.match(c.el('paymentStatus').textContent,/HTTP 400/);assert.match(c.el('paymentStatus').textContent,/課金の成否は未確認/);}
+ await c.click();await c.check();assert.match(c.el('paymentStatus').textContent,/再決済せず/);assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+ const reloaded=await client({stagingRecipient:true,values:c.values});await reloaded.click();assert.equal(reloaded.state.tokens,0);assert.equal(reloaded.state.payments,0);assert.equal(reloaded.state.preflights,undefined);assert.equal(reloaded.values.get('yasoya_checkout_attempt_v1'),id);
+});
+test('legacy submitted recipient mismatch never starts a new preflight or authentication',async()=>{
+ const id=crypto.randomUUID(),c=await client({stagingRecipient:true,values:new Map([['yasoya_checkout_attempt_v1',id]])});await c.click();await c.check();assert.equal(c.state.preflights,undefined);assert.equal(c.state.tokens,0);assert.equal(c.state.payments,0);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
 });

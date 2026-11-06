@@ -26,6 +26,11 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  const req=(path,method='GET',body)=>mf.dispatchFetch(env.SITE_URL+path,{method,headers,...(body?{body:JSON.stringify(body)}:{})});
  const api=async(path,method,body)=>{const r=await req(path,method,body),d=await r.json();assert.equal(r.status,200,JSON.stringify(d));return d;};
  assert.equal((await mf.dispatchFetch(env.SITE_URL+'/')).status,401);
+ assert.equal((await mf.dispatchFetch(env.SITE_URL+'/api/v1/checkout-preflight',{method:'POST',headers:{Origin:env.SITE_URL,'Content-Type':'application/json'},body:JSON.stringify({email:env.STAGING_ADMIN_EMAIL})})).status,401);
+ const admission=await req('/api/v1/checkout-preflight','POST',{email:env.STAGING_ADMIN_EMAIL});assert.equal(admission.status,checkout==='1'?200:503);
+ const wrongRecipient=await req('/api/v1/checkout-preflight','POST',{email:'not-approved@example.invalid'});assert.equal(wrongRecipient.status,400);assert.equal((await wrongRecipient.json()).error.code,'STAGING_RECIPIENT_NOT_ALLOWED');
+ const refusedPayment=await req('/api/v1/payments','POST',{attemptId:crypto.randomUUID(),sourceId:'offline-never-forwarded',contact:{email:'not-approved@example.invalid'}});assert.equal(refusedPayment.status,400);assert.equal((await refusedPayment.json()).currentRequestForwarded,false);assert.equal(square.payments.size,0);assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM orders').first()).n,0);
+
  const photo=await mf.dispatchFetch(env.SITE_URL+'/api/admin/images',{method:'POST',headers:{...headers,'Content-Type':'image/jpeg'},body:await readFile(new URL('../images/lemonbalm.jpg',import.meta.url))});assert.equal(photo.status,200);const image=await photo.json();
  const name='v53-test';await api('/api/admin/products/'+name,'PUT',{operationId:crypto.randomUUID(),expectedVersion:0,slug:name,name:'v53 新商品',description:'テスト説明 <script>unsafe</script>',sortOrder:0,images:[image.id],variants:[{id:'v53-test-10g',name:'通常',amount:'10g',price:980,maxQuantity:10,active:true}]});
  assert.equal((await api('/api/admin/products/'+name+'/publish','POST',{operationId:crypto.randomUUID(),expectedVersion:1})).state,'done');
@@ -129,7 +134,7 @@ for(const checkout of ['0','1'])test('checkout='+checkout+': existing locked/mis
  assert.equal(discovered.variants[0].discovered,true);assert(discovered.variants[0].sku);
  assert.equal((await api('/api/admin/jobs/'+createdUnknown.id+'/reconcile','POST',{})).state,'done');
  assert(square.calls.slice(beforeDiscovery).every(p=>p==='/v2/locations'||p.startsWith('/v2/catalog/object/')||p==='/v2/catalog/list'||p==='/v2/inventory/counts/batch-retrieve'));
- const config=await (await req('/js/store-config.js')).text();assert(!config.includes('production'));assert(config.includes('sandbox-sq0idb-'));
+ const config=await (await req('/js/store-config.js')).text();assert(!config.includes('production'));assert(config.includes('sandbox-sq0idb-'));assert(config.includes('\"stagingEmailPreflight\":true'));
  
  let browserRecovery,recoveryFault=null,recoveryPosts=0,recoveryGets=0,refreshFailure=false;
  if(checkout==='0'){
