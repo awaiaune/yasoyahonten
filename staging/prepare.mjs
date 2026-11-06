@@ -2,7 +2,7 @@
 import {cp,mkdir,readFile,writeFile} from 'node:fs/promises';
 const base=new URL('../',import.meta.url),out=new URL('./.generated/site/',import.meta.url);
 await mkdir(out,{recursive:true});await cp(new URL('./site/',import.meta.url),out,{recursive:true});
-for(const path of ['admin/index.html','css/admin.css','js/admin.js','js/admin-ui.js','js/admin-management.js','js/checkout-v1.js','js/managed-storefront.js']){
+for(const path of ['admin/index.html','css/admin.css','js/admin.js','js/admin-ui.js','js/admin-management.js','js/checkout-v1.js','js/thanks-verified-v57.js','js/managed-storefront.js']){
  const dest=new URL(path,out);await mkdir(new URL('./',dest),{recursive:true});await cp(new URL(path,base),dest);
 }
 // Always fetched from the Access-protected staging Worker; no Production fallback.

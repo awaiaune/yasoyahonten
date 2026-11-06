@@ -1,3 +1,4 @@
+import {PaymentTrace,validTraceId} from './payment-trace.js';
 import {checkoutRoute,checkoutCapabilities,CheckoutContractError} from './checkout-contract.js';
 import {production,productionPolicy,productionGrant,ProductionError,adaptProductionPurchase,adaptProductionPurchaseResponse} from './production-policy.js';
 import {assertProductionAdmin} from '../../production/access.js';
@@ -12,6 +13,7 @@ import { renderPage } from './management/storefront.js';
 import { CATALOG, SHIPPING, calculateShipping } from "./catalog.js";
 import { SANDBOX_CATALOG } from "../../validation/catalog.js";
 import { PurchaseLedger, PurchaseError } from "./purchase-ledger.js";
+import { SquarePaymentFailure, withPaymentDiagnostics, paymentFailureEvidence } from './payment-failure.js';
 import { assertSquareDestination, assertTestEmail } from "../../validation/safety.js";
 
 const JSON_HEADERS = {
@@ -48,6 +50,16 @@ export default {
             if(url.pathname==='/api/checkout-capabilities'&&request.method==='GET')return corsJson(checkoutCapabilities(env,policy),200,origin,allowedOrigins);
             if(production(env)&&url.pathname.startsWith('/api/admin/')){await assertProductionAdmin(request,env);productionGrant(env,'read');}
             if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
+            if(url.pathname==='/api/payment-diagnostics'&&request.method==='POST'){
+                // Same origin admission, strict bounded enums; never a payment or
+                // recovery operation. Browser observations do not prove a charge.
+                assertAllowedOrigin(origin,allowedOrigins);
+                const body=await readJson(request);
+                if(!validTraceId(body.attemptId)||body.clientRelease!=='checkout-auth-activation-20261105'||!Array.isArray(body.events)||body.events.length>16)throw new HttpError(400,'診断形式が正しくありません。');
+                const id=env.PURCHASE_COORDINATOR.idFromName('yasoya-honten-global-purchase-lock');
+                const response=await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/client-trace',{method:'POST',body:JSON.stringify({attemptId:body.attemptId,events:body.events})});
+                return corsJson({ok:response.ok},response.status,origin,allowedOrigins);
+            }
             if (managementEnabled(env)) {
                 if(!production(env)||/^\/api\/(admin\/(products|inventory|jobs|audit|images|storefront)(\/|$)|media\/)/.test(url.pathname))await managementGuard(env);
                 if (url.pathname.startsWith('/api/admin/images')) {
@@ -166,13 +178,22 @@ export default {
                     if ((recovery && request.method !== "POST") || (!recovery && request.method !== "GET")) throw new HttpError(405, "Method not allowed.");
                     const attemptId = recovery ? url.pathname.split("/")[4] : null;
                     const response = await stub.fetch(`https://purchase.internal/${recovery ? "recover" : "warnings"}`, {
-                        method: "POST", body: JSON.stringify({ attemptId })
+                        method: "POST", body: JSON.stringify({ attemptId, ...(!recovery && url.searchParams.get('include_failed') === '1' ? {includeFailed:true,includeDiagnostics:url.searchParams.get('include_diagnostics')==='1'} : {}) })
                     });
                     return corsJson(await response.json(), response.status, origin, allowedOrigins);
                 }
                 if (request.method === "GET" && url.pathname === "/api/admin/orders") {
                     const status = url.searchParams.get("status") || "pending";
                     return corsJson({ orders: await listOrders(env, status) }, 200, origin, allowedOrigins);
+                }
+                if (request.method === "GET" && /^\/api\/admin\/orders\/[^/]+\/mail-status$/.test(url.pathname)) {
+                    const orderReference = decodeURIComponent(url.pathname.split('/')[4]);
+                    if (!await getOrder(env, orderReference)) throw new HttpError(404, "注文が見つかりません。");
+                    const id = env.PURCHASE_COORDINATOR.idFromName("yasoya-honten-global-purchase-lock");
+                    const response = await env.PURCHASE_COORDINATOR.get(id).fetch('https://purchase.internal/mail-status', {
+                        method:'POST', body:JSON.stringify({orderReference})
+                    });
+                    return corsJson(await response.json(), response.status, origin, allowedOrigins);
                 }
                 if (request.method === "GET" && url.pathname.startsWith("/api/admin/orders/")) {
                     const ref = decodeURIComponent(url.pathname.split("/").pop());
@@ -397,7 +418,8 @@ async function lookupSquarePayment(env, record) {
     if (record.payment?.id) {
         const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments/${encodeURIComponent(record.payment.id)}`, { headers: squareHeaders(env) });
         if (!response.ok) throw new Error("Payment lookup unavailable");
-        return (await response.json()).payment;
+        const result = await response.json();
+        return withPaymentDiagnostics(result.payment, response.status, result, 'lookup');
     }
     // Square has no assumed 'retrieve by idempotency key' endpoint. Absence from this
     // bounded scan is NOT proof of no charge: keep unknown and never charge again.
@@ -409,7 +431,7 @@ async function lookupSquarePayment(env, record) {
         const response = await squareFetch(env, `${squareBaseUrl(env)}/v2/payments?${query}`, { headers: squareHeaders(env), signal: AbortSignal.timeout(Math.max(1, Math.min(2000, deadline - Date.now()))) });
         if (!response.ok) throw new Error("Payment reconciliation unavailable");
         const result = await response.json();
-        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference));
+        matches.push(...(result.payments || []).filter(p => p.reference_id === record.orderReference).map(p => withPaymentDiagnostics(p, response.status, {payment:p}, 'lookup')));
         cursor = result.cursor;
         if (!cursor) {
             if (matches.length > 1) throw new Error("Multiple matching payments");
@@ -569,7 +591,7 @@ async function decrementSquareInventory({
     return result;
 }
 
-async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey }) {
+async function createSquarePayment({ env, sourceId, quote, contact, orderReference, paymentKey, trace=async()=>{} }) {
     if(externalPolicy(env).managementOnly)assertCheckout(env);
     const baseUrl = squareBaseUrl(env);
 
@@ -612,6 +634,7 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
         requestBody.buyer_phone_number = normalizedPhone;
     }
 
+    await trace({stage:'square_send'});
     const response = await squareFetch(env, `${baseUrl}/v2/payments`, {
         method: "POST",
         headers: {
@@ -624,21 +647,19 @@ async function createSquarePayment({ env, sourceId, quote, contact, orderReferen
 
     const result = await response.json().catch(() => ({}));
 
-    if (!response.ok || !result.payment) {
-        console.error("Square error:", result);
-
-        const squareMessage =
-            result?.errors?.[0]?.detail ||
-            result?.errors?.[0]?.code ||
-            "Squareで決済を完了できませんでした。";
-
-        throw new HttpError(400, squareMessage);
+    const evidence=paymentFailureEvidence(response.status,result);
+    await trace({stage:'square_response',httpStatus:response.status,requestId:response.headers.get('x-request-id'),codes:evidence.codes});
+    // A failed payment object is usable only after the ledger verifies its
+    // reference, location, amount and currency. Never log the provider body.
+    if ((!response.ok && !['FAILED','CANCELED'].includes(result.payment?.status)) || !result.payment) {
+        throw new SquarePaymentFailure(response.status, result);
     }
 
-    return result.payment;
+    return withPaymentDiagnostics(result.payment, response.status, result);
 }
 
-async function sendOrderEmails({ env, payment, quote, contact, orderReference }) {
+function buildOrderMessages({ env, payment, quote, contact, orderReference }) {
+    if (!env.RESEND_FROM_EMAIL || !env.ORDER_NOTIFICATION_EMAIL || !contact.email) throw new Error("Mail configuration required");
     const adminEmail = env.ORDER_NOTIFICATION_EMAIL || "yasoyahonten@gmail.com";
     const replyTo = env.REPLY_TO_EMAIL || adminEmail;
     const siteUrl = env.SITE_URL || "https://yasoyahonten.awaiaune.com";
@@ -656,36 +677,30 @@ async function sendOrderEmails({ env, payment, quote, contact, orderReference })
     const adminMail = buildAdminEmail(common);
     const customerMail = buildCustomerEmail(common);
 
-    const results = await Promise.allSettled([
-        sendResendEmail(env, {
+    return {
+        admin: {key: `admin-${payment.id}`, body: JSON.stringify({
             from: env.RESEND_FROM_EMAIL,
             to: [adminEmail],
             reply_to: contact.email,
             subject: `【八草屋本店】新しいご注文 ${orderReference}`,
             html: adminMail.html,
             text: adminMail.text
-        }, `admin-${payment.id}`),
-
-        sendResendEmail(env, {
+        })},
+        customer: {key: `customer-${payment.id}`, body: JSON.stringify({
             from: env.RESEND_FROM_EMAIL,
             to: [contact.email],
             reply_to: replyTo,
             subject: `ご注文ありがとうございます｜八草屋本店 ${orderReference}`,
             html: customerMail.html,
             text: customerMail.text
-        }, `customer-${payment.id}`)
-    ]);
-
-    for (const result of results) {
-        if (result.status === "rejected") {
-            console.error("Resend delivery failed:", result.reason);
-        }
-    }
+        })}
+    };
 }
 
-async function sendResendEmail(env, payload, idempotencyKey) {
+async function sendResendEmail(env, payload, idempotencyKey, frozenBody) {
     assertMail(env);
     assertTestEmail(env, payload);
+    if (!resendKey(env)) throw Object.assign(new Error('Mail credential is not configured'), {code:'resend_not_configured'});
     const transport = env.LOCAL_RESEND ? (url, options) => {
         if (env.LOCAL_TEST_MODE !== "1" || env.SQUARE_ENVIRONMENT !== "sandbox") throw new Error("Test Resend binding is not allowed here.");
         return env.LOCAL_RESEND.fetch(url, options);
@@ -698,17 +713,17 @@ async function sendResendEmail(env, payload, idempotencyKey) {
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey.slice(0, 256)
         },
-        body: JSON.stringify(payload)
+        body: frozenBody ?? JSON.stringify(payload)
     });
 
     const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-        throw new Error(
-            result?.message ||
-            result?.error?.message ||
-            `Resend error (${response.status})`
-        );
+        const code = response.status === 429 ? 'resend_rate_limited' : response.status >= 500 ? 'resend_unavailable'
+            : response.status === 409 ? 'resend_key_conflict' : 'resend_request_rejected';
+        const concurrent = response.status === 409 && result?.name === 'concurrent_idempotent_requests';
+        throw Object.assign(new Error('Email acceptance not confirmed'), {code:concurrent?'resend_unavailable':code,
+            permanent:response.status >= 400 && response.status < 500 && response.status !== 429 && !concurrent});
     }
 
     return result;
@@ -1121,7 +1136,10 @@ async function sendShippingEmail(env, order, shippingMethod, trackingNumber) {
 export class PurchaseCoordinator {
     constructor(ctx, env) {
         this.ctx = ctx; this.env = env; this.queue = Promise.resolve();
+        this.traces = new PaymentTrace(ctx.storage);
+        const trace=async(id,event)=>{try{await this.traces.append(id,[event]);}catch{/* Diagnostics cannot change a purchase outcome. */}};
         this.ledger = new PurchaseLedger(ctx.storage, {
+            trace,
             location: env.SQUARE_LOCATION_ID,
             validate: body => {
                 requireString(body.sourceId, "決済トークンがありません。", 500);
@@ -1143,17 +1161,16 @@ export class PurchaseCoordinator {
             },
             reference: makeOrderReference,
             stock: async quote => { if(managementEffects(env)){ const manager=new Management(env,this.ctx.storage);await manager.s.assertUnlocked(quote.items.map(i=>i.id));if(catalogEnabled(env))await manager.assertSalesCatalog(quote); } return assertSquareInventoryAvailable(env, quote); },
-            charge: (record, sourceId) => createSquarePayment({ env, ...record, sourceId }),
+            charge: async (record, sourceId) => {
+                try{return await createSquarePayment({env,...record,sourceId,trace:event=>trace(record.id,event)});}
+                catch(error){if(!(error instanceof SquarePaymentFailure))await trace(record.id,{stage:'square_unknown'});throw error;}
+            },
             lookup: record => lookupSquarePayment(env, record),
             decrement: async record => { if(externalPolicy(env).managementOnly)assertCheckout(env);return decrementSquareInventory({ env, ...record, paymentId: record.payment.id }); },
             project: record => saveOrder(env, { ...record, inventoryAdjusted: record.inventory === "applied" }),
-            email: async record => {
-                if(externalPolicy(env).managementOnly)assertMail(env);
-                if (resendKey(env) && env.RESEND_FROM_EMAIL) {
-                    this.ctx.waitUntil(sendOrderEmails({ env, ...record }).catch(() => console.error("Order email delivery requires review")));
-                    return true;
-                }
-                return false;
+            mail: {
+                prepare: record => buildOrderMessages({env, ...record}),
+                send: task => sendResendEmail(env, JSON.parse(task.body), task.key, task.body)
             }
         });
     }
@@ -1190,6 +1207,10 @@ export class PurchaseCoordinator {
                     return Response.json({attemptId:body.attemptId,phase:record?.phase||'unknown',held:true,reason:policy.managementOnly?'SANDBOX_MANAGEMENT':'READ_ONLY'});
                 }
                 let result;
+                if(path==='/client-trace'){
+                    if(!validTraceId(body.attemptId)||!Array.isArray(body.events)||body.events.length>16)throw new HttpError(400,'診断形式が正しくありません。');
+                    await this.traces.append(body.attemptId,body.events,'browser');return Response.json({ok:true});
+                }
                 if(managementEnabled(this.env)&&path==='/management-monitor'){await this.management().recover();return Response.json({ok:true});}
                 if(managementEnabled(this.env)&&path==='/management') return Response.json(await this.management().handle(body.path,body.method,body.body,body.actor));
                 if(managementEnabled(this.env)&&['/managed-stock','/managed-quote'].includes(path)) {
@@ -1199,7 +1220,11 @@ export class PurchaseCoordinator {
                     const catalog=catalogFor(this.env),ids=[...new Set(body.ids)];if(!ids.every(id=>catalog[id]))throw new ManagementError(400,'商品がありません。');
                     const rows=await manager.inventory();return Response.json({inventory:ids.map(id=>{const r=rows.find(r=>r.id===id);return {id,name:catalog[id].name,availableQuantity:catalog[id].active&&!r?.held?(r?.quantity||0):0};})});
                 }
-                if (path === "/warnings") result = { attempts: await this.ledger.warnings() };
+                if (path === '/mail-status') {
+                    const ref = requireString(body.orderReference, '注文番号が必要です。', 100);
+                    return Response.json({mail:await this.ledger.mailStatus(ref)});
+                }
+                if (path === "/warnings") result = { attempts: await this.ledger.warnings(), ...(body.includeFailed === true ? {failures:await this.ledger.failures()} : {}), ...(body.includeDiagnostics===true?{diagnostics:await this.traces.list(),diagnosticRetentionDays:7}:{}) };
                 else if (path === "/status" || path === "/recover") {
                     body.attemptId = validateAttemptId(body.attemptId);
                     result = await this.ledger.recover(body.attemptId, path === "/recover");
@@ -1209,9 +1234,24 @@ export class PurchaseCoordinator {
                 const status = error instanceof HttpError || error instanceof PurchaseError || error instanceof ManagementError || (error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError) ? error.status : 503;
                 return Response.json({ error: { code:(error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError || error instanceof ManagementError)?error.code:undefined,stage:error instanceof ManagementError?error.actionStage:undefined,message: status === 503 && !(error instanceof ManagementError&&error.actionStage) && !((error instanceof ExternalPolicyError || error instanceof ProductionError || error instanceof CheckoutContractError)) ? "注文の処理状況を確認してください。同じ注文番号で再確認できます。" : error.message } }, { status });
             }
-        },{catalog:!['/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
+        },{catalog:!['/client-trace','/warnings','/mail-status','/management-monitor','/management'].includes(path),management:['/management-monitor','/management'].includes(path)});
     }
-    alarm() { return this.serialize(async () => { const policy=externalPolicy(this.env);if(policy.readOnly)return;if(policy.managementOnly){await this.management().recover();return;}try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}finally{if(managementEffects(this.env))await this.management().recover();} },{catalog:false}); }
+    alarm() {
+        return this.serialize(async()=>{
+            const policy=externalPolicy(this.env); // gate before any storage work
+            try {
+                if(policy.readOnly)return;
+                if(policy.managementOnly){await this.management().recover();return;}
+                try{if(catalogEnabled(this.env))await loadCatalog(this.env);await this.ledger.alarm();}
+                finally{try{await this.ledger.mailAlarm();}finally{if(managementEffects(this.env))await this.management().recover();}}
+            }finally{
+                // Other Alarm users run first. Expiry can only move the next Alarm
+                // earlier; it must neither erase nor delay payment/mail recovery.
+                try{await this.traces.prune();}
+                catch{try{await this.ledger.arm(Date.now()+60000);}catch{/* existing recovery heartbeat remains authoritative */}}
+            }
+        },{catalog:false});
+    }
 }
 function validateAttemptId(id) {
     if (typeof id !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
