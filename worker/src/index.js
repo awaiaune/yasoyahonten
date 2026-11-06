@@ -1056,14 +1056,13 @@ function rowToOrder(row) {
 }
 
 async function listOrders(env, status) {
-    await ensureOrdersTable(env);
+    // A read must not run DDL. Schema setup belongs to deployment/write paths.
     const wanted = status === "shipped" ? "shipped" : "pending";
     const { results = [] } = await env.ORDERS_DB.prepare(`SELECT * FROM orders WHERE status=? ORDER BY created_at DESC LIMIT 200`).bind(wanted).all();
     return results.map(rowToOrder);
 }
 
 async function getOrder(env, ref) {
-    await ensureOrdersTable(env);
     return rowToOrder(await env.ORDERS_DB.prepare(`SELECT * FROM orders WHERE order_reference=?`).bind(ref).first());
 }
 

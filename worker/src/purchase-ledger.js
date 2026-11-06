@@ -216,7 +216,7 @@ export class PurchaseLedger {
         catch { try { await this.arm(this.now() + 60_000); } catch { /* durable mail-create remains pending */ } }
     }
     async mailStatus(orderReference) {
-        await this.initialize();
+        // Inspection must not create legacy mail tasks or schedule delivery.
         return this.mail ? this.mail.status(orderReference) : {admin:{state:'unrecorded'},customer:{state:'unrecorded'}};
     }
     async mailAlarm() {
@@ -250,9 +250,12 @@ export class PurchaseLedger {
         r.nextDue = this.now() + 300_000; await this.write(r);
     }
     async warnings() {
-        await this.initialize(); const records = [];
-        for (const [key, pending] of await this.entries('pending:')) {
-            if (pending) { const r = await this.read(key.slice(8)); if (r && !this.closed(r)) records.push(this.summary(r)); }
+        // Administrator GET must not migrate indexes, create an Outbox or arm
+        // an Alarm. Scan the authoritative journal, including legacy attempts
+        // that predate pending:, without changing their recovery/hold state.
+        const records = [];
+        for (const [, r] of await this.entries('attempt:')) {
+            if (r && !this.closed(r)) records.push(this.summary(r));
         }
         return records;
     }
