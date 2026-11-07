@@ -27,62 +27,98 @@ Excluded: new Staging recipient guard/endpoint, Staging purchasing switch change
 - Status/THANK YOU/Alarm can resume the original paid order's pending inventory/order/mail work even with new purchases OFF. They do not create another charge. Existing unresolved attempts must not be deleted or forcibly released.
 - The supplied `yasoya-live.zip` was compared against generated assets, not just root source. Its transaction HTML exactly matches the existing verified V57 templates; checkout CSS/menu/cart scripts already match the candidate package. Homepage differences include dynamic D1 content, which must not be baked into HTML. The uploaded payment JS is older and must not replace the candidate's direct-activation and recovery fixes.
 - The ZIP does not include all live images, product templates, admin assets or referenced CSS. The mandatory actual-release assembly below copies the operational ASSETS directory byte-for-byte and replaces only `js/checkout-v1.js`. Do not deploy the default reconstructed asset directory as a substitute for that copy. Original assets and the real OFF profile are never overwritten. Unrecognized/incomplete source assets stop assembly.
-- The real `production/release/ready-inventory.local.jsonc` is absent in this environment. It was not invented, copied from an example, changed or committed. Therefore real-profile Wrangler dry-run, live bindings/Secrets/routes and current rollback Version are unverified.
+- No real OFF profile is available here. The new version-based preparer does not require one; the real Codespaces Version JSON and operational assets remain necessary evidence for a real-profile dry-run.
 - **Do not deploy the tracked `production/release/ready.jsonc`.** It is a historical example with Catalog enabled and is not the current operational profile. It is preserved only to avoid silently rewriting baseline settings.
 
-## Next gated step in the authenticated release Codespace
+## Current gated step: reconstruct OFF from live Version metadata
 
-1. Preserve the actual release worktree and its assets before switching branches. Use a separate candidate worktree as shown below. Do not run `prepare-v53.mjs` in the operational worktree; it rebuilds the directory that may contain the current live design.
-2. With the existing real OFF profile, run `node production/prepare-checkout-v58.mjs --check-off production/release/ready-inventory.local.jsonc`. It must confirm Checkout OFF, Catalog OFF, the existing inventory writer and Production identity. The checker is read-only; never invoke its ON-profile generation mode for this phase.
-3. Assemble from the existing assets with `prepare-off-live-assets.mjs`, then perform Wrangler **dry-run only** with the newly isolated profile. The assembler validates both purchase flags OFF, Catalog OFF and the existing inventory writer, checks known live hashes and local page dependencies, copies all operational images/product/admin assets, keeps the dynamic store-config fail-closed stub and changes only the approved payment JS. It rejects inline credentials and build hooks. Real Secrets remain bound remotely and are never retrieved. All real deployment or purchase enablement still requires separate authorization.
+An old local OFF config is **not required**. The earlier Codespaces instruction
+that required `ready-inventory.local.jsonc` is superseded. Do not create it from
+historical `ready.jsonc` and do not treat either historical file as live truth.
 
-If a deployed candidate must be rolled back, keep new purchasing OFF and use the captured prior Version. Preserve all D1/DO storage and idempotency IDs; never retry an uncertain payment as a new attempt. A version predating the Outbox will not process its new mail tasks: keep them pending for an Outbox-capable version rather than deleting tasks or manually sending duplicate mail.
+Use `production/prepare-off-from-version.mjs` with the existing
+`/tmp/yasoya-live-version.json`. It reads the official `versions view --json`
+shape (`id`, `resources.bindings`, `resources.script_runtime`) and verifies the
+four live OFF/Catalog/inventory flags. Plaintext vars are retained exactly;
+Secret bindings contribute names only. Inline credential values, Sandbox
+bindings, unknown binding types and resource mismatches stop preparation.
 
-Production 3DS/charges, real Production email delivery, current live configuration and live-version equivalence remain unverified. Local SDK/payment/Resend tests use substitutes and do not prove Production success.
+`--collect` calls the official pinned Wrangler `auth token --json` in a child
+process with stdout captured only in memory; its JSON output is never forwarded
+or saved. API-token and existing OAuth sessions are supported. Global API-key
+auth is refused. The script makes GET requests only, to the fixed confirmed
+account: deployment (sole Version at 100%), same Version content, settings,
+routes, custom domains, workers.dev/preview flags, schedules, D1 metadata and
+the exact existing DO namespace. HTTP errors stop once, reporting only status,
+Cloudflare numeric codes and endpoint. It never calls D1 query or DO objects.
+Required minimum read permissions for these reads are Workers Scripts Read,
+Workers Routes Read for route/domain access, and D1 Read. No edit permission is
+needed for preparation. Retain the existing authenticated Codespaces session;
+do not publish its token or call `auth token` directly in the terminal.
+
+The resulting private local OFF profile retains compatibility, vars, service
+bindings, routes, ASSETS options, schedules and existing storage resources.
+`keep_vars=true` preserves remote Secrets; no Secret value is requested. The
+profile intentionally has **no DO migration steps** (`migrations: []`), so it
+does not invent/replay namespace creation or migration history. Namespace ID,
+class, bound Worker and SQLite storage must match the actual namespace GET.
+The operational ASSETS directory is copied intact; only the reviewed payment JS
+is changed. The separate admin Worker is not redeployed.
 
 ## Local verification result
 
 633 distinct tests passed: regression 371, browser 75, additional 187; zero failures/cancellations/skips in final suites. Purchase/API/admin Worker bundles and packaged root-asset equality passed. Early integration failures were resolved by bringing the Outbox interface tests/guard together, adding the missing Production OFF button guard, adapting browser interaction to the retained notice/select controls, and retaining noindex on transaction pages. A parallel regression runner timed out at shutdown; the bounded serial final run passed all 371 tests. Local logs remain ignored in `dev/.state/payment-rc/`. Production OFF-profile validation stopped with `EXISTING_OFF_PROFILE_NOT_FOUND`; no guessed profile or Wrangler deployment was made.
 
 
-## Preserve-live Codespaces procedure — local assembly and dry-run only
+## Version-based Codespaces procedure — no deploy
 
-Run this **from the existing operational release worktree** whose actual OFF
-profile and asset directory were used for the current deployment. It does not
-use tracked `ready.jsonc`, rebuild operational assets, deploy either Worker,
-change a binding or write any Production data. Missing/unknown inputs stop it.
-The separate admin Worker stays at its current version.
+From a clean candidate checkout after fetching the updated PR branch:
 
 ```bash
-set -euo pipefail
-real_off="$(realpath production/release/ready-inventory.local.jsonc)"
-test -f "$real_off"
-git fetch origin release/production-payment-rc-20261106
-candidate="$(mktemp -d /tmp/yasoya-payment-rc.XXXXXX)"
-git worktree add --detach "$candidate/source" FETCH_HEAD
-node "$candidate/source/production/prepare-off-live-assets.mjs" "$real_off" "$candidate/off-release"
-npx wrangler@4.155.0 deploy --dry-run --config "$candidate/off-release/off.local.jsonc" --outdir "$candidate/off-release/dry-run" > "$candidate/dry-run.log" 2>&1
-printf 'OFF assembly and dry-run passed. Keep this private release directory: %s\n' "$candidate"
+node production/prepare-off-from-version.mjs /tmp/yasoya-live-version.json --collect --dry-run
 ```
 
-If assembly stops with `LIVE_ASSET_MISMATCH`, `CURRENT_PAGE_RESOURCE_MISSING`
-or a missing real profile, do not force it or copy the partial ZIP over assets.
-Retain the private output/error and resolve only that specific input. No actual
-profile, live-image byte comparison or real-profile Wrangler dry-run was possible
-in the Codex workspace: the operational Codespaces assets are not mounted here.
+This command deliberately does not infer a local asset path. If required
+information is missing, it prints **all missing fields together** and their
+acquisition methods, without writing a partial/guessed OFF config. Successful
+metadata reads are cached privately under `/tmp/yasoya-off-evidence-*/`; rerun
+with `--evidence <that-file>` rather than repeating `--collect`.
 
-After reviewing the dry-run and obtaining separate deployment approval, the
-payment Worker command is the same command **without `--dry-run`**, using only
-that retained isolated `off.local.jsonc`. Do not run the admin deploy command.
-Check public page asset hashes/layout, both checkout flags OFF, protected admin
-GET and receipt neutrality before any separate purchase-ON approval.
+There are two asset facts that `versions view` may not restore:
 
-Rollback uses the verified pre-change payment Worker Version (last supplied:
-`36ab2dba-dd44-4f39-bc69-6db729bd24d5`; record the actually active version just
-before a future deployment). Use the authenticated release Codespace's
-`npx wrangler@4.155.0 rollback <recorded-version-id> --name yasoya-honten-payments`
-only under separate rollback authorization. Do not restore/delete D1, DO, R2,
-Outbox tasks or unresolved attempts. Keep purchase OFF throughout. Assets and
-Worker roll back together; the unchanged admin Worker needs no rollout.
+- **Local operational ASSETS directory and file bytes:** Version JSON contains
+  neither the upload's local filesystem path nor all static images/pages. Locate
+  the directory that was used for the current release, for example with
+  `find /workspaces -type d -path '*/production/.generated/v53' -not -path '*/node_modules/*'`.
+  Select the actual operational directory, not a newly rebuilt candidate. Supply
+  `--assets /absolute/path/to/that/directory`. Known live HTML/cart hashes and
+  dependencies must match; unknown/incomplete assets stop. The uploaded 20-file
+  ZIP is insufficient as a complete ASSETS directory.
+- **Asset routing if omitted by the API:** the collector checks the current
+  script settings GET. If it omits routing, check Cloudflare Dashboard → Workers & Pages → `yasoya-honten-payments` → Settings → Assets, and record the CURRENT asset
+  settings in a private JSON file with `worker`, `versionId`, and `config` keys.
+  `config` must contain the confirmed `run_worker_first` plus any explicitly
+  configured `html_handling`, `not_found_handling`, `base_path`. Use
+  `--asset-settings /path/to/file.json`. Do not copy a tracked example or invent
+  omitted values. Unknown options/conflicting API evidence stop preparation.
 
-Latest preserve-live verification: **72 targeted tests passed** (40 unit/integration including three Worker bundle checks; 32 browser). Mobile 360/390px transaction geometry matches the supplied live HTML. Retired cart entries are removed and cannot be re-added. D1-driven top selection, representative-image/gallery separation, Production OFF controls, post-auth revalidation, payment/stock/order replay protection and neutral/verified receipts passed locally. SDK/payment/mail transports are substitutes; this does not claim a new real Sandbox or Production payment. Logs and screenshots stay ignored under `dev/.state/live-design/`. The real OFF profile and operational images/admin assets still require the above Codespaces assembly/dry-run.
+A continuation reuses the same cached metadata, for example:
+`node production/prepare-off-from-version.mjs /tmp/yasoya-live-version.json --evidence /tmp/yasoya-off-evidence-.../evidence.json --assets /actual/operational/assets --dry-run`.
+`--asset-settings` is needed only when the current API omits asset routing.
+No current local profile is overwritten. New config/evidence/log files use
+0600 permissions inside a private 0700 temporary directory, never Git paths.
+
+Only after all evidence is present does the script run pinned Wrangler
+`deploy --dry-run` against the newly assembled OFF profile. It never runs
+`deploy` without `--dry-run`. The output directory contains `release/off.local.jsonc`,
+`evidence.json` (rollback Version and Secret names only) and `dry-run.log`.
+A real deploy/purchase-ON still requires separate approval and a fresh check
+that the active Version has not changed since evidence collection. Rollback
+would target the captured Version with purchasing OFF, without restoring or
+deleting D1/DO/R2/Outbox/attempt data; admin Worker remains unchanged.
+
+Latest preparation tests: 41 targeted tests passed, failures 0, including three
+Worker builds and a mocked dry-run command boundary. Real Codespaces Version
+JSON, current operational assets and Cloudflare credential are not mounted in
+Codex; actual metadata collection and real-profile dry-run remain unverified.
+No Production request, deployment or data change was performed by this work.

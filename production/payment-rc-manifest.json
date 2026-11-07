@@ -42,7 +42,6 @@
     "worker/src/production-policy.js": "2edaa236cd3b63c289109cd13c70465e2e3f8c8976aef37d7166451e374d2a1e",
     "worker/wrangler.jsonc": "d51626d5b1f2cc58e97d388abd48734ecd0b3d5ffc73d0d28a27b356e05b1093"
   },
-  "actualOffProfile": "production/release/ready-inventory.local.jsonc",
   "automaticDeploy": false,
   "localProfileVerified": false,
   "exclude": [
@@ -111,7 +110,7 @@
     "failures": 0,
     "scope": "local mocks only; no new real Sandbox or Production payments"
   },
-  "offProfileCheck": "STOP: EXISTING_OFF_PROFILE_NOT_FOUND",
+  "offProfileCheck": "Real Codespaces version JSON and operational asset directory are not mounted in Codex; no real-profile dry-run claimed.",
   "liveDesignCompatibility": {
     "manifest": "production/live-design-manifest.json",
     "source": "user supplied live snapshot and verified V57 source templates",
@@ -133,5 +132,12 @@
     "failures": 0,
     "workerBuilds": 3,
     "scope": "offline only; mobile Chromium 360/390px, supplied live HTML comparison, SDK/payment/Resend substitutes; no real profile or deployment"
+  },
+  "offProfileSource": "production/prepare-off-from-version.mjs: current Version JSON plus read-only live metadata and existing operational assets",
+  "versionPreparationLocalTestResults": {
+    "targetedTests": 41,
+    "failures": 0,
+    "workerBuilds": 3,
+    "scope": "Synthetic Cloudflare responses; local filesystem isolation; no Cloudflare request or real-profile dry-run"
   }
 }
