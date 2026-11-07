@@ -1,9 +1,10 @@
 import {CATALOG} from '../catalog.js';
 import {production} from '../production-policy.js';
 import { Store } from './store.js';
+import {presentationImageUrl} from './presentation-images.js';
 export const escape=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const safeJson=x=>JSON.stringify(x).replaceAll('<','\\u003c');
-function image(p){return p.images[0]?'/api/media/'+p.images[0]:'';}
+function image(p){return presentationImageUrl(p);}
 function cards(products){return products.map(p=>`<a class="product-card" href="/products/${escape(p.slug)}.html">${image(p)?`<div class="product-image"><img loading="lazy" src="${image(p)}" alt="${escape(p.alt)}"></div>`:''}<div class="product-info"><h3>${escape(p.name)}</h3><p>${escape(p.description.slice(0,100))}</p><p>¥${Math.min(...p.variants.map(v=>v.price))||0}</p><p>${p.status==='stopped'?'販売停止':'販売中'}</p></div></a>`).join('');}
 function content(p,env){return `<div class="product-detail-inner"><h1>${escape(p.name)}</h1><div class="product-main-image">${p.images.map(id=>`<img src="/api/media/${id}" alt="${escape(p.alt)}">`).join('')}</div><div class="product-information"><h2>${escape(p.name)}</h2><p class="product-description" style="white-space:pre-line">${escape(p.description)}</p><div class="product-data">${p.variants.map(v=>`<p>${escape(v.name)} ${escape(v.amount)} ¥${v.price.toLocaleString('ja-JP')}</p>`).join('')}</div>${p.variants.filter(v=>v.active).map(v=>`<div class="product-cart-area"><label>数量<select class="product-quantity">${Array.from({length:Math.min(v.maxQuantity,10)},(_,i)=>`<option>${i+1}</option>`).join('')}</select></label><button class="product-cart-button" data-product-id="${escape(v.id)}" data-product-name="${escape(v.name)}" data-product-price="${v.price}" ${p.status!=='published'||(production(env)&&((env.PRODUCTION_MANAGED_CHECKOUT_ENABLED!=='1'&&!CATALOG[v.id])||(!CATALOG[v.id]&&!p.checkoutVariantIds?.includes(v.id))))?'disabled data-site-disabled="true"':''}>${p.status==='published'?'カートに入れる':'販売停止'}</button></div>`).join('')}</div></div>`;}
 export async function renderPage(request,env){

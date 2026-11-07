@@ -34,3 +34,21 @@ test('shared product cards and status/empty states escape untrusted product text
  const ui=await components();const p={id:'test',status:'draft',draft:{name:'<script>bad()</script>',alt:'<img onerror=bad()>',images:[],variants:[{amount:'<svg onload=bad()>',price:980}]}};
  const card=ui.productCard(p,n=>'JPY '+n);assert(!card.includes('<script>'));assert(!card.includes('<svg'));assert(card.includes('&lt;script&gt;'));assert(card.includes('data-edit="test"'));assert(!ui.emptyState('<script>bad()</script>').includes('<script>'));assert(!ui.statusBadge('<img onerror=bad()>').includes('<img'));
 });
+
+test('unresolved-payment review fails unconfirmed before any request when administrator authentication is missing',async()=>{
+ const elements=new Map();let requests=0;
+ const get=id=>{if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',dataset:{},events:{},addEventListener(name,fn){this.events[name]=fn;},setAttribute(){},removeAttribute(){}});return elements.get(id);};
+ const context={window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://admin.example.invalid'}},sessionStorage:{getItem:()=>''},document:{getElementById:get,querySelectorAll:()=>[]},fetch:()=>requests++,Intl,Map,AbortSignal,setTimeout,clearTimeout};
+ vm.runInNewContext(await readFile(new URL('../js/admin.js',import.meta.url),'utf8'),context);
+ assert.equal(requests,0);await get('checkPaymentAttempts').events.click();
+ assert.equal(requests,0);assert.match(get('paymentAttemptsMessage').textContent,/未確認/);
+ assert.equal(get('paymentAttemptsList').innerHTML,'');assert.equal(get('checkPaymentAttempts').disabled,false);
+});
+
+test('administrator diagnostic code/category allowlists match the official server enums',async()=>{
+ const {SQUARE_ERROR_CODES,SQUARE_ERROR_CATEGORIES}=await import('../worker/src/square-error-codes.js');
+ const text=await readFile(new URL('../js/admin.js',import.meta.url),'utf8');
+ assert.deepEqual(JSON.parse(text.match(/const diagnosticCodes = new Set\((\[.*\])\);/)[1]),SQUARE_ERROR_CODES);
+ assert.deepEqual(JSON.parse(text.match(/const diagnosticCategories = new Set\((\[.*\])\);/)[1]),SQUARE_ERROR_CATEGORIES);
+ assert(SQUARE_ERROR_CODES.includes('CARD_DECLINED_VERIFICATION_REQUIRED'));
+});

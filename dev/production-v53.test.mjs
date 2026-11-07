@@ -39,7 +39,7 @@ test('Production v53: two legacy orders survive additive migration and full life
  });
  await t.test('Production SDK/config only; public site has no Access gate while admin origin requires auth',async()=>{
   const config=await (await f.request('/js/store-config.js')).text();assert(config.includes('sq0idp-offline'));assert(!config.includes('sandbox'));assert(!config.includes(f.env.SQUARE_ACCESS_TOKEN));
-  const checkout=await (await f.request('/checkout.html')).text();assert(checkout.includes('https://web.squarecdn.com/v1/square.js'));assert(!checkout.includes('sandbox.web.squarecdn.com'));assert(!checkout.includes('noindex'));assert.equal((await f.mf.dispatchFetch(f.env.SITE_URL+'/api/admin/products')).status,403);assert.equal((await f.mf.dispatchFetch(f.env.PRODUCTION_ADMIN_ORIGIN+'/api/admin/products')).status,401);
+  const checkout=await (await f.request('/checkout.html')).text();assert(checkout.includes('https://web.squarecdn.com/v1/square.js'));assert(!checkout.includes('sandbox.web.squarecdn.com'));assert(checkout.includes('noindex'),'checkout stays excluded from indexing; general public pages are checked separately');assert.equal((await f.mf.dispatchFetch(f.env.SITE_URL+'/api/admin/products')).status,403);assert.equal((await f.mf.dispatchFetch(f.env.PRODUCTION_ADMIN_ORIGIN+'/api/admin/products')).status,401);
  });
  await t.test('draft save changes neither public copy nor Square; unified release updates same IDs and publishes atomically',async()=>{
   const p=await get('lemonbalm'),calls=f.calls.length;await save(p,{description:'新しい公開説明'});assert(!((await (await f.request('/products/lemonbalm.html')).text()).includes('新しい公開説明')));assert.equal(f.calls.length,calls);

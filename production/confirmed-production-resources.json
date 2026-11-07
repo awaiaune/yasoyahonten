@@ -1,0 +1,16 @@
+{
+  "account": "fcf37e462257810df77e8fbc0e7f4317",
+  "worker": "yasoya-honten-payments",
+  "database": {
+    "binding": "ORDERS_DB",
+    "type": "d1",
+    "id": "442fa9fd-25d3-4c01-bcc3-04be7b420cf5",
+    "name": "yasoya-orders"
+  },
+  "source": {
+    "kind": "user_dashboard_confirmation",
+    "confirmedOn": "2026-11-07",
+    "reference": "Technical director instruction: Production D1 ID and database name confirmed in Cloudflare Dashboard; require exact live Version Binding match.",
+    "scope": "Resource identity only. Does not establish D1 API permission, table structure, data contents or backup status."
+  }
+}

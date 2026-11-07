@@ -1,3 +1,5 @@
+import {OrderMailOutbox} from './order-mail-outbox.js';
+import {SquarePaymentFailure, diagnosticsForPayment, mergePaymentFailure} from './payment-failure.js';
 // DO is the durable purchase journal; D1 remains a retryable projection.
 const RETRY_WINDOW_MS = 60 * 60 * 1000;
 const MAX_RECOVERY_ATTEMPTS = 8;
@@ -5,8 +7,16 @@ export class PurchaseError extends Error {
     constructor(status, message) { super(message); this.status = status; }
 }
 export class PurchaseLedger {
-    constructor(storage, services) { this.storage = storage; this.services = services; }
+    constructor(storage, services) {
+        this.storage = storage; this.services = services;
+        if (services.mail) this.mail = new OrderMailOutbox(storage, {
+            prepare: record => this.services.mail.prepare(record),
+            send: task => this.services.mail.send(task),
+            observe: (id,event) => this.services.trace?.(id,event)
+        }, () => this.now());
+    }
     now() { return this.services.now?.() ?? Date.now(); }
+    async trace(r,stage,fields={}){try{await this.services.trace?.(r.id,{stage,...fields});}catch{/* Never alter purchase/recovery because diagnostics are unavailable. */}}
     key(id) { return `attempt:${id}`; }
     read(id) { return this.storage.get(this.key(id)); }
     closed(r) { return r.phase === 'declined' || (r.phase === 'paid' && r.inventory === 'applied' && r.projection === 'stored'); }
@@ -33,6 +43,16 @@ export class PurchaseLedger {
             for (const [, r] of await this.entries('attempt:')) await this.write(r);
             await this.storage.put('sku-index-v2', true);
         }
+        if (this.mail && !(await this.storage.get('order-mail-index-v1'))) {
+            try {
+                await this.arm(this.now() + 60_000);
+                let complete = true;
+                for (const [, r] of await this.entries('attempt:')) {
+                    try { await this.mail.ensure(r); } catch { complete = false; }
+                }
+                if (complete) await this.storage.put('order-mail-index-v1', true);
+            } catch { /* Keep the additive upgrade pending, without blocking payment recovery. */ }
+        }
         this.initialized = true;
     }
     scheduled(r) {
@@ -40,6 +60,9 @@ export class PurchaseLedger {
             r.phase === 'paid' && r.projection !== 'stored' && (r.projectionAttempts || 0) < MAX_RECOVERY_ATTEMPTS);
     }
     async write(r) {
+        if (this.mail && r.phase === 'paid' && r.projection === 'stored') {
+            try { await this.arm(this.now() + 60_000); } catch { /* mail-create is saved below for a later retry */ }
+        }
         const holds = await this.storage.get('sku-holds') || {};
         for (const [sku, ids] of Object.entries(holds)) {
             holds[sku] = ids.filter(id => id !== r.id);
@@ -49,7 +72,8 @@ export class PurchaseLedger {
         r.updatedAt = new Date(this.now()).toISOString();
         r.nextDue ??= this.now() + 30_000;
         // Single atomic storage.put: journal, locks and recovery index agree even after a crash.
-        await this.storage.put({ [this.key(r.id)]: r, 'sku-holds': holds, [`pending:${r.id}`]: !this.closed(r) });
+        await this.storage.put({ [this.key(r.id)]: r, 'sku-holds': holds, [`pending:${r.id}`]: !this.closed(r),
+            ...(this.mail && r.phase === 'paid' && r.projection === 'stored' ? {[`mail-create:${r.id}`]:true} : {}) });
         if (this.scheduled(r)) await this.arm(r.nextDue);
     }
     async submit(body) {
@@ -73,12 +97,14 @@ export class PurchaseLedger {
         try {
             const payment = await this.services.charge(r, body.sourceId);
             this.verifyPayment(r, payment);
-            r.payment = paymentSnapshot(payment);
-            r.phase = payment.status === 'COMPLETED' ? 'paid' : 'unknown';
-        } catch {
+            this.capturePayment(r, payment);
+            r.phase = payment.status === 'COMPLETED' ? 'paid' : ['FAILED','CANCELED'].includes(payment.status) ? 'declined' : 'unknown';
+        } catch (error) {
             r.phase = 'unknown'; r.warning = 'payment_result_unknown';
+            if (error instanceof SquarePaymentFailure) r.paymentFailure = error.evidence;
         }
         await this.write(r);
+        await this.trace(r,r.phase==='paid'?'payment_paid':r.phase==='declined'?'payment_declined':'payment_unknown');
         return this.recover(r.id, true);
     }
     verifyPayment(r, p) {
@@ -93,14 +119,22 @@ export class PurchaseLedger {
             amount: r.quote.total, inventoryAdjusted: r.inventory === 'applied',
             phase: r.phase, inventoryState: r.inventory, orderState: r.projection,
             recoveryRequired: !this.closed(r), warning: r.warning, manualReview: Boolean(r.manual),
+            paymentOutcome: r.phase === 'paid' ? 'paid' : r.phase === 'declined' ? 'failed' : r.paymentFailure?.outcome || 'unknown',
+            paymentFailure: r.phase === 'paid' ? null : r.paymentFailure || null,
+            squarePaymentStatus: ['APPROVED','PENDING','COMPLETED','FAILED','CANCELED'].includes(r.payment?.status) ? r.payment.status : null,
+            retryAllowed: r.phase === 'declined' && ['FAILED','CANCELED'].includes(r.payment?.status),
             pausedVariations: this.holdsStock(r) ? this.stockKeys(r) : [],
             notificationState: r.notificationState || 'not_required', emailQueued: Boolean(r.emailQueued) };
+    }
+    capturePayment(r, payment) {
+        r.payment = paymentSnapshot(payment);
+        if (r.payment.failure) r.paymentFailure = mergePaymentFailure(r.paymentFailure, r.payment.failure);
     }
     async recover(id, force = false) {
         await this.initialize();
         const r = await this.read(id);
         if (!r) throw new PurchaseError(404, '注文処理はまだ開始されていません。');
-        if (this.closed(r)) return this.summary(r);
+        if (this.closed(r)) { await this.recoverMail(r); return this.summary(r); }
         if (!force && r.nextDue > this.now()) return this.summary(r);
         if (r.manual) {
             // An authenticated operator can request another read-only payment
@@ -111,7 +145,7 @@ export class PurchaseLedger {
                     if (payment) {
                         this.verifyPayment(r, payment);
                         if (['COMPLETED', 'FAILED', 'CANCELED'].includes(payment.status)) {
-                            r.payment = paymentSnapshot(payment);
+                            this.capturePayment(r, payment);
                             r.phase = payment.status === 'COMPLETED' ? 'paid' : 'declined';
                             r.manual = false; r.recoveryAttempts = 0; r.warning = null;
                             r.nextDue = this.now(); await this.write(r);
@@ -125,6 +159,7 @@ export class PurchaseLedger {
                 try { await this.services.project(r); r.projection = 'stored'; } catch { r.projection = 'retry_required'; }
                 r.nextDue = this.now() + 60_000; await this.write(r);
             }
+            await this.recoverMail(r);
             await this.notify(r); return this.summary(r);
         }
         if (r.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) return this.manual(r, 'manual_review_required');
@@ -138,12 +173,12 @@ export class PurchaseLedger {
             if (!payment) { r.phase = 'unknown'; r.warning = 'payment_not_confirmed'; await this.write(r); return this.summary(r); }
             try { this.verifyPayment(r, payment); }
             catch { return this.manual(r, 'payment_mismatch'); }
-            r.payment = paymentSnapshot(payment);
+            this.capturePayment(r, payment);
             if (['FAILED', 'CANCELED'].includes(payment.status)) {
                 r.phase = 'declined'; r.warning = 'payment_not_completed'; await this.write(r); return this.summary(r);
             }
             if (payment.status !== 'COMPLETED') { r.phase = 'unknown'; r.warning = 'payment_not_completed'; await this.write(r); return this.summary(r); }
-            r.phase = 'paid'; r.warning = null; await this.write(r);
+            r.phase = 'paid'; r.warning = null; await this.write(r);await this.trace(r,'payment_paid');
         }
         if (r.inventory !== 'applied') {
             if (!r.inventoryOperation) {
@@ -160,16 +195,42 @@ export class PurchaseLedger {
                 }
             }
             await this.write(r);
+            await this.trace(r,r.inventory==='applied'?'inventory_applied':'inventory_pending');
         }
         try { await this.services.project(r); r.projection = 'stored'; }
         catch { r.projection = 'retry_required'; if (!r.manual) r.warning = 'order_projection_required'; }
         await this.write(r); // releases only this order's locks once inventory is confirmed
-        if (r.projection === 'stored' && !r.emailAttempted) {
-            r.emailAttempted = true; await this.write(r);
-            r.emailQueued = Boolean(await this.services.email(r)); await this.write(r);
-        }
+        await this.trace(r,r.projection==='stored'?'order_stored':'order_pending');
+        await this.recoverMail(r);
         if (r.manual) await this.notify(r);
         return this.summary(r);
+    }
+    async recoverMail(r) {
+        if (!this.mail) return;
+        // Email outages/storage failures never turn a confirmed purchase into a
+        // failed charge response. The preinstalled Alarm retries the outbox.
+        try { await this.mail.ensure(r); await this.mail.process(r.id);
+            const status=await this.mail.status(r.orderReference);
+            await this.trace(r,'mail_state',{admin:status.admin?.state,customer:status.customer?.state});
+        }
+        catch { try { await this.arm(this.now() + 60_000); } catch { /* durable mail-create remains pending */ } }
+    }
+    async mailStatus(orderReference) {
+        // Inspection must not create legacy mail tasks or schedule delivery.
+        return this.mail ? this.mail.status(orderReference) : {admin:{state:'unrecorded'},customer:{state:'unrecorded'}};
+    }
+    async mailAlarm() {
+        if (!this.mail) return;
+        await this.initialize();
+        // Repair a crash between order projection and outbox creation, including
+        // records written after the one-time legacy migration marker.
+        for (const [key, pending] of await this.entries('mail-create:')) {
+            if (pending) {
+                try { const r = await this.read(key.slice(12)); if (r) await this.mail.ensure(r); }
+                catch { await this.arm(this.now() + 60_000); }
+            }
+        }
+        await this.mail.alarm();
     }
     async manual(r, warning) {
         r.manual = true; r.warning = warning; await this.write(r); await this.notify(r); return this.summary(r);
@@ -189,11 +250,19 @@ export class PurchaseLedger {
         r.nextDue = this.now() + 300_000; await this.write(r);
     }
     async warnings() {
-        await this.initialize(); const records = [];
-        for (const [key, pending] of await this.entries('pending:')) {
-            if (pending) { const r = await this.read(key.slice(8)); if (r && !this.closed(r)) records.push(this.summary(r)); }
+        // Administrator GET must not migrate indexes, create an Outbox or arm
+        // an Alarm. Scan the authoritative journal, including legacy attempts
+        // that predate pending:, without changing their recovery/hold state.
+        const records = [];
+        for (const [, r] of await this.entries('attempt:')) {
+            if (r && !this.closed(r)) records.push(this.summary(r));
         }
         return records;
+    }
+    async failures() {
+        // Explicit authenticated read only: never reconcile or submit a charge.
+        const rows = (await this.entries('attempt:')).map(([, r]) => r).filter(r => r?.phase === 'declined');
+        return rows.sort((a, b) => (Date.parse(b.createdAt) || 0) - (Date.parse(a.createdAt) || 0)).map(r => this.summary(r));
     }
     async alarm() {
         await this.initialize();
@@ -226,5 +295,8 @@ async function digest(value) {
 }
 function paymentSnapshot(payment) {
     const { id, status, reference_id, amount_money, location_id, created_at } = payment;
-    return { id, status, reference_id, amount_money, location_id, created_at };
+    const failure = diagnosticsForPayment(payment);
+    return { id, status:['APPROVED','PENDING','COMPLETED','FAILED','CANCELED'].includes(status) ? status : 'UNKNOWN', reference_id, amount_money:{amount:amount_money.amount,currency:amount_money.currency}, location_id,
+        created_at:typeof created_at === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(created_at) && Number.isFinite(Date.parse(created_at)) ? created_at : undefined,
+        ...(failure ? {failure} : {}) };
 }

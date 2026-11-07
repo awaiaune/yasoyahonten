@@ -4,7 +4,11 @@ export {PurchaseCoordinator} from '../worker/src/index.js';
 import {productionIdentity,productionDatabase,ProductionError} from '../worker/src/production-policy.js';
 import {Store} from '../worker/src/management/store.js';
 import {renderV53} from '../worker/src/management/v53-render.js';
-const csp="default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com; frame-src https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+// Square vendor origins: https://developer.squareup.com/docs/web-payments/content-security-policy
+// Keep issuer frames restricted; pci-connect is already covered by *.squareup.com.
+// The SDK posts buyer-verification notificationData to Square's API iframe.
+// form-action is independent of frame-src/connect-src; allow only this origin.
+const csp="default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'";
 export default {async fetch(request,env,ctx){
  try{
   productionIdentity(env);

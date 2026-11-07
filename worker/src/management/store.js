@@ -37,7 +37,10 @@ export async function loadCatalog(env){
  if(production(env))await productionDatabase(env);
  const store=new Store(env),catalog=await store.catalog();
  if(production(env)){
-  env.MANAGED_CATALOG={...CATALOG,...catalog};
+  // Keep legacy IDs for history, but never resurrect missing/unpublished D1 goods.
+  const legacy=env.PRODUCTION_MANAGED_CHECKOUT_ENABLED==='1'
+   ?Object.fromEntries(Object.entries(CATALOG).map(([id,p])=>[id,{...p,active:false}])):CATALOG;
+  env.MANAGED_CATALOG={...legacy,...catalog};
   if(retirementEnabled(env))for(const id of ['goldenrod-leaf-10g','goldenrod-leaf-stem-20g'])env.MANAGED_CATALOG[id]={...env.MANAGED_CATALOG[id],active:false};
   for(const p of await store.products())if(p.status==='archived')for(const v of p.draft.variants)if(env.MANAGED_CATALOG[v.id])env.MANAGED_CATALOG[v.id]={...env.MANAGED_CATALOG[v.id],active:false};
  }else env.MANAGED_CATALOG=catalog;
