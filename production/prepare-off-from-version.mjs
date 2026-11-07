@@ -102,7 +102,7 @@ export async function collectEvidence(v,get){
   ...(settings.assets?.config?{assetConfig:settings.assets.config}:settings.assets&&Object.hasOwn(settings.assets,'run_worker_first')?{assetConfig:settings.assets}:{})};
 }
 export async function apiReader(auth,{fetcher=fetch}={}){
- if(!['oauth','api_token'].includes(auth?.type)||!text(auth.token)||/[\\s"']/.test(auth.token)||/^Bearer/i.test(auth.token))fail('AUTH_CREDENTIAL_FORMAT_INVALID');
+ if(!['oauth','api_token'].includes(auth?.type)||!text(auth.token)||/[\s"']/.test(auth.token)||/^Bearer/i.test(auth.token))fail('AUTH_CREDENTIAL_FORMAT_INVALID');
  const call=async endpoint=>{
   if(!endpoint.startsWith('/accounts/'+identity.account+'/'))fail('ACCOUNT_ENDPOINT_REJECTED');
   let response;try{response=await fetcher('https://api.cloudflare.com/client/v4'+endpoint,{method:'GET',headers:{Authorization:'Bearer '+auth.token},redirect:'error',signal:AbortSignal.timeout(20000)});}catch{fail('METADATA_NETWORK_FAILED');}
