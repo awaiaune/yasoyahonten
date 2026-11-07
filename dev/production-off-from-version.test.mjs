@@ -43,7 +43,7 @@ test('split rollout, unknown Worker and worker-first OFF stop',()=>{
 });
 function metadata(f){
  const a='/accounts/'+identity.account,w=a+'/workers/scripts/'+identity.worker;
- return new Map([[w+'/deployments',{deployments:[{versions:[{version_id:f.v.id,percentage:100}]}]}],[w+'/versions/'+f.v.id,f.v],[w+'/settings',{...f.e.settings,bindings:f.v.resources.bindings,assets:{config:f.e.assetConfig}}],[w+'/routes',f.e.routes],[a+'/workers/domains?service='+identity.worker+'&per_page=100',f.e.domains],[w+'/subdomain',f.e.subdomain],[w+'/schedules',{schedules:f.e.schedules}],[a+'/d1/database/'+identity.database,f.e.database],[a+'/workers/durable_objects/namespaces/'+identity.namespace,f.e.namespace]]);
+ return new Map([[w+'/deployments?page=1&per_page=1',{deployments:[{versions:[{version_id:f.v.id,percentage:100}]}]}],[w+'/versions/'+f.v.id,f.v],[w+'/settings',{...f.e.settings,bindings:f.v.resources.bindings,assets:{config:f.e.assetConfig}}],[w+'/routes',f.e.routes],[a+'/workers/domains?service='+identity.worker+'&per_page=100',f.e.domains],[w+'/subdomain',f.e.subdomain],[w+'/schedules',{schedules:f.e.schedules}],[a+'/d1/database/'+identity.database,f.e.database],[a+'/workers/durable_objects/namespaces/'+identity.namespace,f.e.namespace]]);
 }
 test('collector uses GET only, one fixed account, no redirects; credentials never in URL/result',async()=>{
  const f=fixture(),responses=metadata(f),calls=[],token='offline-private-sentinel';
@@ -111,4 +111,25 @@ test('Cloudflare changing or repeating paginated pages must fail closed',async()
   }});
   await assert.rejects(()=>get(endpoint),/METADATA_PAGINATION_REQUIRES_REVIEW/,mismatch);
  }
+});
+
+
+test('latest Worker deployment requests only page 1 even with many historical deployment pages',async()=>{
+ const endpoint='/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/deployments?page=1&per_page=1';
+ const calls=[];
+ const get=await apiReader({type:'oauth',token:'offline-private-sentinel'},{fetcher:async(url,init)=>{
+  calls.push(new URL(url));
+  assert.equal(init.method,'GET');assert.equal(init.redirect,'error');
+  return Response.json({success:true,result:{deployments:[{versions:[{version_id:versionId,percentage:100}]}]},result_info:{count:1,page:1,per_page:1,total_count:220,total_pages:220}});
+ }});
+ const result=await get(endpoint);
+ assert.equal(result.deployments[0].versions[0].version_id,versionId);
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].searchParams.get('page'),'1');
+ assert.equal(calls[0].searchParams.get('per_page'),'1');
+});
+test('latest deployment refuses incomplete or incorrectly paged responses',async()=>{
+ const endpoint='/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/deployments?page=1&per_page=1';
+ const get=await apiReader({type:'api_token',token:'offline-private-sentinel'},{fetcher:async()=>Response.json({success:true,result:{deployments:[]},result_info:{count:0,page:2,per_page:1,total_pages:10}})});
+ await assert.rejects(()=>get(endpoint),/METADATA_PAGINATION_REQUIRES_REVIEW/);
 });
