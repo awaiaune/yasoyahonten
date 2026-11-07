@@ -82,3 +82,33 @@ test('private new OFF release, exact operational asset preservation, dry-run onl
  assert.equal(await readFile(path.join(output,'release/site/images/live-only.bin'),'utf8'),'offline-current-image');assert.equal(await readFile(path.join(assets,'js/checkout-v1.js'),'utf8'),'older-live-payment-script');assert.deepEqual(await readFile(path.join(output,'release/site/js/checkout-v1.js')),await readFile(new URL('js/checkout-v1.js',root)));
  assert.equal(await readFile(versionFile,'utf8'),JSON.stringify(f.v));await assert.rejects(()=>prepareFromVersion({versionFile,assets,output,collect:true},{get:async p=>data.get(p)}),/OUTPUT_EXISTS/);
 });
+
+
+test('Cloudflare paginated metadata is read completely via bounded GET-only pages',async()=>{
+ const prefix='https://api.cloudflare.com/client/v4';
+ const endpoint='/accounts/'+identity.account+'/workers/domains?service='+identity.worker+'&per_page=100';
+ const calls=[];
+ const get=await apiReader({type:'api_token',token:'offline-private-sentinel'},{fetcher:async(url,init)=>{
+  const u=new URL(url),p=Number(u.searchParams.get('page')||1);
+  calls.push({page:p,service:u.searchParams.get('service'),method:init.method,redirect:init.redirect});
+  const result=p===1?[{id:'a'},{id:'b'}]:p===2?[{id:'c'},{id:'d'}]:[{id:'e'}];
+  return Response.json({success:true,result,result_info:{page:p,per_page:100,total_pages:3,total_count:5}});
+ }});
+ const result=await get(endpoint);
+ assert.deepEqual(result.map(x=>x.id),['a','b','c','d','e']);
+ assert.deepEqual(calls.map(x=>x.page),[1,2,3]);
+ assert(calls.every(x=>x.service===identity.worker&&x.method==='GET'&&x.redirect==='error'));
+});
+test('Cloudflare changing or repeating paginated pages must fail closed',async()=>{
+ const endpoint='/accounts/'+identity.account+'/workers/domains?service='+identity.worker+'&per_page=100';
+ for(const mismatch of ['repeated','wrong-page','changed-count']){
+  const get=await apiReader({type:'oauth',token:'offline-private-sentinel'},{fetcher:async(url)=>{
+   const p=Number(new URL(url).searchParams.get('page')||1);
+   const items=p===1?[{id:'original'}]:mismatch==='repeated'?[{id:'original'}]:[{id:'other'}];
+   const page=mismatch==='wrong-page'&&p===2?1:p;
+   const count=mismatch==='changed-count'&&p===2?3:2;
+   return Response.json({success:true,result:items,result_info:{page,per_page:100,total_pages:count,total_count:2}});
+  }});
+  await assert.rejects(()=>get(endpoint),/METADATA_PAGINATION_REQUIRES_REVIEW/,mismatch);
+ }
+});
