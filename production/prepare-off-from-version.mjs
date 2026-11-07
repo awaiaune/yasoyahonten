@@ -1,5 +1,5 @@
 // Release preparation only. No historical profile, remote mutations or deploy.
-import {readFile,writeFile,mkdtemp,mkdir,rm,lstat,realpath} from 'node:fs/promises';
+import {readFile,writeFile,mkdtemp,mkdir,lstat,realpath} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {tmpdir} from 'node:os';
@@ -8,6 +8,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {isDeepStrictEqual} from 'node:util';
 import {validateOffConfig} from './prepare-checkout-v58.mjs';
 import {assembleOff} from './prepare-off-live-assets.mjs';
+import {safeReleaseDiagnostic,runOffDryRun} from './release-diagnostics.mjs';
 const run=promisify(execFile),here=path.dirname(fileURLToPath(import.meta.url));
 const confirmationPath='production/confirmed-production-resources.json';
 const confirmedResources=JSON.parse(await readFile(path.join(here,'confirmed-production-resources.json'),'utf8'));
@@ -210,12 +211,13 @@ const acquisition={
  asset_routing:'GET workers/scripts/yasoya-honten-payments/settings (--collect). If omitted by API, export the CURRENT asset routing settings (run_worker_first and any explicitly configured html_handling/not_found_handling/base_path) to a private JSON file and pass --asset-settings FILE. Do not use historical ready.jsonc.',
  asset_directory:'Version JSON has no local asset path or image bytes. Locate the directory used for the current release (find /workspaces -type d -path \'*/production/.generated/v53\' -not -path \'*/node_modules/*\'). Do not select a freshly rebuilt candidate directory. Pass --assets DIRECTORY for the existing operational ASSETS directory; the script checks known live HTML/cart hashes and preserves its images/product/admin files. The uploaded 20-file ZIP is not a full ASSETS directory.'
 };
-export async function prepareFromVersion({versionFile,evidenceFile,assetSettingsFile,assets,output,collect=false,dryRun=false},deps={}){
- const v=JSON.parse(await readFile(versionFile,'utf8'));inspectVersion(v);
- let e;if(collect)e=await collectEvidence(v,deps.get??await authReader());else if(evidenceFile)e=JSON.parse(await readFile(evidenceFile,'utf8'));else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
- if(assetSettingsFile){const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');e.assetConfig=manual.config;}
+async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile,assets,output,collect=false,dryRun=false},deps={},stage){
+ stage('version_json_read');
+ const v=JSON.parse(await readFile(versionFile,'utf8'));stage('version_validate');inspectVersion(v);
+ let e;if(collect){stage('authentication');const get=deps.get??await authReader();stage('metadata_collect');e=await collectEvidence(v,get);}else if(evidenceFile){stage('evidence_read');e=JSON.parse(await readFile(evidenceFile,'utf8'));}else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
+ if(assetSettingsFile){stage('asset_settings_read');const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');e.assetConfig=manual.config;}
  let prepared;
- try{prepared=profileFromEvidence(v,e,assets?await realpath(assets):undefined);}catch(err){
+ try{stage('asset_directory_resolve');const assetDirectory=assets?await realpath(assets):undefined;stage('profile_validate');prepared=profileFromEvidence(v,e,assetDirectory);}catch(err){
   err.metadataReadFailures=e.metadataFailures||[];
   err.databaseIdentityConfirmed=e.databaseEvidence?.method==='dashboard_confirmation_and_live_version_binding';
   if(collect&&err.missing){
@@ -230,15 +232,21 @@ export async function prepareFromVersion({versionFile,evidenceFile,assetSettings
  const {config,receipt}=prepared;
  // No actual/off profile is required. Only a newly allocated private directory
  // is written; never replace an existing local file or build operational assets.
- let dir;
+ stage('output_create');let dir;
  if(output){try{await lstat(output);fail('OUTPUT_EXISTS');}catch(err){if(err.code!=='ENOENT')throw err;}await mkdir(output,{mode:0o700});dir=await realpath(output);}else dir=await mkdtemp(path.join(tmpdir(),'yasoya-off-from-version-'));
  try{
-  const recovered=path.join(dir,'recovered-off.local.jsonc');await writeFile(recovered,JSON.stringify(config,null,2)+'\n',{flag:'wx',mode:0o600});
-  await assembleOff(recovered,path.join(dir,'release'));
+  if(collect)await writeFile(path.join(dir,'metadata.json'),JSON.stringify(e)+'\n',{flag:'wx',mode:0o600});
+  stage('off_profile_write');const recovered=path.join(dir,'recovered-off.local.jsonc');await writeFile(recovered,JSON.stringify(config,null,2)+'\n',{flag:'wx',mode:0o600});
+  stage('asset_assembly');await assembleOff(recovered,path.join(dir,'release'));
   await writeFile(path.join(dir,'evidence.json'),JSON.stringify(receipt,null,2)+'\n',{flag:'wx',mode:0o600});
-  if(dryRun){let result;try{result=await (deps.run??run)('npx',['--yes','wrangler@4.155.0','deploy','--dry-run','--config',path.join(dir,'release/off.local.jsonc'),'--outdir',path.join(dir,'dry-run')],{env:childEnv(),encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024});}catch{fail('WRANGLER_DRY_RUN_FAILED');}await writeFile(path.join(dir,'dry-run.log'),result.stdout+'\n'+result.stderr,{flag:'wx',mode:0o600});}
+  if(dryRun){stage('wrangler_dry_run');await runOffDryRun(path.join(dir,'release/off.local.jsonc'),path.join(dir,'dry-run'),deps);}
   return {directory:dir,version:v.id,dryRun,databaseEvidence:receipt.databaseEvidence};
- }catch(err){if(err.message!=='WRANGLER_DRY_RUN_FAILED')await rm(dir,{recursive:true,force:true});throw err;}
+ }catch(err){err.diagnostic??=safeReleaseDiagnostic(stage.current||'preparation',err);err.directory??=dir;await writeFile(path.join(dir,'failure.json'),JSON.stringify(err.diagnostic)+'\n',{mode:0o600});throw err;}
+}
+export async function prepareFromVersion(options,deps={}){
+ let current='start';const stage=name=>{current=name;stage.current=name;deps.onStage?.(name);};
+ try{const result=await prepareImplementation(options,deps,stage);stage('complete');return result;}
+ catch(err){err.diagnostic??=safeReleaseDiagnostic(current,err);throw err;}
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
  try{
@@ -247,5 +255,5 @@ if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.m
   if(!options.versionFile)fail('VERSION_JSON_PATH_REQUIRED');
   const r=await prepareFromVersion(options);console.log((r.dryRun?'SUCCESS: OFF dry-run passed. ':'OFF release prepared. ')+r.directory+'; no deployment.');
   if(r.databaseEvidence.method==='dashboard_confirmation_and_live_version_binding')console.log('D1 identity: confirmed Dashboard record + exact live Version Binding; D1 metadata API read remains UNVERIFIED (HTTP '+r.databaseEvidence.failedRead.http+', code 10000). Provenance recorded in evidence.json.');
- }catch(err){console.error('STOP: '+(/^[A-Z_]+$/.test(err.message)?err.message:'LOCAL_PREPARATION_FAILED'));if(err.missing)for(const field of err.missing)console.error(field+': '+acquisition[field]);if(err.evidenceFile)console.error('Private metadata cache: '+err.evidenceFile+' ; use --evidence FILE instead of --collect on the next run.');if(err.metadataReadFailures)for(const f of err.metadataReadFailures)console.error(f.field+': '+f.code+(f.http?' HTTP '+f.http:'')+' codes '+f.codes.join(',')+' GET '+f.endpoint+(f.field==='database_name'&&err.databaseIdentityConfirmed?' ; identity corroborated by Dashboard + live Version Binding; API read remains unverified':''));if(err.fields)console.error('Check fields from live Version/settings: '+err.fields.join(', ')+'; do not replace them with example values.');if(err.http)console.error('HTTP '+err.http+'; codes '+err.codes.join(',')+'; GET '+err.endpoint);else if(err.endpoint)console.error('GET '+err.endpoint+'; metadata pagination incomplete');process.exitCode=1;}
+ }catch(err){if(err.diagnostic)console.error(JSON.stringify(err.diagnostic));if(err.directory)console.error('Private diagnostic directory: '+err.directory);console.error('STOP: '+(err.diagnostic?.code??safeReleaseDiagnostic('cli',err).code));if(err.missing)for(const field of err.missing)console.error(field+': '+acquisition[field]);if(err.evidenceFile)console.error('Private metadata cache: '+err.evidenceFile+' ; use --evidence FILE instead of --collect on the next run.');if(err.metadataReadFailures)for(const f of err.metadataReadFailures)console.error(f.field+': '+f.code+(f.http?' HTTP '+f.http:'')+' codes '+f.codes.join(',')+' GET '+f.endpoint+(f.field==='database_name'&&err.databaseIdentityConfirmed?' ; identity corroborated by Dashboard + live Version Binding; API read remains unverified':''));if(err.fields)console.error('Check fields from live Version/settings: '+err.fields.join(', ')+'; do not replace them with example values.');if(err.http)console.error('HTTP '+err.http+'; codes '+err.codes.join(',')+'; GET '+err.endpoint);else if(err.endpoint)console.error('GET '+err.endpoint+'; metadata pagination incomplete');process.exitCode=1;}
 }

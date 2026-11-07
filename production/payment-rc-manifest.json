@@ -148,5 +148,14 @@
     "workerBuilds": 3,
     "realProductionProfileDryRun": "not executed: Codespaces inputs not mounted",
     "assets": "user reports 19 snapshot matches; full live bundle equivalence unverified"
+  },
+  "dryRunDiagnostics": {
+    "entrypoint": "production/diagnose-off-release.mjs",
+    "relatedTests": 61,
+    "failures": 0,
+    "workerBuilds": 3,
+    "realWranglerSyntheticOffProfile": "4.155.0 passed; no Production credentials or data",
+    "actualCodespacesDryRun": "unverified: previous exit stage/output unavailable",
+    "preserves": "D1 confirmed-identity alternative, OFF flags, existing configs/assets, runtime code and all Production data"
   }
 }

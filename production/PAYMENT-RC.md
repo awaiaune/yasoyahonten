@@ -110,7 +110,7 @@ No current local profile is overwritten. New config/evidence/log files use
 Only after all evidence is present does the script run pinned Wrangler
 `deploy --dry-run` against the newly assembled OFF profile. It never runs
 `deploy` without `--dry-run`. The output directory contains `release/off.local.jsonc`,
-`evidence.json` (rollback Version and Secret names only) and `dry-run.log`.
+`evidence.json` (rollback Version and Secret names only) and a safe `dry-run/diagnostic.json`. Raw child-process output is not saved.
 A real deploy/purchase-ON still requires separate approval and a fresh check
 that the active Version has not changed since evidence collection. Rollback
 would target the captured Version with purchasing OFF, without restoring or
@@ -168,3 +168,51 @@ Three Worker bundles passed. The new end-to-end preparation test uses real
 local files and synthetic Cloudflare metadata; the Wrangler invocation is a
 substitute. The actual Codespaces Version JSON and asset candidate are not
 mounted in Codex, so a real Production-profile Wrangler dry-run is unverified.
+
+
+## Exit-code 1 diagnosis / resume
+
+The historical Codespaces failure stage is unknown. Confirmed code defects:
+failed Wrangler stdout/stderr were discarded, file errors lost their phase,
+and assembly failure removed its newly generated evidence/config directory.
+These have been corrected without changing checkout, resources or D1 fallback.
+
+`prepare-off-from-version.mjs` now attaches explicit phases: Version read,
+validation, auth, metadata, asset settings/path, OFF validation, output creation,
+asset assembly and Wrangler dry-run. Failures retain private generated state
+and a safe `failure.json`. No raw child output or arbitrary error text is
+printed/saved; only whitelisted codes, numeric HTTP/exit status, OS errno and
+fixed compiler signature categories are retained. Success logs are also safe
+status records. A command returning exit 1 always remains a failure.
+
+From the existing Codespaces repository, run this **one diagnostic command**:
+
+```bash
+bash -o pipefail -c 'git fetch origin release/production-payment-rc-20261106 >/dev/null 2>&1 || { echo "STOP stage=git_fetch code=GIT_FETCH_FAILED"; exit 1; }; git show FETCH_HEAD:production/diagnose-off-release.mjs | node --input-type=module'
+```
+
+The standalone launcher reuses a clean worktree at the fetched SHA, creating
+one detached worktree only if needed; no existing branch/worktree is reset or
+overwritten. It first looks for a previous prepared OFF profile. Resume requires
+its captured Version/vars to match `/tmp/yasoya-live-version.json`, a clean
+tracked source tree and unchanged runtime code versus the fetched candidate.
+An unverified/different source stops. The original config/assets are not changed;
+Wrangler writes only to a new private dry-run output directory. If no prepared
+profile exists, matching cached metadata is reused. Only if neither is available
+is read-only collection performed once, using the existing known asset candidate.
+The D1 401/403 + 10000 identity alternative and all OFF/resource guards remain.
+
+The terminal gets only a safe final phase/code summary; journals are private
+`/tmp/yasoya-off-diagnostic-*/events.json` (0600 under a 0700 directory). This
+runs in a child shell instead of applying `set -e` to the user's terminal.
+It never runs a real deploy, purchase API, SQL, resource reset or Secret update.
+Missing settings/asset mismatch are still STOP, not warnings or bypasses.
+
+Local result: 61 related tests passed (16 diagnostic/resume cases, 39 preparation
+cases including existing pagination and D1-denial proofs, 6 boundary/build cases).
+Three Worker bundles passed. An additional real pinned Wrangler 4.155.0 dry-run
+passed with a **synthetic OFF profile**, local candidate assets and no credentials.
+The isolated Codex test required a writable npm/config cache; that environmental
+finding is not attributed to Codespaces and the user's auth paths are unchanged.
+A real Codespaces Production-profile dry-run is not claimed until its diagnostic
+command actually returns SUCCESS.
