@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,cp,rm,lstat,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {identity,inspectVersion,profileFromEvidence,collectEvidence,apiReader,prepareFromVersion} from '../production/prepare-off-from-version.mjs';
+import {identity,inspectVersion,profileFromEvidence,collectEvidence,apiReader,prepareFromVersion,confirmedDatabaseEvidence} from '../production/prepare-off-from-version.mjs';
 const root=new URL('../',import.meta.url),versionId='36ab2dba-dd44-4f39-bc69-6db729bd24d5';
 const clone=structuredClone;
 function fixture(){
@@ -132,4 +132,52 @@ test('latest deployment refuses incomplete or incorrectly paged responses',async
  const endpoint='/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/deployments?page=1&per_page=1';
  const get=await apiReader({type:'api_token',token:'offline-private-sentinel'},{fetcher:async()=>Response.json({success:true,result:{deployments:[]},result_info:{count:0,page:2,per_page:1,total_pages:10}})});
  await assert.rejects(()=>get(endpoint),/METADATA_PAGINATION_REQUIRES_REVIEW/);
+});
+
+const d1Path='/accounts/'+identity.account+'/d1/database/'+identity.database;
+function readError(http=401,codes=[10000]){return Object.assign(Error('METADATA_HTTP_ERROR'),{http,codes,endpoint:d1Path});}
+for(const status of [401,403])test('D1 '+status+'/10000 uses only confirmed identity plus exact live binding; other independent GETs complete',async()=>{
+ const f=fixture(),data=metadata(f),calls=[],token='offline-only-api-token';
+ const get=await apiReader({type:'oauth',token},{fetcher:async(url,init)=>{
+  assert.equal(init.method,'GET');assert.equal(init.headers.Authorization,'Bearer '+token);
+  const endpoint=url.replace('https://api.cloudflare.com/client/v4','');calls.push(endpoint);
+  return endpoint===d1Path?Response.json({success:false,errors:[{code:10000,message:'PRIVATE_BODY_MUST_NOT_BE_RECORDED'}]},{status}):Response.json({success:true,result:data.get(endpoint)});
+ }});
+ const e=await collectEvidence(f.v,get),p=profileFromEvidence(f.v,e,'/assets');
+ assert.equal(e.database.uuid,identity.database);assert.equal(e.database.name,'yasoya-orders');
+ assert.equal(p.receipt.databaseEvidence.apiReadVerified,false);assert.equal(p.receipt.databaseEvidence.failedRead.http,status);assert.equal(p.receipt.databaseEvidence.versionId,f.v.id);assert.equal(p.receipt.databaseEvidence.binding,'ORDERS_DB');assert.equal(p.receipt.databaseEvidence.source,'production/confirmed-production-resources.json');
+ assert.equal(e.namespace.id,identity.namespace);assert(calls.some(p=>p.endsWith('/subdomain')));assert(calls.some(p=>p.endsWith('/schedules')));assert.equal(calls.filter(p=>p===d1Path).length,1);
+ assert(!JSON.stringify(e).includes(token));assert(!JSON.stringify(e).includes('PRIVATE_BODY'));assert.equal(p.config.vars.PRODUCTION_CHECKOUT_ENABLED,'0');assert.equal(p.config.d1_databases[0].database_id,identity.database);
+});
+test('Dashboard confirmation must bind exact account, Worker, ORDERS_DB ID/name and documented source',async()=>{
+ const {v}=fixture(),record=JSON.parse(await readFile(new URL('production/confirmed-production-resources.json',root),'utf8'));
+ for(const change of [{account:'other'},{worker:'other'},{database:{...record.database,id:'other'}},{database:{...record.database,name:'unverified-name'}},{database:{...record.database,binding:'OTHER_DB'}},{source:{kind:'inferred_example'}}])assert.throws(()=>confirmedDatabaseEvidence(v,readError(),{...record,...change}),/CONFIRMED_DATABASE_BINDING_MISMATCH/);
+ const different=clone(v);different.resources.bindings.find(b=>b.type==='d1').id='other';assert.throws(()=>confirmedDatabaseEvidence(different,readError()),/PRODUCTION_RESOURCE_MISMATCH/);
+});
+test('a successful D1 response with conflicting ID/name is never replaced by Dashboard confirmation',async()=>{
+ for(const database of [{uuid:'wrong',name:'yasoya-orders'},{uuid:identity.database,name:'wrong'}]){
+  const f=fixture(),data=metadata(f);data.set(d1Path,database);const e=await collectEvidence(f.v,async p=>data.get(p));assert.equal(e.databaseEvidence.method,'cloudflare_d1_metadata_get');assert.equal(e.databaseEvidence.apiReadVerified,true);assert.throws(()=>profileFromEvidence(f.v,e,'/assets'),/LIVE_DATABASE_IDENTITY_MISMATCH/);
+ }
+});
+for(const [label,error]of [['not found',readError(404)],['server error',readError(500)],['different auth code',readError(401,[99999])],['mixed auth and other error codes',readError(401,[10000,99999])],['network failure',Error('METADATA_NETWORK_FAILED')]])test('unproven D1 '+label+' stays unresolved while other metadata reads continue',async()=>{
+ const f=fixture(),data=metadata(f),calls=[];const e=await collectEvidence(f.v,async p=>{calls.push(p);if(p===d1Path)throw error;return data.get(p);});
+ assert.equal(e.database,undefined);assert.equal(e.namespace.id,identity.namespace);assert(e.subdomain);assert(e.schedules);assert.equal(e.metadataFailures.length,1);assert.throws(()=>profileFromEvidence(f.v,e,'/assets'),err=>err.missing.includes('database_name'));assert.equal(calls.filter(p=>p===d1Path).length,1);
+});
+test('another required read failure remains blocking and all independent results are retained',async()=>{
+ const f=fixture(),data=metadata(f),route='/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/routes';
+ const e=await collectEvidence(f.v,async p=>{if(p===d1Path)throw readError();if(p===route)throw Object.assign(Error('METADATA_HTTP_ERROR'),{http:403,codes:[10000]});return data.get(p);});
+ assert(e.database);assert(e.namespace);assert(e.domains.length);assert.equal(e.metadataFailures.length,2);assert.throws(()=>profileFromEvidence(f.v,e,'/assets'),err=>err.missing.join(',')==='routes');
+});
+test('cached fallback provenance cannot be changed into a broader identity/read-permission assertion',async()=>{
+ const f=fixture(),data=metadata(f),e=await collectEvidence(f.v,async p=>{if(p===d1Path)throw readError();return data.get(p);});
+ for(const change of [{apiReadVerified:true},{versionId:'other'},{source:'historical/ready.jsonc'},{binding:'OTHER_DB'}])assert.throws(()=>profileFromEvidence(f.v,{...e,databaseEvidence:{...e.databaseEvidence,...change}},'/assets'),/DATABASE_PROVENANCE_MISMATCH/);
+});
+test('D1-denied preparation reaches OFF dry-run without touching actual D1/DO/R2, source assets or Secrets',async t=>{
+ const dir=await mkdtemp(path.join(tmpdir(),'yasoya-d1-denied-off-'));t.after(()=>rm(dir,{recursive:true,force:true}));const f=fixture(),data=metadata(f),versionFile=path.join(dir,'version.json'),assets=path.join(dir,'current-assets'),output=path.join(dir,'new-release'),commands=[];
+ await writeFile(versionFile,JSON.stringify(f.v));await cp(new URL('production/.generated/v53/',root),assets,{recursive:true});await writeFile(path.join(assets,'images/current-only.bin'),'preserve-current-image');
+ const result=await prepareFromVersion({versionFile,assets,output,collect:true,dryRun:true},{get:async p=>{if(p===d1Path)throw readError();return data.get(p);},run:async(cmd,args)=>{commands.push({cmd,args});return {stdout:'offline dry-run substitute',stderr:''};}});
+ assert.equal(result.dryRun,true);assert.equal(commands.length,1);assert(commands[0].args.includes('--dry-run'));assert(!commands[0].args.includes('--remote'));
+ const receipt=JSON.parse(await readFile(path.join(output,'evidence.json'),'utf8')),config=JSON.parse(await readFile(path.join(output,'release/off.local.jsonc'),'utf8'));
+ assert.equal(receipt.databaseEvidence.apiReadVerified,false);assert.equal(receipt.metadataReadFailures[0].http,401);assert.equal(config.d1_databases[0].database_name,'yasoya-orders');assert.equal(config.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(config.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.equal(config.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED,'0');assert.deepEqual(config.migrations,[]);
+ assert.equal(await readFile(path.join(output,'release/site/images/current-only.bin'),'utf8'),'preserve-current-image');assert.equal(await readFile(path.join(assets,'images/current-only.bin'),'utf8'),'preserve-current-image');assert(!JSON.stringify(config).includes('SQUARE_ACCESS_TOKEN'));
 });

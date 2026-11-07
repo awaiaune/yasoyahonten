@@ -49,8 +49,7 @@ or saved. API-token and existing OAuth sessions are supported. Global API-key
 auth is refused. The script makes GET requests only, to the fixed confirmed
 account: deployment (sole Version at 100%), same Version content, settings,
 routes, custom domains, workers.dev/preview flags, schedules, D1 metadata and
-the exact existing DO namespace. HTTP errors stop once, reporting only status,
-Cloudflare numeric codes and endpoint. It never calls D1 query or DO objects.
+the exact existing DO namespace. Worker identity/version inconsistencies stop immediately. Independent metadata GETs settle separately, recording only safe status/codes/endpoints; no endpoint is retried. It never calls D1 query or DO objects. The narrowly scoped D1 authorization alternative below is explicitly recorded, not treated as D1 API success.
 Required minimum read permissions for these reads are Workers Scripts Read,
 Workers Routes Read for route/domain access, and D1 Read. No edit permission is
 needed for preparation. Retain the existing authenticated Codespaces session;
@@ -122,3 +121,50 @@ Worker builds and a mocked dry-run command boundary. Real Codespaces Version
 JSON, current operational assets and Cloudflare credential are not mounted in
 Codex; actual metadata collection and real-profile dry-run remain unverified.
 No Production request, deployment or data change was performed by this work.
+
+
+## D1 metadata authorization denial — confirmed identity alternative
+
+The observed Codespaces result is HTTP 401 / Cloudflare code 10000 only on
+`GET /accounts/{account}/d1/database/{database-id}`, after Worker version reads
+succeeded. The path matches Cloudflare's D1 database GET API; all metadata reads
+use the same Bearer credential. This supports an endpoint/resource permission
+or account-scope issue, but **does not prove** which permission is missing.
+OAuth and API tokens are both supported by Wrangler/D1; the status/code alone
+does not establish an unsupported auth method or a bad token. If direct D1
+metadata access is wanted later, the minimum additional API-token permission
+is Account → D1 → Read on this confirmed account. It is not a prerequisite for
+this identity-only OFF dry-run when the following proof is complete.
+
+`confirmed-production-resources.json` records the user's 2026-11-07 Cloudflare
+Dashboard confirmation of `yasoya-orders` / `442fa9fd-25d3-4c01-bcc3-04be7b420cf5`,
+with account, Worker, binding and source. Only HTTP 401/403 plus code 10000 on
+that exact D1 endpoint qualifies. The saved and freshly fetched live Version
+bindings must both identify `ORDERS_DB`, type `d1`, and exactly that UUID.
+Unattributed, altered or mismatching confirmations are refused. A successful
+API response with conflicting name/UUID, 404/5xx/network error, or a different
+auth error code is never replaced with the confirmation.
+
+The collector continues all independent route/domain/subdomain/schedule/DO
+reads, records their failures, and blocks preparation if any other required
+proof is missing. Missing fields and safe endpoint/status diagnostics are
+shown together and retained in the private cache. Fallback provenance and the
+D1 API denial are included in the final private `evidence.json`, explicitly
+`apiReadVerified: false`. This proves target identity only, not D1 read/write
+permission, schema, contents, backups or application-runtime health.
+
+For the next Codespaces dry-run, the user supplied asset candidate is
+`/workspaces/yasoya-v60-csp/production/.generated/v53`. The reported 19-file ZIP
+match is user-supplied evidence about those files only; it does **not** prove
+whole-directory identity to the live uploaded asset bundle. No design/image
+or product template is rebuilt. Existing input assets are copied intact and
+only the reviewed payment JS is replaced. This scope is recorded in the
+release receipt; dry-run success does not authorize deploy or establish full
+live asset equivalence.
+
+Latest targeted verification: 45 tests passed (the 27 existing preparation
+cases, 12 D1-identity/independent-read cases, 6 release-boundary/build cases).
+Three Worker bundles passed. The new end-to-end preparation test uses real
+local files and synthetic Cloudflare metadata; the Wrangler invocation is a
+substitute. The actual Codespaces Version JSON and asset candidate are not
+mounted in Codex, so a real Production-profile Wrangler dry-run is unverified.

@@ -9,12 +9,37 @@ import {isDeepStrictEqual} from 'node:util';
 import {validateOffConfig} from './prepare-checkout-v58.mjs';
 import {assembleOff} from './prepare-off-live-assets.mjs';
 const run=promisify(execFile),here=path.dirname(fileURLToPath(import.meta.url));
+const confirmationPath='production/confirmed-production-resources.json';
+const confirmedResources=JSON.parse(await readFile(path.join(here,'confirmed-production-resources.json'),'utf8'));
 export const identity=Object.freeze({account:'fcf37e462257810df77e8fbc0e7f4317',worker:'yasoya-honten-payments',database:'442fa9fd-25d3-4c01-bcc3-04be7b420cf5',namespace:'6802cc5abc6d440285ec19c9e7c82103',bucket:'yasoya-honten-product-images'});
 const fail=code=>{throw Error(code);};
 const needs=items=>{const e=Error('MISSING_EVIDENCE');e.missing=items;throw e;};
 const secretKey=k=>/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(k);
 const text=v=>typeof v==='string'&&v.length>0;
 const same=(a,b)=>isDeepStrictEqual(a,b);
+const databaseEndpoint='/accounts/'+identity.account+'/d1/database/'+identity.database;
+function safeMetadataFailure(field,endpoint,err){
+ err=err??{};const code=err.message??err.code;
+ return {field,endpoint,http:Number.isInteger(err.http)?err.http:null,codes:Array.isArray(err.codes)?err.codes.filter(Number.isInteger):[],code:/^[A-Z_]+$/.test(code)?code:'METADATA_READ_FAILED'};
+}
+export function confirmedDatabaseEvidence(v,failure,confirmation=confirmedResources){
+ const {bindings}=inspectVersion(v),binding=bindings.get('ORDERS_DB');
+ // A narrowly scoped alternative identity proof, not a general auth bypass.
+ // 404/5xx/network errors and a positive API identity mismatch never qualify.
+ if(failure.endpoint!==databaseEndpoint||![401,403].includes(failure.http)||!failure.codes?.length||!failure.codes.every(code=>code===10000))fail('D1_IDENTITY_FALLBACK_NOT_ALLOWED');
+ if(confirmation.account!==identity.account||confirmation.worker!==identity.worker||
+    confirmation.database?.binding!=='ORDERS_DB'||confirmation.database?.type!=='d1'||
+    confirmation.database?.id!==identity.database||confirmation.database?.name!=='yasoya-orders'||
+    confirmation.source?.kind!=='user_dashboard_confirmation'||!text(confirmation.source.confirmedOn)||!text(confirmation.source.reference)||
+    binding.type!=='d1'||binding.id!==confirmation.database.id)fail('CONFIRMED_DATABASE_BINDING_MISMATCH');
+ return {database:{uuid:confirmation.database.id,name:confirmation.database.name},databaseEvidence:{
+  method:'dashboard_confirmation_and_live_version_binding',source:confirmationPath,
+  confirmation:structuredClone(confirmation.source),account:identity.account,worker:identity.worker,
+  binding:binding.name,databaseId:binding.id,versionId:v.id,
+  failedRead:safeMetadataFailure('database_name',databaseEndpoint,failure),
+  apiReadVerified:false
+ }};
+}
 function bindingsMap(items){
  if(!Array.isArray(items))fail('VERSION_BINDINGS_MISSING');
  const map=new Map();for(const b of items){if(!text(b.name)||!text(b.type)||map.has(b.name)||b.name==='__proto__')fail('INVALID_OR_DUPLICATE_BINDING');map.set(b.name,b);}return map;
@@ -45,12 +70,20 @@ export function profileFromEvidence(v,e,assetDirectory){
  if(!Array.isArray(e.routes)||!Array.isArray(e.domains))missing.push('routes');
  if(typeof e.subdomain?.enabled!=='boolean'||typeof e.subdomain?.previews_enabled!=='boolean')missing.push('subdomain');
  if(!e.database)missing.push('database_name');else if(e.database.uuid!==identity.database||e.database.name!=='yasoya-orders')fail('LIVE_DATABASE_IDENTITY_MISMATCH');
+ if(e.databaseEvidence?.method==='dashboard_confirmation_and_live_version_binding'){
+  const expected=confirmedDatabaseEvidence(v,e.databaseEvidence.failedRead);
+  if(!same(expected.database,e.database)||!same(expected.databaseEvidence,e.databaseEvidence))fail('DATABASE_PROVENANCE_MISMATCH');
+ }
  if(!e.namespace)missing.push('namespace');else if(e.namespace.id!==identity.namespace||e.namespace.class!=='PurchaseCoordinator'||e.namespace.script!==identity.worker||e.namespace.use_sqlite!==true)fail('LIVE_NAMESPACE_IDENTITY_MISMATCH');
  if(!Array.isArray(e.schedules))missing.push('schedules');
  // Version APIs can omit asset routing. Missing is not equivalent to defaults.
  const assetConfig=e.assetConfig??v.resources.assets?.config;
  if(typeof assetConfig?.run_worker_first!=='boolean')missing.push('asset_routing');
  if(!assetDirectory)missing.push('asset_directory');
+ for(const failure of e.metadataFailures||[]){
+  const resolved=failure.field==='database_name'&&e.databaseEvidence?.method==='dashboard_confirmation_and_live_version_binding'&&same(failure,e.databaseEvidence.failedRead);
+  if(!resolved&&!missing.includes(failure.field))missing.push(failure.field);
+ }
  if(missing.length)needs(missing);
  if(assetConfig.run_worker_first!==true)fail('WORKER_FIRST_REQUIRED');
  const allowedAssetKeys=['run_worker_first','html_handling','not_found_handling','base_path'];
@@ -77,11 +110,12 @@ export function profileFromEvidence(v,e,assetDirectory){
   const fields={PRODUCTION_IDENTITY_INVALID:['RUNTIME_TIER','SQUARE_ENVIRONMENT','SQUARE_LOCATION_ID','PRODUCTION_WORKER_NAME','PRODUCTION_PURCHASE_PROTOCOL','SITE_URL'],EXISTING_CUSTOM_DOMAIN_REQUIRED:['routes'],EXISTING_MANAGEMENT_REQUIRED:['MANAGEMENT_ENABLED','PRODUCTION_MANAGEMENT_SCHEMA_READY','PRODUCTION_MANAGEMENT_READ_ENABLED','PRODUCTION_STOREFRONT_ENABLED'],SALES_VERIFICATION_PROFILE_REQUIRED:['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED'],EXISTING_INVENTORY_APPROVAL_REQUIRED:['PRODUCTION_INVENTORY_WRITER_APPROVAL'],CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID:['PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED','STOREFRONT_RETIRE_GOLDENROD']};
   err.fields=fields[err.message];throw err;
  }
- return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus read-only live metadata'}};
+ return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus explicit metadata provenance',databaseEvidence:e.databaseEvidence??{method:'supplied_metadata',apiReadVerified:false},metadataReadFailures:e.metadataFailures||[],assetSourceVerification:'Known live file hashes and unchanged local copy only; complete live ASSETS identity is not established by this preparation.'}};
 }
 
 // Only GET requests to these fixed Cloudflare metadata endpoints. The collector
-// stops at the first error, does not follow redirects and never logs payloads.
+// Identity/version inconsistencies stop immediately. Independent reads settle
+// separately; an unavailable endpoint never prevents the remaining reads.
 export async function collectEvidence(v,get){
  inspectVersion(v);
  const a='/accounts/'+identity.account,w=a+'/workers/scripts/'+identity.worker;
@@ -91,15 +125,26 @@ export async function collectEvidence(v,get){
  if(!same([...bindingsMap(fresh.resources.bindings)].sort(),[...bindingsMap(v.resources.bindings)].sort())||!same(fresh.resources.script_runtime,v.resources.script_runtime))fail('SAVED_VERSION_CONTENT_MISMATCH');
  const settings=await get(w+'/settings');
  if(settings.bindings&&!same([...bindingsMap(settings.bindings)].sort(),[...bindingsMap(v.resources.bindings)].sort()))fail('LIVE_SETTINGS_CHANGED_SINCE_VERSION');
- const routes=await get(w+'/routes'),domains=await get(a+'/workers/domains?service='+identity.worker+'&per_page=100');
- if(!Array.isArray(domains))fail('DOMAINS_RESPONSE_INVALID');
+ const requests=[['routes',w+'/routes'],['domains',a+'/workers/domains?service='+identity.worker+'&per_page=100'],['subdomain',w+'/subdomain'],['schedules',w+'/schedules'],['database_name',databaseEndpoint],['namespace',a+'/workers/durable_objects/namespaces/'+identity.namespace]];
+ const settled=await Promise.allSettled(requests.map(([,endpoint])=>get(endpoint))),values={},metadataFailures=[];
+ for(let i=0;i<settled.length;i++){
+  const [field,endpoint]=requests[i],r=settled[i];
+  if(r.status==='fulfilled')values[field]=r.value;
+  else metadataFailures.push(safeMetadataFailure(field,endpoint,r.reason));
+ }
+ const domains=values.domains;
+ if(domains!==undefined&&!Array.isArray(domains))fail('DOMAINS_RESPONSE_INVALID');
  // Some accounts/API versions return the account-wide list despite a service
  // selector. Preserve only domains explicitly bound to this Worker.
- const ownDomains=domains.filter(d=>d.service===identity.worker);
- return {account:identity.account,worker:identity.worker,versionId:v.id,activeVersionId:active.versions[0].version_id,traffic:100,
-  settings:Object.fromEntries(['observability','limits','placement','tail_consumers','usage_model'].filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]])),routes,domains:ownDomains,subdomain:await get(w+'/subdomain'),schedules:(await get(w+'/schedules')).schedules,
-  database:await get(a+'/d1/database/'+identity.database),namespace:await get(a+'/workers/durable_objects/namespaces/'+identity.namespace),
+ const ownDomains=domains?.filter(d=>d.service===identity.worker);
+ const evidence={account:identity.account,worker:identity.worker,versionId:v.id,activeVersionId:active.versions[0].version_id,traffic:100,
+  settings:Object.fromEntries(['observability','limits','placement','tail_consumers','usage_model'].filter(k=>settings[k]!==undefined).map(k=>[k,settings[k]])),routes:values.routes,domains:ownDomains,subdomain:values.subdomain,schedules:values.schedules?.schedules,
+  database:values.database_name,namespace:values.namespace,metadataFailures,
   ...(settings.assets?.config?{assetConfig:settings.assets.config}:settings.assets&&Object.hasOwn(settings.assets,'run_worker_first')?{assetConfig:settings.assets}:{})};
+ const denied=metadataFailures.find(f=>f.field==='database_name');
+ if(denied&&[401,403].includes(denied.http)&&denied.codes.length>0&&denied.codes.every(code=>code===10000))Object.assign(evidence,confirmedDatabaseEvidence(v,denied));
+ else if(evidence.database)evidence.databaseEvidence={method:'cloudflare_d1_metadata_get',endpoint:databaseEndpoint,versionId:v.id,apiReadVerified:true};
+ return evidence;
 }
 export async function apiReader(auth,{fetcher=fetch}={}){
  if(!['oauth','api_token'].includes(auth?.type)||!text(auth.token)||/[\s"']/.test(auth.token)||/^Bearer/i.test(auth.token))fail('AUTH_CREDENTIAL_FORMAT_INVALID');
@@ -160,6 +205,7 @@ const acquisition={
  subdomain:'GET workers/scripts/yasoya-honten-payments/subdomain (--collect)',
  database_name:'GET d1/database/'+identity.database+' (--collect)',
  namespace:'GET workers/durable_objects/namespaces/'+identity.namespace+' (--collect)',
+ domains:'GET workers/domains?service=yasoya-honten-payments (--collect); this required read cannot use the D1 identity fallback.',
  schedules:'GET workers/scripts/yasoya-honten-payments/schedules (--collect)',
  asset_routing:'GET workers/scripts/yasoya-honten-payments/settings (--collect). If omitted by API, export the CURRENT asset routing settings (run_worker_first and any explicitly configured html_handling/not_found_handling/base_path) to a private JSON file and pass --asset-settings FILE. Do not use historical ready.jsonc.',
  asset_directory:'Version JSON has no local asset path or image bytes. Locate the directory used for the current release (find /workspaces -type d -path \'*/production/.generated/v53\' -not -path \'*/node_modules/*\'). Do not select a freshly rebuilt candidate directory. Pass --assets DIRECTORY for the existing operational ASSETS directory; the script checks known live HTML/cart hashes and preserves its images/product/admin files. The uploaded 20-file ZIP is not a full ASSETS directory.'
@@ -170,6 +216,8 @@ export async function prepareFromVersion({versionFile,evidenceFile,assetSettings
  if(assetSettingsFile){const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');e.assetConfig=manual.config;}
  let prepared;
  try{prepared=profileFromEvidence(v,e,assets?await realpath(assets):undefined);}catch(err){
+  err.metadataReadFailures=e.metadataFailures||[];
+  err.databaseIdentityConfirmed=e.databaseEvidence?.method==='dashboard_confirmation_and_live_version_binding';
   if(collect&&err.missing){
    // Cache only the approved non-secret metadata so supplying a missing local
    // asset path never requires repeating successful authentication/GET calls.
@@ -189,7 +237,7 @@ export async function prepareFromVersion({versionFile,evidenceFile,assetSettings
   await assembleOff(recovered,path.join(dir,'release'));
   await writeFile(path.join(dir,'evidence.json'),JSON.stringify(receipt,null,2)+'\n',{flag:'wx',mode:0o600});
   if(dryRun){let result;try{result=await (deps.run??run)('npx',['--yes','wrangler@4.155.0','deploy','--dry-run','--config',path.join(dir,'release/off.local.jsonc'),'--outdir',path.join(dir,'dry-run')],{env:childEnv(),encoding:'utf8',timeout:120000,maxBuffer:8*1024*1024});}catch{fail('WRANGLER_DRY_RUN_FAILED');}await writeFile(path.join(dir,'dry-run.log'),result.stdout+'\n'+result.stderr,{flag:'wx',mode:0o600});}
-  return {directory:dir,version:v.id,dryRun};
+  return {directory:dir,version:v.id,dryRun,databaseEvidence:receipt.databaseEvidence};
  }catch(err){if(err.message!=='WRANGLER_DRY_RUN_FAILED')await rm(dir,{recursive:true,force:true});throw err;}
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
@@ -198,5 +246,6 @@ if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.m
   while(args.length){const flag=args.shift();if(flag==='--collect')options.collect=true;else if(flag==='--dry-run')options.dryRun=true;else {const key={'--evidence':'evidenceFile','--assets':'assets','--asset-settings':'assetSettingsFile','--output':'output'}[flag];if(!key||!args.length)fail('INVALID_ARGUMENTS');options[key]=args.shift();}}
   if(!options.versionFile)fail('VERSION_JSON_PATH_REQUIRED');
   const r=await prepareFromVersion(options);console.log((r.dryRun?'SUCCESS: OFF dry-run passed. ':'OFF release prepared. ')+r.directory+'; no deployment.');
- }catch(err){console.error('STOP: '+(/^[A-Z_]+$/.test(err.message)?err.message:'LOCAL_PREPARATION_FAILED'));if(err.missing)for(const field of err.missing)console.error(field+': '+acquisition[field]);if(err.evidenceFile)console.error('Private metadata cache: '+err.evidenceFile+' ; use --evidence FILE instead of --collect on the next run.');if(err.fields)console.error('Check fields from live Version/settings: '+err.fields.join(', ')+'; do not replace them with example values.');if(err.http)console.error('HTTP '+err.http+'; codes '+err.codes.join(',')+'; GET '+err.endpoint);else if(err.endpoint)console.error('GET '+err.endpoint+'; metadata pagination incomplete');process.exitCode=1;}
+  if(r.databaseEvidence.method==='dashboard_confirmation_and_live_version_binding')console.log('D1 identity: confirmed Dashboard record + exact live Version Binding; D1 metadata API read remains UNVERIFIED (HTTP '+r.databaseEvidence.failedRead.http+', code 10000). Provenance recorded in evidence.json.');
+ }catch(err){console.error('STOP: '+(/^[A-Z_]+$/.test(err.message)?err.message:'LOCAL_PREPARATION_FAILED'));if(err.missing)for(const field of err.missing)console.error(field+': '+acquisition[field]);if(err.evidenceFile)console.error('Private metadata cache: '+err.evidenceFile+' ; use --evidence FILE instead of --collect on the next run.');if(err.metadataReadFailures)for(const f of err.metadataReadFailures)console.error(f.field+': '+f.code+(f.http?' HTTP '+f.http:'')+' codes '+f.codes.join(',')+' GET '+f.endpoint+(f.field==='database_name'&&err.databaseIdentityConfirmed?' ; identity corroborated by Dashboard + live Version Binding; API read remains unverified':''));if(err.fields)console.error('Check fields from live Version/settings: '+err.fields.join(', ')+'; do not replace them with example values.');if(err.http)console.error('HTTP '+err.http+'; codes '+err.codes.join(',')+'; GET '+err.endpoint);else if(err.endpoint)console.error('GET '+err.endpoint+'; metadata pagination incomplete');process.exitCode=1;}
 }

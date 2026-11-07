@@ -139,5 +139,14 @@
     "failures": 0,
     "workerBuilds": 3,
     "scope": "Synthetic Cloudflare responses; local filesystem isolation; no Cloudflare request or real-profile dry-run"
+  },
+  "d1IdentityPreparation": {
+    "confirmation": "production/confirmed-production-resources.json",
+    "scope": "D1 identity only; API read remains unverified on fallback",
+    "targetedTests": 45,
+    "failures": 0,
+    "workerBuilds": 3,
+    "realProductionProfileDryRun": "not executed: Codespaces inputs not mounted",
+    "assets": "user reports 19 snapshot matches; full live bundle equivalence unverified"
   }
 }
