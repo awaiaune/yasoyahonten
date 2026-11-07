@@ -38,7 +38,6 @@
     "worker/migrations/0001_management.sql": "d25db53b384f6b88b144db9edf27f71568a3d0a3302cc24c17b3aa6ee8ff1073",
     "worker/migrations/0002_management_supervision.sql": "20675d2c1b85de835cbc915429ff75f54066b24d19d38318d8332e0e20c7291a",
     "worker/src/catalog.js": "a3dc8607588b72b8f8039a9c4ecb4d28550ef6f40f3f4d79fc154019c1bb9053",
-    "worker/src/management/domain.js": "4775e4ca4a7d07239dd974251b43f57503a2259585deefebf02237007bf4bf3f",
     "worker/src/management/square.js": "54d539290d9af00507b3c0e9534cadb5e2db03cbc77e2b49203a8200d0827dae",
     "worker/src/production-policy.js": "2edaa236cd3b63c289109cd13c70465e2e3f8c8976aef37d7166451e374d2a1e",
     "worker/wrangler.jsonc": "d51626d5b1f2cc58e97d388abd48734ecd0b3d5ffc73d0d28a27b356e05b1093"
@@ -49,9 +48,7 @@
   "exclude": [
     "Staging recipient guard and mail restriction",
     "Staging product admission changes",
-    "botanical image feature/editor and tea images",
-    "V56 checkout redesign",
-    "all resource/Secret/Access/migration settings"
+    "new infrastructure/Secret/Access/migration settings"
   ],
   "warning": "Tracked ready.jsonc is a historical example with Catalog enabled, not the current operational OFF profile. Do not deploy it.",
   "sharedAdmissionErrorSource": "1b50bcf53c31d1f9ce3e21889e804d397776b445",
@@ -114,5 +111,27 @@
     "failures": 0,
     "scope": "local mocks only; no new real Sandbox or Production payments"
   },
-  "offProfileCheck": "STOP: EXISTING_OFF_PROFILE_NOT_FOUND"
+  "offProfileCheck": "STOP: EXISTING_OFF_PROFILE_NOT_FOUND",
+  "liveDesignCompatibility": {
+    "manifest": "production/live-design-manifest.json",
+    "source": "user supplied live snapshot and verified V57 source templates",
+    "assetAssembly": "production/prepare-off-live-assets.mjs",
+    "replaceOnly": "js/checkout-v1.js",
+    "adminWorkerDeployment": false,
+    "featuredImageCompatibility": "existing V57 optional field retained; no admin UI redesign"
+  },
+  "liveCompatibilitySha256": {
+    "worker/src/management/domain.js": "7f837c764902f52e233ccf147ecfc1bf7a8e937a1b889719bd5e603cf7442d83",
+    "worker/src/management/presentation-images.js": "a1f8c96d6cb31faede7d81385ecea007fac01cba11121d3cbd2e61fa72569fec",
+    "worker/src/management/storefront.js": "0fb60d8c79ef6cb86793f7a018595c481a1fdd2c1896e6a04186f986c395ce1a",
+    "worker/src/management/v53-render.js": "0e413488805d447c20c32f898fbd32d8ab9aa9e9e3d05982302f15c9b742a85f"
+  },
+  "liveDesignLocalTestResults": {
+    "relatedUnit": 40,
+    "relatedBrowser": 32,
+    "uniqueTotal": 72,
+    "failures": 0,
+    "workerBuilds": 3,
+    "scope": "offline only; mobile Chromium 360/390px, supplied live HTML comparison, SDK/payment/Resend substitutes; no real profile or deployment"
+  }
 }

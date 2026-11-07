@@ -2,8 +2,9 @@ import {production} from '../production-policy.js';
 import {featuredProducts,retiredProduct} from './storefront-selection.js';
 import {Store} from './store.js';
 import {escape} from './storefront.js';
+import {presentationImageUrl} from './presentation-images.js';
 const href=p=>'/products/'+p.slug+'.html';
-const image=p=>p.images[0]?'/api/media/'+p.images[0]:p.fallbackImage||'';
+const image=p=>presentationImageUrl(p);
 const img=p=>image(p)?`<img src="${image(p)}" alt="${escape(p.alt)}" loading="lazy">`:'';
 const json=x=>JSON.stringify(x).replaceAll('<','\\u003c');
 export async function renderV53(request,env){

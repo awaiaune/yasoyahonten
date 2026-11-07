@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+
+<html lang="ja">
+<head><script src="/js/store-config.js"></script><meta name="robots" content="noindex,nofollow,noarchive">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta content="noindex, nofollow" name="robots"/>
+<title>
+        お支払い | 八草屋本店
+    </title>
+<meta content="八草屋本店オンラインストアのお支払い画面。ご注文内容、お届け先、カード情報をご確認いただけます。" name="description"/>
+<!-- Icon -->
+<link href="favicon.png" rel="icon"/>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@300;400;500;600&amp;family=Shippori+Mincho:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- CSS -->
+<link href="css/style.css" rel="stylesheet"/>
+
+<link href="css/cart.css" rel="stylesheet"/>
+<link href="css/checkout.css" rel="stylesheet"/>
+
+<!-- Square Web Payments SDK / Production -->
+<script src="https://web.squarecdn.com/v1/square.js" onerror="window.YASOYA_SQUARE_SDK_LOAD_FAILED=true"></script>
+<link href="css/editorial-v21.css" rel="stylesheet"/><link href="css/editorial-v23.css" rel="stylesheet"/><link href="css/editorial-v31.css" rel="stylesheet"/><link href="css/editorial-v36.css" rel="stylesheet"/><link href="css/editorial-v5.css" rel="stylesheet"/><link href="css/checkout-editorial-v56.css" rel="stylesheet"/></head>
+<body class="v56-transaction v56-checkout">
+<!-- ==================================================
+         Header
+    ================================================== -->
+<header class="editorial-header" id="editorialHeader"><a class="logo" href="index.html">YASOYA HONTEN</a><nav aria-label="メインナビゲーション"><a href="products.html">SHOP</a><button aria-label="カートを開く" class="cart-trigger" id="cartTrigger" type="button"><span class="cart-label">CART</span><span aria-label="カート内の商品数" class="cart-count is-empty" id="cartCount">0</span></button><a href="project.html">STORY</a></nav></header>
+<!-- ==================================================
+         Checkout
+    ================================================== -->
+<main class="checkout-page">
+<div class="checkout-inner">
+<p class="v56-eyebrow">YASOYA HONTEN / SECURE CHECKOUT</p>
+<h1 class="checkout-title">Checkout.</h1>
+<p class="v56-intro">お届け先とお支払い方法をご確認ください。</p>
+<div aria-live="assertive" class="checkout-inventory-alert" hidden="" id="checkoutInventoryAlert" role="alert">
+<strong>在庫数をご確認ください</strong>
+<span id="checkoutInventoryMessage"></span>
+<a href="products.html">数量を変更する →</a>
+</div>
+<div class="checkout-layout">
+<form class="checkout-form" id="paymentForm">
+<section class="checkout-section">
+<h2><span class="v56-section-index">01 / SHIPPING</span>お届け先</h2>
+<div class="checkout-fields">
+<div class="checkout-field">
+<label for="familyName">
+                                    姓
+                                </label>
+<input autocomplete="family-name" id="familyName" name="familyName" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="givenName">
+                                    名
+                                </label>
+<input autocomplete="given-name" id="givenName" name="givenName" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="email">
+                                    メールアドレス
+                                </label>
+<input autocomplete="email" id="email" inputmode="email" name="email" required="" type="email"/>
+</div>
+<div class="checkout-field">
+<label for="phone">
+                                    電話番号
+                                </label>
+<input autocomplete="tel" id="phone" inputmode="tel" name="phone" required="" type="tel"/>
+</div>
+<div class="checkout-field">
+<label for="postalCode">
+                                    郵便番号
+                                </label>
+<input autocomplete="postal-code" id="postalCode" inputmode="numeric" name="postalCode" placeholder="例：444-0000" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="state">
+                                    都道府県
+                                </label>
+<input autocomplete="address-level1" id="state" name="state" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="city">
+                                    市区町村
+                                </label>
+<input autocomplete="address-level2" id="city" name="city" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="address1">
+                                    町名・番地
+                                </label>
+<input autocomplete="address-line1" id="address1" name="address1" required="" type="text"/>
+</div>
+<div class="checkout-field">
+<label for="address2">
+                                    建物名・部屋番号
+                                </label>
+<input autocomplete="address-line2" id="address2" name="address2" type="text"/>
+</div>
+</div>
+</section>
+<section class="checkout-section">
+<h2><span class="v56-section-index">02 / PAYMENT</span>カード情報</h2>
+<p id="cardInitializationStatus" role="status" aria-live="polite">カード入力フォームの準備を開始しています…</p><div id="card-container"></div>
+</section>
+<button class="checkout-submit" id="paymentButton" type="submit">
+                        PAY NOW
+                    </button>
+<p aria-live="polite" class="checkout-status" id="paymentStatus" role="alert">
+</p>
+<button type="button" id="checkPaymentStatus">処理状況を確認</button><button type="button" id="refreshCheckout">購入画面を更新</button></form>
+<aside class="checkout-summary">
+<h2>
+                        YOUR SELECTION
+                    </h2>
+<div id="checkoutSummaryItems"></div>
+<div class="checkout-summary-totals">
+<div class="checkout-summary-total">
+<span>
+                                小計
+                            </span>
+<strong id="checkoutSubtotal">
+                                —
+                            </strong>
+</div>
+<div class="checkout-summary-total">
+<span>
+                                送料
+                            </span>
+<strong id="checkoutShipping">
+                                —
+                            </strong>
+</div>
+<div class="checkout-summary-total is-grand">
+<span>
+                                合計
+                            </span>
+<strong id="checkoutTotal">
+                                —
+                            </strong>
+</div>
+</div>
+<a class="checkout-back" href="products.html">
+                        ← 植物一覧へ戻る
+                    </a>
+</aside>
+</div>
+</div>
+</main>
+<!-- ==================================================
+         Footer
+    ================================================== -->
+<footer class="v21-footer"><div class="v21-footer-main"><a class="v21-footer-logo" href="index.html">YASOYA HONTEN</a><nav aria-label="フッターナビゲーション"><a href="products.html">SHOP</a><a href="project.html">STORY</a><a href="contact.html">CONTACT</a></nav></div><div class="v21-footer-legal"><a href="tokushoho.html">特定商取引法に基づく表記</a><a href="privacy-policy.html">PRIVACY</a></div><small class="v21-copyright">© YASOYA HONTEN</small></footer>
+<!-- JavaScript -->
+<script src="js/script.js"></script>
+<script src="js/store-config.js"></script>
+<script src="js/cart.js"></script>
+<script src="js/cart-drawer.js"></script>
+<script src="/js/checkout-v1.js" onerror="document.getElementById('cardInitializationStatus').textContent='購入画面のスクリプトを読み込めません。通信・CSPを確認し再読み込みしてください。'"></script>
+<script defer src="js/editorial-v5.js"></script>
+</body>
+</html>

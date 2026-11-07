@@ -8,7 +8,7 @@ import {build} from 'esbuild';
 const root=new URL('../',import.meta.url);
 const manifest=JSON.parse(await readFile(new URL('production/payment-rc-manifest.json',root),'utf8'));
 test('candidate preserves baseline resources, migration SQL, identities, original designs and images',async()=>{
- for(const [path,hash]of Object.entries(manifest.protectedSha256))assert.equal(createHash('sha256').update(await readFile(new URL(path,root))).digest('hex'),hash,path);
+ for(const [path,hash]of Object.entries({...manifest.protectedSha256,...manifest.liveCompatibilitySha256}))assert.equal(createHash('sha256').update(await readFile(new URL(path,root))).digest('hex'),hash,path);
 });
 test('checkout does not contain the Staging recipient feature and retains the trusted submit stack',async()=>{
  const js=await readFile(new URL('js/checkout-v1.js',root),'utf8');assert(!/STAGING_ADMIN_EMAIL|stagingEmailPreflight|checkout-preflight|checkRecipient/.test(js));

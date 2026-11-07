@@ -1,0 +1,18 @@
+{
+  "source": "user supplied yasoya-live.zip; public snapshot, no credentials or database rows",
+  "candidateBase": "ae0168db77d996106cce8e04def013c9412695b8",
+  "sourceTemplateCommit": "9eec8b7",
+  "exactLiveFiles": {
+    "checkout.html": "bdfdf3e10e72ce88d14b3a70eb387dae4b180a9b4196b24535adeb6a845e8875",
+    "thanks.html": "8a613edb018988f653bd8cbd72aea14d09da0195e9f41c8ca89472e5fcafb8ad",
+    "css/checkout.css": "dd28964bfc89a43acd14f63f50b22851ee713e462127fd99fce346dc94549eba",
+    "js/script.js": "d4e515a5a8a25813e3691f38566ebefd560f3dc1a25a1ccf9ca1ad371716ef06",
+    "js/cart.js": "559ab7c82aa1072079ea1f0b80fd193add19748c264904174adfd5c99614534a",
+    "js/cart-drawer.js": "7334f77c275730266297ebdfeb28773928b790f4c6d76b74fcb1c507cf0f2bb2",
+    "js/thanks-verified-v57.js": "9eb64c99c46277386c561b57bccaff45edd7e000907c850605923f1882af1afd"
+  },
+  "homepageTemplateSha256": "108f49f50adfb6e6a54d4b89b3c186d0990df2d6c938e067265ad313d7f585e2",
+  "checkoutJsLiveSha256": "bbdf9984c05927cd37a30a23d7cd56166460894f29494ecc8afb997105d850fa",
+  "images": "must copy current operational ASSETS; not contained in the uploaded ZIP",
+  "admin": "do not deploy the separate admin Worker in this release"
+}
