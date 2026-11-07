@@ -9,11 +9,11 @@ import {isDeepStrictEqual} from 'node:util';
 import {validateOffConfig} from './prepare-checkout-v58.mjs';
 import {assembleOff} from './prepare-off-live-assets.mjs';
 import {safeReleaseDiagnostic,runOffDryRun} from './release-diagnostics.mjs';
-import {unwrapCachedVersion} from './recover-live-version.mjs';
+import {unwrapCachedVersion,normalizeD1Binding,PRODUCTION_D1_ID} from './recover-live-version.mjs';
 const run=promisify(execFile),here=path.dirname(fileURLToPath(import.meta.url));
 const confirmationPath='production/confirmed-production-resources.json';
 const confirmedResources=JSON.parse(await readFile(path.join(here,'confirmed-production-resources.json'),'utf8'));
-export const identity=Object.freeze({account:'fcf37e462257810df77e8fbc0e7f4317',worker:'yasoya-honten-payments',database:'442fa9fd-25d3-4c01-bcc3-04be7b420cf5',namespace:'6802cc5abc6d440285ec19c9e7c82103',bucket:'yasoya-honten-product-images'});
+export const identity=Object.freeze({account:'fcf37e462257810df77e8fbc0e7f4317',worker:'yasoya-honten-payments',database:PRODUCTION_D1_ID,namespace:'6802cc5abc6d440285ec19c9e7c82103',bucket:'yasoya-honten-product-images'});
 const fail=code=>{throw Error(code);};
 const needs=items=>{const e=Error('MISSING_EVIDENCE');e.missing=items;throw e;};
 const secretKey=k=>/(TOKEN|SECRET|PASSWORD|API_KEY|PRIVATE_KEY)/i.test(k);
@@ -44,7 +44,7 @@ export function confirmedDatabaseEvidence(v,failure,confirmation=confirmedResour
 }
 function bindingsMap(items){
  if(!Array.isArray(items))fail('VERSION_BINDINGS_MISSING');
- const map=new Map();for(const b of items){if(!text(b.name)||!text(b.type)||map.has(b.name)||b.name==='__proto__')fail('INVALID_OR_DUPLICATE_BINDING');map.set(b.name,b);}return map;
+ const map=new Map();for(const b of items){if(!text(b.name)||!text(b.type)||map.has(b.name)||b.name==='__proto__')fail('INVALID_OR_DUPLICATE_BINDING');map.set(b.name,normalizeD1Binding(b));}return map;
 }
 export function inspectVersion(v){
  if(!/^[a-f0-9-]{36}$/.test(v?.id||'')||!v.resources?.script_runtime?.compatibility_date)fail('VERSION_RUNTIME_MISSING');

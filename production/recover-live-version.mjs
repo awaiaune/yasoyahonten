@@ -4,7 +4,29 @@ import {randomUUID} from 'node:crypto';
 import path from 'node:path';
 const ACCOUNT='fcf37e462257810df77e8fbc0e7f4317',WORKER='yasoya-honten-payments';
 export const EXPECTED_VERSION='36ab2dba-dd44-4f39-bc69-6db729bd24d5';
+export const PRODUCTION_D1_ID='442fa9fd-25d3-4c01-bcc3-04be7b420cf5';
 const stop=code=>{throw Error(code);};
+function assertBindingFields(binding,allowed){
+ if(!allowed||Object.keys(binding).some(k=>!allowed.includes(k))){
+  const error=Error('VERSION_BINDING_FIELDS_UNSUPPORTED'),unknown=Object.keys(binding).filter(k=>!allowed?.includes(k));
+  error.bindingType=allowed?binding.type:'unsupported';
+  error.unsupportedFields=unknown.filter(k=>/^[a-z_][a-z_]{0,31}$/.test(k));
+  error.redactedFieldCount=unknown.length-error.unsupportedFields.length;
+  throw error;
+ }
+}
+// Version/settings endpoints expose either alias. Internally/cache we use id;
+// Wrangler receives database_id only when the final OFF profile is generated.
+export function normalizeD1Binding(binding){
+ if(binding.type!=='d1')return binding;
+ assertBindingFields(binding,['type','name','id','database_id']);
+ const hasId=Object.hasOwn(binding,'id'),hasDatabaseId=Object.hasOwn(binding,'database_id');
+ if(!hasId&&!hasDatabaseId)stop('D1_BINDING_ID_MISSING');
+ if(hasId&&hasDatabaseId&&binding.id!==binding.database_id)stop('D1_BINDING_ID_CONFLICT');
+ const id=hasId?binding.id:binding.database_id;
+ if(id!==PRODUCTION_D1_ID)stop('D1_BINDING_ID_MISMATCH');
+ const normalized={...binding,id};delete normalized.database_id;return normalized;
+}
 export function unwrapCachedVersion(value){
  if(value?.cacheSchema===undefined)return value;
  if(value.cacheSchema!==1||value.account!==ACCOUNT||value.worker!==WORKER||value.versionId!==EXPECTED_VERSION||value.version?.id!==value.versionId)stop('VERSION_CACHE_IDENTITY_MISMATCH');
@@ -23,15 +45,8 @@ export function validatedVersion(value,inspect){
  const {vars}=inspect(v);
  if(vars.RUNTIME_TIER!=='production'||vars.SQUARE_ENVIRONMENT!=='production'||vars.PRODUCTION_WORKER_NAME!==WORKER||vars.SQUARE_LOCATION_ID!=='LQ693S4H2NBZ8')stop('VERSION_PRODUCTION_IDENTITY_MISMATCH');
  const fields={plain_text:['type','name','text'],json:['type','name','json'],secret_text:['type','name'],d1:['type','name','id'],durable_object_namespace:['type','name','namespace_id','class_name','script_name','environment'],r2_bucket:['type','name','bucket_name','jurisdiction'],assets:['type','name'],service:['type','name','service','environment','entrypoint'],kv_namespace:['type','name','namespace_id']};
- const bindings=v.resources.bindings.map(b=>{
-  const allowed=fields[b.type];
-  if(!allowed||Object.keys(b).some(k=>!allowed.includes(k))){
-   const error=Error('VERSION_BINDING_FIELDS_UNSUPPORTED'),unknown=Object.keys(b).filter(k=>!allowed?.includes(k));
-   error.bindingType=allowed?b.type:'unsupported';
-   error.unsupportedFields=unknown.filter(k=>/^[a-z_][a-z_]{0,31}$/.test(k));
-   error.redactedFieldCount=unknown.length-error.unsupportedFields.length;
-   throw error; // Field identifiers only; never binding names or field values.
-  }
+ const bindings=v.resources.bindings.map(raw=>{
+  const b=normalizeD1Binding(raw);assertBindingFields(b,fields[b.type]);
   if(b.type==='plain_text')noCredentials(b.text);if(b.type==='json')noCredentials(b.json);
   return structuredClone(b); // secret_text has already been checked: names only.
  });

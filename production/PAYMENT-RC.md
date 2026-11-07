@@ -297,3 +297,33 @@ are retained while a new detached worktree is created. stdin startup reaches
 the next independent cache guard without any Cloudflare auth or network.
 The earlier 83-case suite was not needlessly rerun. The actual Codespaces
 Production OFF dry-run remains unverified until its updated command succeeds.
+
+
+## D1 Version binding aliases — 2026-11-08
+
+The confirmed Codespaces failure was `version_fetch / VERSION_BINDING_FIELDS_UNSUPPORTED`
+with D1 `database_id`. `normalizeD1Binding` is now the shared entrypoint for
+snapshot validation/caching and the binding maps used by metadata comparisons,
+Dashboard identity corroboration and OFF profile generation. It accepts only
+`type`, `name`, `id`, `database_id`. Neither alias is fabricated. A provided ID
+must exactly equal `442fa9fd-25d3-4c01-bcc3-04be7b420cf5`; if both aliases are
+present they must also exactly match each other. Missing, contradictory or
+wrong IDs stop with `D1_BINDING_ID_MISSING`, `_CONFLICT` or `_MISMATCH`, without
+printing values. Other fields still stop with safe field-name diagnostics.
+
+Internal and cached bindings canonicalize to `id`; only final Wrangler D1
+configuration emits `database_id`. Both stored and fresh bindings are
+normalized before comparison, including current settings. Existing canonical
+caches remain valid. The D1 401/403+10000 alternative still requires this exact
+normalized ID plus the unchanged confirmed Dashboard identity. No schema/data
+migration, new resource, credential change, purchase enablement or runtime/
+design change is involved. Git/worktree/recovery workflow is unchanged.
+
+81 related tests passed, failures/cancellations/skips 0: 14 new alias tests,
+39 directly affected preparation cases, 22 cache/recovery cases and 6 boundary/
+Worker-build cases. The comparison test checks all 27 combinations of stored
+snapshot, fresh Version and settings formats. Cache reuse and the D1-denied
+OFF generation test preserve the exact Wrangler database_id and all four flags.
+External metadata and Wrangler dispatch in these tests are substitutes; three
+Worker bundles built locally. Actual Codespaces Production OFF dry-run remains
+unverified until the updated diagnostic command succeeds there.

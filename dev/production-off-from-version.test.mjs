@@ -152,7 +152,7 @@ for(const status of [401,403])test('D1 '+status+'/10000 uses only confirmed iden
 test('Dashboard confirmation must bind exact account, Worker, ORDERS_DB ID/name and documented source',async()=>{
  const {v}=fixture(),record=JSON.parse(await readFile(new URL('production/confirmed-production-resources.json',root),'utf8'));
  for(const change of [{account:'other'},{worker:'other'},{database:{...record.database,id:'other'}},{database:{...record.database,name:'unverified-name'}},{database:{...record.database,binding:'OTHER_DB'}},{source:{kind:'inferred_example'}}])assert.throws(()=>confirmedDatabaseEvidence(v,readError(),{...record,...change}),/CONFIRMED_DATABASE_BINDING_MISMATCH/);
- const different=clone(v);different.resources.bindings.find(b=>b.type==='d1').id='other';assert.throws(()=>confirmedDatabaseEvidence(different,readError()),/PRODUCTION_RESOURCE_MISMATCH/);
+ const different=clone(v);different.resources.bindings.find(b=>b.type==='d1').id='other';assert.throws(()=>confirmedDatabaseEvidence(different,readError()),/D1_BINDING_ID_MISMATCH/);
 });
 test('a successful D1 response with conflicting ID/name is never replaced by Dashboard confirmation',async()=>{
  for(const database of [{uuid:'wrong',name:'yasoya-orders'},{uuid:identity.database,name:'wrong'}]){

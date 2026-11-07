@@ -177,5 +177,19 @@
     "existingWorktrees": "never pruned/reset/removed/checked out; failed candidates skipped",
     "actualCodespacesDryRun": "unverified; prior source_worktree error did not identify the syscall",
     "unsupportedVersionFields": "type and safe field identifiers only; no new field support assumed"
+  },
+  "d1BindingAliases": {
+    "normalizer": "normalizeD1Binding in production/recover-live-version.mjs",
+    "acceptedFields": [
+      "id",
+      "database_id"
+    ],
+    "bothPresent": "exact equality required; each must match confirmed Production UUID",
+    "canonicalCacheField": "id",
+    "wranglerOutputField": "database_id",
+    "relatedTests": 81,
+    "failures": 0,
+    "workerBuilds": 3,
+    "actualCodespacesDryRun": "unverified; latest reported failure was D1 database_id unsupported; patched without runtime/resource changes"
   }
 }
