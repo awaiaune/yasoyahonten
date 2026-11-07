@@ -167,5 +167,15 @@
     "workerBuilds": 3,
     "actualCodespacesDryRun": "unverified; automatic recovery tested with synthetic transports",
     "preserves": "D1 identity proof, OFF flags, no deployment/data changes, current design/runtime"
+  },
+  "worktreePreparation": {
+    "entrypoint": "production/diagnose-off-release.mjs",
+    "scope": "independent enumeration, guarded probes, safe detached creation, exact HEAD/clean/readable verification",
+    "relatedTests": 42,
+    "failures": 0,
+    "workerBuilds": 3,
+    "existingWorktrees": "never pruned/reset/removed/checked out; failed candidates skipped",
+    "actualCodespacesDryRun": "unverified; prior source_worktree error did not identify the syscall",
+    "unsupportedVersionFields": "type and safe field identifiers only; no new field support assumed"
   }
 }

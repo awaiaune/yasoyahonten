@@ -261,3 +261,39 @@ Cloudflare transport and Wrangler execution in the recovery end-to-end test
 are substitutes. The actual Codespaces Production-profile dry-run remains
 unverified until the diagnostic command succeeds there. No deployment, purchase
 ON, Production SQL/storage/Square writes or auth/Secret changes were performed.
+
+
+## Independent source worktree preparation — 2026-11-08
+
+Observed Codespaces failure: `source_worktree / DIAGNOSTIC_STEP_FAILED`.
+The exact historic syscall is unavailable. Confirmed code defects were the
+uncaught candidate-status rejection and the shared phase spanning list/probe,
+temporary-directory creation, Git add, journal creation and module imports.
+
+The standalone launcher now separates `source_worktree_list`, `_probe`, `_reuse`,
+`_create_directory`, `_create`, `_validate`, `diagnostic_journal_create` and
+`release_module_load`. Missing/inaccessible/status-failing/dirty/protected
+candidates are skipped without changing them. Listing failure also permits a
+new detached worktree attempt. Each reused or newly created source must have
+an actually matching HEAD, clean tracked state and readable regular release
+modules; HEAD/status are rechecked. Newly created validation failure stops.
+No prune, removal, reset, forced checkout or old branch update is performed.
+New creation errors include a fixed code, phase, numeric exit/OS errno and
+recognized Git error category only, never raw stderr/paths/credential data.
+
+The next stages remain: validate/recover the confirmed active Version, preserve
+its private non-Git cache, verify metadata with the limited D1 identity proof,
+preserve supplied ASSETS, generate OFF settings, then run Wrangler dry-run.
+No purchase/resource flag or runtime/design/payment code was changed.
+`VERSION_BINDING_FIELDS_UNSUPPORTED` is a separate Version-validation error:
+if it recurs, report known binding type and safe field identifiers only, never
+binding names or values. No undocumented field has been automatically accepted.
+
+42 related tests passed, failures/cancellations/skips 0: 20 new worktree/stdin/
+field-diagnostic cases, 16 directly related diagnostic cases and 6 release
+boundary/build cases (including three Worker bundles). Real local Git fixtures
+verify that dirty worktrees/local settings and vanished registration metadata
+are retained while a new detached worktree is created. stdin startup reaches
+the next independent cache guard without any Cloudflare auth or network.
+The earlier 83-case suite was not needlessly rerun. The actual Codespaces
+Production OFF dry-run remains unverified until its updated command succeeds.

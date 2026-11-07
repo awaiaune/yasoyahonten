@@ -11,6 +11,11 @@ export function safeReleaseDiagnostic(stage,error){
  const message=String(error?.message||''),prefix=message.split(':')[0];
  const code=SAFE_CODES.has(prefix)?prefix:'LOCAL_PREPARATION_FAILED';
  const result={stage,code};
+ if(code==='VERSION_BINDING_FIELDS_UNSUPPORTED'){
+  if(['plain_text','json','secret_text','d1','durable_object_namespace','r2_bucket','assets','service','kv_namespace','unsupported'].includes(error.bindingType))result.bindingType=error.bindingType;
+  if(Array.isArray(error.unsupportedFields))result.unsupportedFields=error.unsupportedFields.filter(k=>/^[a-z_][a-z_]{0,31}$/.test(k));
+  if(Number.isInteger(error.redactedFieldCount))result.redactedFieldCount=error.redactedFieldCount;
+ }
  if(error?.name==='SyntaxError')result.code='INVALID_JSON';
  if(Array.isArray(error?.missing))result.missing=error.missing.filter(k=>['routes','domains','subdomain','database_name','namespace','schedules','asset_routing','asset_directory'].includes(k));
  if(/^\/accounts\/[a-f0-9]+\/(?:workers|d1)\/[A-Za-z0-9/_-]+$/.test(error?.endpoint||''))result.endpoint=error.endpoint;
