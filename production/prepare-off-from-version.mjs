@@ -85,7 +85,7 @@ export function profileFromEvidence(v,e,assetDirectory){
 export async function collectEvidence(v,get){
  inspectVersion(v);
  const a='/accounts/'+identity.account,w=a+'/workers/scripts/'+identity.worker;
- const deployments=await get(w+'/deployments'),active=deployments.deployments?.[0];
+ const deployments=await get(w+'/deployments?page=1&per_page=1'),active=deployments.deployments?.[0];
  if(active?.versions?.length!==1||active.versions[0].version_id!==v.id||active.versions[0].percentage!==100)fail('SNAPSHOT_IS_NOT_SOLE_ACTIVE_VERSION');
  const fresh=await get(w+'/versions/'+v.id);inspectVersion(fresh);
  if(!same([...bindingsMap(fresh.resources.bindings)].sort(),[...bindingsMap(v.resources.bindings)].sort())||!same(fresh.resources.script_runtime,v.resources.script_runtime))fail('SAVED_VERSION_CONTENT_MISMATCH');
@@ -113,6 +113,17 @@ export async function apiReader(auth,{fetcher=fetch}={}){
  return async endpoint=>{
   const stopPagination=()=>{const err=Error('METADATA_PAGINATION_REQUIRES_REVIEW');err.endpoint=endpoint.split('?')[0];throw err;};
   const first=await call(endpoint);
+  // The deployment endpoint returns {deployments:[...]} and may have many
+  // history pages. Cloudflare documents first result as the latest deployment.
+  // Only inspect page 1 with per_page=1; do not fetch irrelevant history.
+  const latestOnly='/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/deployments?page=1&per_page=1';
+  if(endpoint===latestOnly){
+   if(!Array.isArray(first.result?.deployments)||first.result.deployments.length!==1||
+      (first.info?.page!==undefined&&first.info.page!==1)||
+      (first.info?.per_page!==undefined&&first.info.per_page!==1)||
+      (first.info?.count!==undefined&&first.info.count!==1))stopPagination();
+   return first.result;
+  }
   const pages=first.info?.total_pages;
   if(pages===undefined||pages===null||pages===1){
    // An unpaginated list of exactly the maximum page size may be incomplete.
@@ -121,7 +132,7 @@ export async function apiReader(auth,{fetcher=fetch}={}){
   }
   // Never return a truncated snapshot or guess pagination metadata.
   if(!Array.isArray(first.result)||!Number.isSafeInteger(pages)||pages<2||pages>25||first.info.page!==1)stopPagination();
-  const url=new URL('https://api.cloudflare.com/client/v4'+endpoint);
+  const url=new URL(endpoint,'https://api.cloudflare.com');
   const size=first.info.per_page;
   if(!Number.isSafeInteger(size)||size<1||size>100)stopPagination();
   const joined=[...first.result];
