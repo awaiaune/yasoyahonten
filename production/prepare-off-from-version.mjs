@@ -102,16 +102,41 @@ export async function collectEvidence(v,get){
   ...(settings.assets?.config?{assetConfig:settings.assets.config}:settings.assets&&Object.hasOwn(settings.assets,'run_worker_first')?{assetConfig:settings.assets}:{})};
 }
 export async function apiReader(auth,{fetcher=fetch}={}){
- if(!['oauth','api_token'].includes(auth?.type)||!text(auth.token)||/[\s"']/.test(auth.token)||/^Bearer/i.test(auth.token))fail('AUTH_CREDENTIAL_FORMAT_INVALID');
- return async endpoint=>{
+ if(!['oauth','api_token'].includes(auth?.type)||!text(auth.token)||/[\\s"']/.test(auth.token)||/^Bearer/i.test(auth.token))fail('AUTH_CREDENTIAL_FORMAT_INVALID');
+ const call=async endpoint=>{
   if(!endpoint.startsWith('/accounts/'+identity.account+'/'))fail('ACCOUNT_ENDPOINT_REJECTED');
   let response;try{response=await fetcher('https://api.cloudflare.com/client/v4'+endpoint,{method:'GET',headers:{Authorization:'Bearer '+auth.token},redirect:'error',signal:AbortSignal.timeout(20000)});}catch{fail('METADATA_NETWORK_FAILED');}
   let body;try{body=await response.json();}catch{fail('METADATA_RESPONSE_NOT_JSON');}
   if(!response.ok||body.success!==true){const err=Error('METADATA_HTTP_ERROR');err.http=response.status;err.codes=(body.errors||[]).map(x=>x.code).filter(Number.isInteger);err.endpoint=endpoint.split('?')[0];throw err;}
-  if(body.result_info?.total_pages>1||(Array.isArray(body.result)&&body.result.length>=100))fail('METADATA_PAGINATION_REQUIRES_REVIEW');
-  return body.result;
+  return {result:body.result,info:body.result_info};
+ };
+ return async endpoint=>{
+  const first=await call(endpoint);
+  const pages=first.info?.total_pages;
+  if(pages===undefined||pages===null||pages===1){
+   // An unpaginated list of exactly the maximum page size may be incomplete.
+   if(Array.isArray(first.result)&&first.result.length>=100&&!first.info)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+   return first.result;
+  }
+  // Never return a truncated snapshot or guess pagination metadata.
+  if(!Array.isArray(first.result)||!Number.isSafeInteger(pages)||pages<2||pages>25||first.info.page!==1)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  const url=new URL('https://api.cloudflare.com/client/v4'+endpoint);
+  const size=first.info.per_page;
+  if(!Number.isSafeInteger(size)||size<1||size>100)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  const joined=[...first.result];
+  for(let page=2;page<=pages;page++){
+   url.searchParams.set('page',String(page));
+   url.searchParams.set('per_page',String(size));
+   const next=await call(url.pathname+url.search);
+   if(!Array.isArray(next.result)||!next.result.length||next.info?.page!==page||next.info?.total_pages!==pages||next.info?.per_page!==size||JSON.stringify(next.result)===JSON.stringify(first.result))fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+   joined.push(...next.result);
+   if(joined.length>2500)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  }
+  if(Number.isSafeInteger(first.info.total_count)&&joined.length!==first.info.total_count)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  return joined;
  };
 }
+
 const childEnv=()=>({...process.env,WRANGLER_SEND_METRICS:'false',WRANGLER_LOG:'error',WRANGLER_LOG_SANITIZE:'true'});
 async function authReader(){
  let stdout;try{({stdout}=await run('npx',['--yes','wrangler@4.155.0','auth','token','--json'],{env:childEnv(),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));}catch{fail('WRANGLER_AUTH_UNAVAILABLE');}
