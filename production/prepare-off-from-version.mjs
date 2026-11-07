@@ -111,28 +111,29 @@ export async function apiReader(auth,{fetcher=fetch}={}){
   return {result:body.result,info:body.result_info};
  };
  return async endpoint=>{
+  const stopPagination=()=>{const err=Error('METADATA_PAGINATION_REQUIRES_REVIEW');err.endpoint=endpoint.split('?')[0];throw err;};
   const first=await call(endpoint);
   const pages=first.info?.total_pages;
   if(pages===undefined||pages===null||pages===1){
    // An unpaginated list of exactly the maximum page size may be incomplete.
-   if(Array.isArray(first.result)&&first.result.length>=100&&!first.info)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+   if(Array.isArray(first.result)&&first.result.length>=100&&!first.info)stopPagination();
    return first.result;
   }
   // Never return a truncated snapshot or guess pagination metadata.
-  if(!Array.isArray(first.result)||!Number.isSafeInteger(pages)||pages<2||pages>25||first.info.page!==1)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  if(!Array.isArray(first.result)||!Number.isSafeInteger(pages)||pages<2||pages>25||first.info.page!==1)stopPagination();
   const url=new URL('https://api.cloudflare.com/client/v4'+endpoint);
   const size=first.info.per_page;
-  if(!Number.isSafeInteger(size)||size<1||size>100)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  if(!Number.isSafeInteger(size)||size<1||size>100)stopPagination();
   const joined=[...first.result];
   for(let page=2;page<=pages;page++){
    url.searchParams.set('page',String(page));
    url.searchParams.set('per_page',String(size));
    const next=await call(url.pathname+url.search);
-   if(!Array.isArray(next.result)||!next.result.length||next.info?.page!==page||next.info?.total_pages!==pages||next.info?.per_page!==size||JSON.stringify(next.result)===JSON.stringify(first.result))fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+   if(!Array.isArray(next.result)||!next.result.length||next.info?.page!==page||next.info?.total_pages!==pages||next.info?.per_page!==size||JSON.stringify(next.result)===JSON.stringify(first.result))stopPagination();
    joined.push(...next.result);
-   if(joined.length>2500)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+   if(joined.length>2500)stopPagination();
   }
-  if(Number.isSafeInteger(first.info.total_count)&&joined.length!==first.info.total_count)fail('METADATA_PAGINATION_REQUIRES_REVIEW');
+  if(Number.isSafeInteger(first.info.total_count)&&joined.length!==first.info.total_count)stopPagination();
   return joined;
  };
 }
