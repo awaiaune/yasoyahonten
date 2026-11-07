@@ -157,5 +157,15 @@
     "realWranglerSyntheticOffProfile": "4.155.0 passed; no Production credentials or data",
     "actualCodespacesDryRun": "unverified: previous exit stage/output unavailable",
     "preserves": "D1 confirmed-identity alternative, OFF flags, existing configs/assets, runtime code and all Production data"
+  },
+  "versionSnapshotRecovery": {
+    "entrypoint": "production/recover-live-version.mjs",
+    "expectedVersion": "36ab2dba-dd44-4f39-bc69-6db729bd24d5",
+    "cache": "common Git directory / yasoya-release-private/live-version.json; 0700/0600; never tracked",
+    "relatedTests": 83,
+    "failures": 0,
+    "workerBuilds": 3,
+    "actualCodespacesDryRun": "unverified; automatic recovery tested with synthetic transports",
+    "preserves": "D1 identity proof, OFF flags, no deployment/data changes, current design/runtime"
   }
 }

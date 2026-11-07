@@ -216,3 +216,48 @@ The isolated Codex test required a writable npm/config cache; that environmental
 finding is not attributed to Codespaces and the user's auth paths are unchanged.
 A real Codespaces Production-profile dry-run is not claimed until its diagnostic
 command actually returns SUCCESS.
+
+
+## Automatic Version snapshot recovery — 2026-11-08
+
+The confirmed Codespaces stop was `version_json_read / ENOENT`: the old
+`/tmp/yasoya-live-version.json` had disappeared. The diagnostic launcher now
+uses `recover-live-version.mjs` rather than requiring that file to exist.
+
+1. Reuse a valid existing temporary snapshot; otherwise reuse the private cache.
+   Invalid JSON/unsafe paths/identity mismatches stop with specific codes rather
+   than being silently replaced. No historical `ready.jsonc` is consulted.
+2. With the existing Wrangler authentication, GET the latest sole deployment.
+   Only `36ab2dba-dd44-4f39-bc69-6db729bd24d5` at 100% is accepted. If no valid
+   saved snapshot exists, GET that exact Worker's Version. Check Production
+   environment/Worker/Location, OFF flags, existing bindings and Secret names.
+   Recheck the active deployment after fetching, to detect a concurrent rollout.
+3. Atomically save a non-secret snapshot envelope under the **common Git
+   directory**: `yasoya-release-private/live-version.json`. The directory is 0700,
+   file 0600. This is shared by existing worktrees and is outside Git's index;
+   no `.gitignore` exception or source-tree config file is needed. A common Git
+   directory under `/tmp` is refused as insufficiently persistent. Author data,
+   upload JWTs and arbitrary API metadata are omitted; Secret bindings store
+   names only. Credential-bearing JSON/values and unknown binding fields stop.
+4. Reuse the same authenticated in-memory GET reader for preparation, keeping
+   the D1 authorization alternative unchanged. The cached envelope is directly
+   consumable by the preparer. Existing prepared OFF profiles/metadata/assets
+   are reused under the previous identity/runtime guards, then dry-run continues.
+
+The user's one diagnostic command remains the same workflow: fetch the release
+branch, compare it to the newly reported SHA, and stream the standalone launcher
+to Node. No manual `versions view` or copying `/tmp` files is required. Errors
+now identify `version_cache_read`, `version_validate`, `version_deployment_verify`,
+`version_fetch`, `version_deployment_recheck`, or `version_cache_write` precisely.
+
+Verification: **83 tests passed**, failures/cancellations/skips 0 (22 new
+recovery cases plus the 61 directly affected preparation/diagnostic/bundle cases).
+Three Worker builds passed. Tests include fresh retrieval, saved-file and cache
+reuse, malformed JSON, API errors, changed/split rollout, concurrent change,
+Production identity/OFF checks, Secret-value exclusion, symlink refusal,
+0700/0600 permissions, Git index exclusion even after force-add/add-all, and
+missing-file recovery through D1-denial proof/assets/OFF dry-run invocation.
+Cloudflare transport and Wrangler execution in the recovery end-to-end test
+are substitutes. The actual Codespaces Production-profile dry-run remains
+unverified until the diagnostic command succeeds there. No deployment, purchase
+ON, Production SQL/storage/Square writes or auth/Secret changes were performed.

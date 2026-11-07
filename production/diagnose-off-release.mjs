@@ -2,7 +2,7 @@
 // Cloudflare access is delegated to the existing read-only preparer if needed.
 import {execFile} from 'node:child_process';
 import {promisify,isDeepStrictEqual} from 'node:util';
-import {readFile,readdir,lstat,mkdtemp,writeFile} from 'node:fs/promises';
+import {readFile,readdir,lstat,mkdtemp,writeFile,realpath} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -39,7 +39,11 @@ export async function diagnose(){
   journal=await mkdtemp(path.join(tmpdir(),'yasoya-off-diagnostic-'));
   module=await import(pathToFileURL(path.join(source,'production/prepare-off-from-version.mjs')));
   diagnostic=await import(pathToFileURL(path.join(source,'production/release-diagnostics.mjs')));
-  report('version_json_read');const versionFile='/tmp/yasoya-live-version.json',v=JSON.parse(await readFile(versionFile,'utf8'));module.inspectVersion(v);
+  const recovery=await import(pathToFileURL(path.join(source,'production/recover-live-version.mjs')));
+  report('version_cache_location');const common=await realpath(path.resolve(await git(['rev-parse','--git-common-dir'])));
+  if(common===tmpdir()||common.startsWith(tmpdir()+path.sep))throw Error('VERSION_PERSISTENT_CACHE_UNAVAILABLE');
+  let reader;const get=async endpoint=>{reader??=await module.authenticatedMetadataReader();return reader(endpoint);};
+  const {version:v,versionFile}=await recovery.recoverLiveVersion({cacheDirectory:path.join(common,'yasoya-release-private')},{get,inspect:module.inspectVersion,onStage:phase=>report(phase)});
   report('previous_output_search');
   const profile=await newest('yasoya-off-from-version-','release/off.local.jsonc');
   if(profile){
@@ -54,7 +58,7 @@ export async function diagnose(){
   }else{
    report('previous_metadata_search');const evidenceFile=await newest('yasoya-off-evidence-','evidence.json',async file=>JSON.parse(await readFile(file,'utf8')).versionId===v.id);
    const retained=evidenceFile??await newest('yasoya-off-from-version-','metadata.json',async file=>JSON.parse(await readFile(file,'utf8')).versionId===v.id);
-   await module.prepareFromVersion({versionFile,evidenceFile:retained,collect:!retained,assets:'/workspaces/yasoya-v60-csp/production/.generated/v53',dryRun:true},{onStage:phase=>report(phase)});
+   await module.prepareFromVersion({versionFile,evidenceFile:retained,collect:!retained,assets:'/workspaces/yasoya-v60-csp/production/.generated/v53',dryRun:true},{get,onStage:phase=>report(phase)});
   }
   report('complete','passed',{exitCode:0});await writeFile(path.join(journal,'events.json'),JSON.stringify(events)+'\n',{mode:0o600});console.log(JSON.stringify({status:'SUCCESS',stage:'wrangler_dry_run',exitCode:0}));
  }catch(error){

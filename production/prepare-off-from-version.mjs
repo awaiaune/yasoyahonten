@@ -9,6 +9,7 @@ import {isDeepStrictEqual} from 'node:util';
 import {validateOffConfig} from './prepare-checkout-v58.mjs';
 import {assembleOff} from './prepare-off-live-assets.mjs';
 import {safeReleaseDiagnostic,runOffDryRun} from './release-diagnostics.mjs';
+import {unwrapCachedVersion} from './recover-live-version.mjs';
 const run=promisify(execFile),here=path.dirname(fileURLToPath(import.meta.url));
 const confirmationPath='production/confirmed-production-resources.json';
 const confirmedResources=JSON.parse(await readFile(path.join(here,'confirmed-production-resources.json'),'utf8'));
@@ -196,7 +197,7 @@ export async function apiReader(auth,{fetcher=fetch}={}){
 }
 
 const childEnv=()=>({...process.env,WRANGLER_SEND_METRICS:'false',WRANGLER_LOG:'error',WRANGLER_LOG_SANITIZE:'true'});
-async function authReader(){
+export async function authenticatedMetadataReader(){
  let stdout;try{({stdout}=await run('npx',['--yes','wrangler@4.155.0','auth','token','--json'],{env:childEnv(),encoding:'utf8',timeout:120000,maxBuffer:1024*1024}));}catch{fail('WRANGLER_AUTH_UNAVAILABLE');}
  let auth;try{auth=JSON.parse(stdout);}catch{fail('WRANGLER_AUTH_RESPONSE_INVALID');}stdout=undefined;
  return apiReader(auth);
@@ -213,8 +214,8 @@ const acquisition={
 };
 async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile,assets,output,collect=false,dryRun=false},deps={},stage){
  stage('version_json_read');
- const v=JSON.parse(await readFile(versionFile,'utf8'));stage('version_validate');inspectVersion(v);
- let e;if(collect){stage('authentication');const get=deps.get??await authReader();stage('metadata_collect');e=await collectEvidence(v,get);}else if(evidenceFile){stage('evidence_read');e=JSON.parse(await readFile(evidenceFile,'utf8'));}else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
+ const v=unwrapCachedVersion(JSON.parse(await readFile(versionFile,'utf8')));stage('version_validate');inspectVersion(v);
+ let e;if(collect){stage('authentication');const get=deps.get??await authenticatedMetadataReader();stage('metadata_collect');e=await collectEvidence(v,get);}else if(evidenceFile){stage('evidence_read');e=JSON.parse(await readFile(evidenceFile,'utf8'));}else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
  if(assetSettingsFile){stage('asset_settings_read');const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');e.assetConfig=manual.config;}
  let prepared;
  try{stage('asset_directory_resolve');const assetDirectory=assets?await realpath(assets):undefined;stage('profile_validate');prepared=profileFromEvidence(v,e,assetDirectory);}catch(err){
