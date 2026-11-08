@@ -16,17 +16,20 @@ export const OPERATIONAL_ASSETS='/workspaces/yasoya-v60-csp/production/.generate
 // These checks never change the shared directory's ownership or permissions.
 export function validateDiscoveryRoot(info,{shared=false,uid=process.getuid?.()}={}){
  const directory=!info.isSymbolicLink()&&info.isDirectory(),mode=info.mode&0o7777;
- if(shared){if(!directory||![0,uid].includes(info.uid)||mode!==0o1777)stop('RECOVERY_SHARED_ROOT_UNSAFE');}
+ if(shared){
+  const reasons=[];if(info.isSymbolicLink())reasons.push('SYMLINK');if(!info.isDirectory())reasons.push('NOT_DIRECTORY');if(![0,uid].includes(info.uid))reasons.push('OWNER_NOT_ROOT_OR_CURRENT');if(!(mode&0o1000))reasons.push('STICKY_BIT_MISSING');if(mode!==0o1777)reasons.push('PERMISSIONS_UNEXPECTED');
+  if(reasons.length){const e=Error('RECOVERY_SHARED_ROOT_UNSAFE');e.reasons=reasons;throw e;}
+ }
  else if(!directory||uid!==undefined&&info.uid!==uid||mode!==0o700)stop('RECOVERY_PRIVATE_ROOT_UNSAFE');
  return info;
 }
 function validateOwned(info,kind){if(info.isSymbolicLink()||process.getuid&&info.uid!==process.getuid()||info.mode&0o022||kind==='dir'&&!info.isDirectory()||kind==='file'&&!info.isFile())stop('RECOVERY_PATH_UNSAFE');return info;}
 async function owned(p,kind){return validateOwned(await lstat(p),kind);}
-async function privateDir(p){await mkdir(p,{recursive:true,mode:0o700});await owned(p,'dir');await chmod(p,0o700);}
+async function privateDir(p){await mkdir(p,{recursive:true,mode:0o700});const info=await owned(p,'dir');if((info.mode&0o7777)!==0o700)stop('RECOVERY_PRIVATE_ROOT_UNSAFE');}
 async function secureTree(p){const info=await lstat(p);if(info.isSymbolicLink()&&path.basename(p)==='wrangler-discard.log'&&await realpath(p)==='/dev/null')return;await owned(p,info.isDirectory()?'dir':'file');await chmod(p,info.isDirectory()?0o700:0o600);if(info.isDirectory())for(const n of await readdir(p))await secureTree(path.join(p,n));}
 async function writePrivate(p,data){await writeFile(p,JSON.stringify(data,null,2)+'\n',{mode:0o600,flag:'wx'});await chmod(p,0o600);}
 async function optional(p){try{await owned(p,'file');return await json(p);}catch(e){if(e.code==='ENOENT')return null;throw e;}}
-async function childDirs(root,prefix,{shared=false,io={lstat,readdir}}={}){
+async function childDirs(root,prefix,{shared=false,missingIsError=false,io={lstat,readdir}}={}){
  try{
   validateDiscoveryRoot(await io.lstat(root),{shared});const found=[];
   for(const entry of await io.readdir(root,{withFileTypes:true})){
@@ -35,11 +38,19 @@ async function childDirs(root,prefix,{shared=false,io={lstat,readdir}}={}){
    catch(e){if(e.message==='RECOVERY_PATH_UNSAFE'||['ENOENT','ENOTDIR','EACCES','EPERM'].includes(e.code))continue;throw e;}
   }
   return found;
- }catch(e){if(e.code==='ENOENT')return [];throw e;}
+ }catch(e){if(e.code==='ENOENT'&&!missingIsError)return [];throw e;}
 }
 export async function discoverReleaseRoots(cache,tmpDirectory='/tmp',io={lstat,readdir}){
- const roots=[...await childDirs(tmpDirectory,'yasoya-off-from-version-',{shared:path.resolve(tmpDirectory)==='/tmp',io}),...await childDirs(path.join(cache,'builds'),'release-build-',{io})],packets=await childDirs(cache,'prebuilt-off-',{io});
- return {roots,packets};
+ let temporary=[],temporarySearch;
+ // Only this historical temporary-artifact search is optional. Cache ownership,
+ // permissions and payload validation are outside this catch and remain fatal.
+ try{temporary=await childDirs(tmpDirectory,'yasoya-off-from-version-',{shared:path.resolve(tmpDirectory)==='/tmp',missingIsError:true,io});temporarySearch={status:'searched'};}
+ catch(e){
+  if(!['RECOVERY_SHARED_ROOT_UNSAFE','RECOVERY_PRIVATE_ROOT_UNSAFE'].includes(e.message)&&!['ENOENT','ENOTDIR','EACCES','EPERM','ELOOP'].includes(e.code))throw e;
+  temporarySearch={status:'skipped',code:e.message==='RECOVERY_SHARED_ROOT_UNSAFE'||e.message==='RECOVERY_PRIVATE_ROOT_UNSAFE'?e.message:e.code,...(e.reasons?{reasons:e.reasons}:{})};
+ }
+ const roots=[...temporary,...await childDirs(path.join(cache,'builds'),'release-build-',{io})],packets=await childDirs(cache,'prebuilt-off-',{io});
+ return {roots,packets,temporarySearch};
 }
 async function remember(cache,result){
  const pointer=path.join(cache,'current-prepared-off.json');await optional(pointer);const temp=path.join(cache,'pointer-'+randomUUID()+'.json');
@@ -90,9 +101,9 @@ export async function recoverOffRelease(options,ops,deps={}){
  if(pointer){if(!descriptor(pointer)||pointer.releaseSha!==ops.SOURCE_SHA)stop('PERSISTENT_POINTER_IDENTITY_MISMATCH');
   if(await optional(pointer.manifest)){const result=await ops.inspectPreparedPacket(pointer.manifest,pointer.manifestSha256,get);await remember(cache,result);return {...result,recovery:{mode:'persistent_packet_reused',regenerated:false}};}
  }
- stage('artifact_discovery');const found=await discoverReleaseRoots(cache,options.tmpDirectory??'/tmp');
+ stage('artifact_discovery');const found=await discoverReleaseRoots(cache,options.tmpDirectory??'/tmp',deps.discoveryIO);
  for(const packet of found.packets){const manifestFile=path.join(packet,'manifest.json'),m=await optional(manifestFile);if(!m||!descriptor(m)||m.source?.sha!==ops.SOURCE_SHA||m.rollbackVersion!==ops.ROLLBACK)continue;
-  const result=await ops.inspectPreparedPacket(manifestFile,hash(await readFile(manifestFile)),get);await remember(cache,result);return {...result,recovery:{mode:'persistent_packet_reused',regenerated:false}};
+  const result=await ops.inspectPreparedPacket(manifestFile,hash(await readFile(manifestFile)),get);await remember(cache,result);return {...result,recovery:{mode:'persistent_packet_reused',regenerated:false,temporarySearch:found.temporarySearch}};
  }
  const rejected=[];
  for(const root of found.roots){
@@ -101,7 +112,7 @@ export async function recoverOffRelease(options,ops,deps={}){
   let c;try{c=await optional(path.join(root,'dry-run/diagnostic.json'));}catch(e){rejected.push({code:'INPUT_RECORD_UNREADABLE'});continue;}
   if(c?.status!=='passed'||c.exitCode!==0)continue;
   try{
-   const result=await ops.preparePrebuilt({root,repository},{get,artifactOrigin:{kind:'reused_successful_release',sourceRoot:root}});await remember(cache,result);return {...result,recovery:{mode:'successful_artifacts_reused',regenerated:false}};
+   const result=await ops.preparePrebuilt({root,repository},{get,artifactOrigin:{kind:'reused_successful_release',sourceRoot:root}});await remember(cache,result);return {...result,recovery:{mode:'successful_artifacts_reused',regenerated:false,temporarySearch:found.temporarySearch}};
   }catch(e){
    if(e.http||/^(LIVE_|AUTH_|WRANGLER_AUTH|PREVIOUS_DEPLOY|VERSION_)/.test(e.message))throw e;
    const eligible=/^(ARTIFACT_|SOURCE_MAP_|BUNDLE_|UNTRACKED_BUNDLE|ADDITIONAL_MODULES|ASSET_|RECEIPT_IDENTITY|OFF_CONFIG_METADATA|SUCCESSFUL_DRY_RUN)/.test(e.message)||['ENOENT','ENOTDIR'].includes(e.code);if(!eligible)throw e;
@@ -124,6 +135,6 @@ export async function recoverOffRelease(options,ops,deps={}){
  stage('regeneration_dry_run');const build=await pinned.prepareFromVersion({versionFile:path.join(state,'version.json'),evidenceFile:path.join(state,'metadata.json'),assetSettingsFile:path.join(state,'routing.json'),placementEvidenceFile:path.join(state,'placement.json'),assets:asset.directory,output,dryRun:true},{get,run});
  if(build.dryRun!==true||path.resolve(build.directory)!==path.resolve(output))stop('REBUILD_SUCCESS_RECORD_INVALID');
  await writePrivate(path.join(output,'metadata.json'),e);await secureTree(output); // collect=false: old pinned preparer does not save this itself.
- const origin={kind:'regenerated_fixed_source',sourceSha:ops.SOURCE_SHA,wranglerVersion:'4.155.0',sourceMapRequested:true,previousBundleComparison:'unavailable; past input artifacts were not reused',assetsSource:asset.source,assetsFingerprint:asset.sha256,assetIdentityScope:asset.scope};
- stage('freeze_regenerated_artifacts');const result=await ops.preparePrebuilt({root:output,repository},{get,artifactOrigin:origin});await remember(cache,result);return {...result,recovery:{mode:'regenerated_fixed_source',regenerated:true,previousBundleComparison:'unavailable',rejectedArtifacts:rejected}};
+ const origin={kind:'regenerated_fixed_source',sourceSha:ops.SOURCE_SHA,wranglerVersion:'4.155.0',sourceMapRequested:true,temporarySearch:found.temporarySearch,previousBundleComparison:'unavailable; past input artifacts were not reused',assetsSource:asset.source,assetsFingerprint:asset.sha256,assetIdentityScope:asset.scope};
+ stage('freeze_regenerated_artifacts');const result=await ops.preparePrebuilt({root:output,repository},{get,artifactOrigin:origin});await remember(cache,result);return {...result,recovery:{mode:'regenerated_fixed_source',regenerated:true,previousBundleComparison:'unavailable',rejectedArtifacts:rejected,temporarySearch:found.temporarySearch}};
 }
