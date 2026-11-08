@@ -359,3 +359,24 @@ Existing metadata and D1 identity fallback remain unchanged. A prior OFF profile
 is resumed only if its routing exactly matches this evidence; otherwise it is
 preserved and a new OFF profile is prepared. Actual Production OFF dry-run is
 unconfirmed until the updated diagnostic succeeds in the authenticated Codespace.
+
+
+## Pinned Wrangler configuration failure diagnostics — 2026-11-08
+
+Codespaces reached `wrangler_dry_run` but only retained the broad
+`WRANGLER_CONFIG_REJECTED` rule. That result does not identify a rejected key.
+The runner now parses both captured streams in memory, isolates error sections,
+and returns only known configuration paths and fixed syntax/schema/build error
+categories. Unknown keys, actual values, filenames and raw output are omitted.
+Wrangler's automatic debug log is redirected through a fresh private `.log`
+symlink to `/dev/null`; only the sanitized diagnostic is saved. Existing OFF
+profiles/assets can be resumed unchanged through the existing launcher.
+
+Local validation: 34 targeted tests passed. The actual Wrangler 4.155.0 bundled
+the synthetic OFF profile with Assets routing (including base_path), custom-domain
+route flags/zone_id, D1/DO/R2, empty migrations, keep_vars, workers_dev and
+preview_urls. Two intentional real-CLI failures correctly reported
+`observability.logs.head_sampling_rate / TYPE` and `assets.html_handling / ENUM`.
+These are regression fixtures, **not findings about the live settings**.
+No Production configuration key or value was changed. Real Codespaces dry-run
+and its exact rejected key remain unconfirmed until the updated launcher runs.
