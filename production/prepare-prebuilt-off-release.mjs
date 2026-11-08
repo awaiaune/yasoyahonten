@@ -13,8 +13,8 @@ import {validatePlacementEvidence} from './placement-evidence.mjs';
 import {checkProfile} from './prepare-checkout-v58.mjs';
 export const SOURCE_SHA='ce5ad8786df6643c6380f091c4dfbbb72559c6ff';
 export const ROLLBACK='36ab2dba-dd44-4f39-bc69-6db729bd24d5';
-const DEFAULT_ROOT='/tmp/yasoya-off-from-version-vGRUEf',here=path.dirname(fileURLToPath(import.meta.url)),exec=promisify(execFile);
-const TOOL_FILES=['prepare-prebuilt-off-release.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','asset-routing-evidence.mjs','placement-evidence.mjs','recover-live-version.mjs','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs','confirmed-production-resources.json'];
+const here=path.dirname(fileURLToPath(import.meta.url)),exec=promisify(execFile);
+const TOOL_FILES=['recover-off-release.mjs','live-design-manifest.json','prepare-prebuilt-off-release.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','asset-routing-evidence.mjs','placement-evidence.mjs','recover-live-version.mjs','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs','confirmed-production-resources.json'];
 let phase='artifact_input';
 const stop=code=>{throw Error(code);},hash=b=>createHash('sha256').update(b).digest('hex');
 const json=async f=>JSON.parse(await readFile(f,'utf8'));
@@ -29,7 +29,8 @@ export const ARTIFACT_INPUTS=Object.freeze([
  ['release_receipt','evidence.json','file'],
  ['asset_manifest','release/assembly.json','file']
 ]);
-export async function inspectArtifactInputs(root=DEFAULT_ROOT){
+export async function inspectArtifactInputs(root){
+ if(typeof root!=='string'||!path.isAbsolute(root))stop('ARTIFACT_ROOT_REQUIRED');
  const rows=[];for(const [role,relative,expectedType]of ARTIFACT_INPUTS){
   const file=path.join(root,relative);let type,issue;
   try{const s=await lstat(file);type=s.isSymbolicLink()?'symbolic_link':s.isFile()?'file':s.isDirectory()?'directory':'special';
@@ -46,7 +47,7 @@ export async function requireArtifactInputs(root){
 async function regular(file){const s=await lstat(file);if(!s.isFile()||s.isSymbolicLink()||process.getuid&&s.uid!==process.getuid())stop('LOCAL_FILE_UNSAFE');return s;}
 async function privateDir(dir){await mkdir(dir,{recursive:true,mode:0o700});const m=await lstat(dir);if(!m.isDirectory()||m.isSymbolicLink()||process.getuid&&m.uid!==process.getuid())stop('PRIVATE_DIRECTORY_UNSAFE');await chmod(dir,0o700);}
 async function save(file,value){await writeFile(file,JSON.stringify(value,null,2)+'\n',{flag:'wx',mode:0o600});await chmod(file,0o600);}
-async function inventory(dir,prefix='',skipRuntime=false){
+export async function inventory(dir,prefix='',skipRuntime=false){
  const out={};for(const d of (await readdir(dir,{withFileTypes:true})).sort((a,b)=>a.name<b.name?-1:1)){
   if(skipRuntime&&!prefix&&d.name==='runtime')continue;
   const rel=prefix+d.name,file=path.join(dir,d.name);if(d.isSymbolicLink())stop('ARTIFACT_LINK_REJECTED');
@@ -81,7 +82,7 @@ async function sourceProof(bundle,c,repository){
  if(!(await readFile(bundle,'utf8')).endsWith('//# sourceMappingURL=storefront-worker.js.map\n'))stop('SOURCE_MAP_REFERENCE_MISMATCH');
  return {sha:SOURCE_SHA,sourceFiles:map.sources.length,method:'supplied successful artifact plus source-map contents matched to immutable Git objects; no rebuild'};
 }
-async function reader(directory){
+export async function reader(directory){
  await privateDir(directory);const sink=path.join(directory,'discard.log');try{await symlink('/dev/null',sink);}catch(e){if(e.code!=='EEXIST')throw e;}if(await realpath(sink)!=='/dev/null')stop('LOG_SINK_UNSAFE');
  const env={...process.env,WRANGLER_LOG_PATH:sink,WRANGLER_LOG:'error',WRANGLER_LOG_SANITIZE:'true',WRANGLER_SEND_METRICS:'false'};
  let result;try{result=await exec('npx',['--yes','wrangler@4.155.0','auth','token','--json'],{env,encoding:'utf8',timeout:120000,maxBuffer:1024*1024});}catch{stop('AUTH_READ_FAILED');}
@@ -101,7 +102,8 @@ async function liveMatches(get,v,e,c){
  // D1 endpoint, query customer data, recover a payment, or touch Square.
  return {rollback,evidence:next};
 }
-export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(),output},deps={}){
+export async function preparePrebuilt({root,repository=process.cwd(),output},deps={}){
+ if(typeof root!=='string'||!path.isAbsolute(root))stop('ARTIFACT_ROOT_REQUIRED');
  phase='repository';const remote=await git(['remote','get-url','origin'],repository);if(!/^(?:https:\/\/github\.com\/|git@github\.com:)awaiaune\/yasoyahonten(?:\.git)?$/.test(remote))stop('REPOSITORY_MISMATCH');
  phase='artifact_input';const bundle=path.join(root,'dry-run/bundle/storefront-worker.js'),input=path.join(root,'release/off.local.jsonc'),assets=path.join(root,'release/site');
  await requireArtifactInputs(root);phase='artifact_input_dry_run_status';const success=await json(path.join(root,'dry-run/diagnostic.json'));if(success.status!=='passed'||success.exitCode!==0)stop('SUCCESSFUL_DRY_RUN_REQUIRED');
@@ -141,19 +143,30 @@ export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(
  await save(path.join(output,'off.deploy.jsonc'),frozen);await save(path.join(output,'version.json'),v);await save(path.join(output,'metadata.json'),e);await save(path.join(output,'original-off.json'),c);await save(path.join(output,'rollback.json'),rollback);
  await privateDir(path.join(output,'tools/production'));for(const name of TOOL_FILES){await cp(path.join(here,name),path.join(output,'tools/production',name),{force:false,errorOnExist:true});await chmod(path.join(output,'tools/production',name),0o600);}
  if(!same(await inventory(path.join(output,'site')),tree)||!same(await inventory(assets),tree)||!same(await inventory(path.join(output,'bundle')),originalBundle)||!same(await inventory(path.dirname(bundle)),originalBundle)||hash(await readFile(input))!==inputHash)stop('COPY_CHANGED');
- phase='freeze_manifest';const files=await inventory(output,'',true);const manifest={schema:1,worker:identity.worker,source,rollbackVersion:ROLLBACK,createdAt:new Date().toISOString(),bundleSha256:originalBundle['storefront-worker.js'],secretNames:receipt.secretNames,files};await save(path.join(output,'manifest.json'),manifest);
+ phase='freeze_manifest';const files=await inventory(output,'',true);const manifest={schema:1,worker:identity.worker,source:{...source,...(deps.artifactOrigin?.kind==='regenerated_fixed_source'?{method:'fixed Git source compiled with pinned Wrangler dry-run; source-map contents matched to immutable Git objects'}:{}),...(deps.artifactOrigin?{artifactOrigin:deps.artifactOrigin}:{})},rollbackVersion:ROLLBACK,createdAt:new Date().toISOString(),bundleSha256:originalBundle['storefront-worker.js'],secretNames:receipt.secretNames,files};await save(path.join(output,'manifest.json'),manifest);
  const manifestSha256=hash(await readFile(path.join(output,'manifest.json')));
- const runner=path.join(output,'tools/production/prepare-prebuilt-off-release.mjs');
- return {status:'PREPARED_NOT_DEPLOYED',releaseSha:SOURCE_SHA,bundleSha256:manifest.bundleSha256,config:path.join(output,'off.deploy.jsonc'),assets:path.join(output,'site'),current:rollback,manifest:path.join(output,'manifest.json'),manifestSha256,deployCommand:`node ${quote(runner)} --deploy ${quote(path.join(output,'manifest.json'))} --manifest-sha ${manifestSha256} --approved`,rollbackCommand:`npx wrangler@4.155.0 rollback ${ROLLBACK} --name ${identity.worker} --config ${quote(path.join(output,'off.deploy.jsonc'))} --message 'OFF release rollback' --yes`};
+ return packetResult(output,manifest,rollback,manifestSha256);
 }
-export async function deployPrepared(manifestFile,approved,deps={}){
- phase='approval_and_manifest';if(!approved)stop('EXPLICIT_APPROVAL_REQUIRED');if(!/^[a-f0-9]{64}$/.test(deps.expectedManifestHash||'')||hash(await readFile(manifestFile))!==deps.expectedManifestHash)stop('MANIFEST_HASH_MISMATCH');const directory=path.dirname(await realpath(manifestFile)),m=await json(manifestFile);
+function packetResult(directory,manifest,rollback,manifestSha256){
+ const runner=path.join(directory,'tools/production/prepare-prebuilt-off-release.mjs');
+ return {status:'PREPARED_NOT_DEPLOYED',releaseSha:SOURCE_SHA,bundleSha256:manifest.bundleSha256,config:path.join(directory,'off.deploy.jsonc'),assets:path.join(directory,'site'),current:rollback,manifest:path.join(directory,'manifest.json'),manifestSha256,deployCommand:`node ${quote(runner)} --deploy ${quote(path.join(directory,'manifest.json'))} --manifest-sha ${manifestSha256} --approved`,rollbackCommand:`npx wrangler@4.155.0 rollback ${ROLLBACK} --name ${identity.worker} --config ${quote(path.join(directory,'off.deploy.jsonc'))} --message 'OFF release rollback' --yes`};
+}
+export async function readPreparedPacket(manifestFile,expectedManifestHash){
+ phase='approval_and_manifest';await regular(manifestFile);if(!/^[a-f0-9]{64}$/.test(expectedManifestHash||'')||hash(await readFile(manifestFile))!==expectedManifestHash)stop('MANIFEST_HASH_MISMATCH');const directory=path.dirname(await realpath(manifestFile)),m=await json(manifestFile);
  if(m.schema!==1||m.worker!==identity.worker||m.source?.sha!==SOURCE_SHA||m.rollbackVersion!==ROLLBACK)stop('MANIFEST_IDENTITY_MISMATCH');
  // runtime/ holds only the pre-created /dev/null log sink; never payload files.
  const verifyPayload=async()=>{for(const [file,digest]of Object.entries(m.files)){if(file.startsWith('/')||file.split('/').includes('..'))stop('MANIFEST_PATH_UNSAFE');await regular(path.join(directory,file));if(hash(await readFile(path.join(directory,file)))!==digest)stop('FROZEN_ARTIFACT_CHANGED');}for(const d of ['site','bundle','tools']){const files=await inventory(path.join(directory,d));const expected=Object.fromEntries(Object.entries(m.files).filter(([f])=>f.startsWith(d+'/')).map(([f,h])=>[f.slice(d.length+1),h]));if(!same(files,expected))stop('FROZEN_ARTIFACT_CHANGED');}const found=await inventory(directory,'',true);for(const file of Object.keys(found))if(!Object.hasOwn(m.files,file)&&!['manifest.json','deploy-started.json','deployed.json'].includes(file))stop('UNEXPECTED_PACKET_FILE');for(const f of ['.env','.env.local','.dev.vars','.wrangler/deploy/config.json'])try{await lstat(path.join(directory,f));stop('UNEXPECTED_LOCAL_OVERRIDE');}catch(e){if(e.code!=='ENOENT')throw e;}};
  phase='frozen_artifacts';await verifyPayload();try{await lstat(path.join(directory,'deploy-started.json'));stop('PREVIOUS_DEPLOY_REQUIRES_REVIEW');}catch(e){if(e.code!=='ENOENT')throw e;}
  const v=validatedVersion(await json(path.join(directory,'version.json')),inspectVersion),e=await json(path.join(directory,'metadata.json')),original=await checkProfile(path.join(directory,'original-off.json'),'off'),c=await json(path.join(directory,'off.deploy.jsonc'));assertProfile(c);
  const expected={...original,main:path.join(directory,'bundle/storefront-worker.js'),assets:{...original.assets,directory:path.join(directory,'site')},no_bundle:true,find_additional_modules:false};if(!same(expected,c))stop('DEPLOY_CONFIG_CHANGED');
+ return {directory,m,v,e,original,c,verifyPayload};
+}
+export async function inspectPreparedPacket(manifestFile,expectedManifestHash,get){
+ const packet=await readPreparedPacket(manifestFile,expectedManifestHash),observed=await liveMatches(get,packet.v,packet.e,packet.original);await packet.verifyPayload();
+ return packetResult(packet.directory,packet.m,observed.rollback,expectedManifestHash);
+}
+export async function deployPrepared(manifestFile,approved,deps={}){
+ if(!approved)stop('EXPLICIT_APPROVAL_REQUIRED');const {directory,m,v,e,original,c,verifyPayload}=await readPreparedPacket(manifestFile,deps.expectedManifestHash);
  phase='authentication_read';const connection=deps.get?{get:deps.get,env:process.env}:await reader(path.join(directory,'runtime')),observed=await liveMatches(connection.get,v,e,original),rollback=observed.rollback;await verifyPayload();
  // Save the last read-only check and an exclusive one-shot marker before upload.
  phase='publication';await save(path.join(directory,'deploy-started.json'),{worker:identity.worker,rollback,startedAt:new Date().toISOString()});
@@ -163,6 +176,6 @@ export async function deployPrepared(manifestFile,approved,deps={}){
  const done={status:'OFF_DEPLOYED',worker:identity.worker,versionId:active[0].version_id,percentage:100,requestedCheckoutEnabled:false,rollbackVersion:ROLLBACK};await save(path.join(directory,'deployed.json'),done);return done;
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
- try{let result;const args=process.argv.slice(2);if(args[0]==='--inspect-inputs'&&args.length===1)result={status:'READ_ONLY_INPUT_TYPES',inputs:await inspectArtifactInputs()};else if(args[0]==='--deploy'&&args.length===5&&args[2]==='--manifest-sha'&&args[4]==='--approved')result=await deployPrepared(args[1],true,{expectedManifestHash:args[3]});else if(args[0]==='--prepare'&&args.length===1)result=await preparePrebuilt({});else stop('USAGE_PREPARE_OR_EXPLICIT_APPROVED_DEPLOY');console.log(JSON.stringify(result,null,2));}
- catch(e){console.error(JSON.stringify({status:'STOP',stage:phase,...(e.artifactIssues?{artifactIssues:e.artifactIssues}:{}),...(['ENOENT','EACCES','EPERM','ENOSPC'].includes(e.code)?{errno:e.code}:{}),code:/^[A-Z_]+$/.test(e.message)?e.message:'LOCAL_PREPARATION_FAILED',...(Number.isInteger(e.http)?{http:e.http}:{}),...(Array.isArray(e.codes)?{cloudflareCodes:e.codes.filter(Number.isInteger)}:{})}));process.exitCode=1;}
+ try{let result;const args=process.argv.slice(2);if(args[0]==='--inspect-inputs'&&args.length===2)result={status:'READ_ONLY_INPUT_TYPES',inputs:await inspectArtifactInputs(args[1])};else if(args[0]==='--deploy'&&args.length===5&&args[2]==='--manifest-sha'&&args[4]==='--approved')result=await deployPrepared(args[1],true,{expectedManifestHash:args[3]});else if(args[0]==='--prepare'&&args.length===1)result=await (await import('./recover-off-release.mjs')).recoverOffRelease({repository:process.cwd()},{preparePrebuilt,inspectPreparedPacket,reader,inventory,SOURCE_SHA,ROLLBACK,onStage:s=>{phase=s;}});else stop('USAGE_PREPARE_OR_EXPLICIT_APPROVED_DEPLOY');console.log(JSON.stringify(result,null,2));}
+ catch(e){console.error(JSON.stringify({status:'STOP',stage:phase,...(e.diagnostic?.code==='WRANGLER_DRY_RUN_FAILED'?{dryRun:e.diagnostic}:{}),...(e.artifactIssues?{artifactIssues:e.artifactIssues}:{}),...(['ENOENT','EACCES','EPERM','ENOSPC'].includes(e.code)?{errno:e.code}:{}),code:/^[A-Z_]+$/.test(e.message)?e.message:'LOCAL_PREPARATION_FAILED',...(Number.isInteger(e.http)?{http:e.http}:{}),...(Array.isArray(e.codes)?{cloudflareCodes:e.codes.filter(Number.isInteger)}:{})}));process.exitCode=1;}
 }

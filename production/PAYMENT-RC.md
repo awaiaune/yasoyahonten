@@ -409,8 +409,8 @@ Production setting/data change or credential expiry diagnosis was performed.
 
 ## Fixed prebuilt OFF packet — 2026-11-08
 
-`prepare-prebuilt-off-release.mjs --prepare` consumes the supplied successful
-`/tmp/yasoya-off-from-version-vGRUEf` output without rebuilding it. Worker source
+`prepare-prebuilt-off-release.mjs --prepare` now uses the automatic recovery
+flow below. The original successful temporary root is no longer required. Worker source
 SHA stays `ce5ad8786df6643c6380f091c4dfbbb72559c6ff`, independent of the tool revision.
 It checks the success marker, exact Version/config/Secrets-name evidence,
 source-map contents against that Git object, module exports/imports, and every
@@ -454,3 +454,35 @@ requires its existing provenance proof: no missing-map bypass or inferred
 success marker was added. The actual Codespaces missing file is unconfirmed;
 inspect only the seven input types first, then perform a separate fixed-source
 rebuild/hash comparison if map absence is confirmed and provenance requires it.
+
+## Persistent artifact recovery — 2026-11-08
+
+Run the latest release tool from the repository with `--prepare`; no temporary
+artifact path is required. It searches scoped successful temporary builds and
+the Git common directory's private `yasoya-release-private` store. Reusing a
+packet verifies all payload hashes, current Version/100% traffic and configuration;
+a saved pointer pins the manifest SHA. Corrupt/modified packets stop; a missing
+pointer can be reconstructed by validating a matching packet.
+
+If no valid successful artifact remains, it creates a separate detached source
+worktree at **ce5ad8786df6643c6380f091c4dfbbb72559c6ff**, rereads only necessary
+Cloudflare metadata and uses the previously operator-confirmed operational
+ASSETS directory `/workspaces/yasoya-v60-csp/production/.generated/v53` (or a
+fully validated successful release copy). It does not regenerate the site from
+Git. Missing, conflicting or mismatching ASSETS stop. Known public-file hashes
+and full local-copy hashes are checked; complete remote ASSETS parity is not
+claimed. D1 identity uses the recorded Dashboard confirmation plus the exact
+live Version binding; no D1 metadata retry or fabricated API failure is used.
+
+Wrangler **4.155.0** runs **only `--dry-run --upload-source-maps`** for rebuilding.
+The map must exist and every included source must match the immutable source
+commit. A missing map still stops preparation. The new bundle hash is recorded;
+no equality with a vanished historical bundle is claimed. Raw builds, evidence
+and final no-bundle packets stay in private Git-metadata storage (0700 directories,
+0600 data files), with an atomic `current-prepared-off.json` pointer. No SQL,
+production data write, deployment or purchase enabling is performed by recovery.
+
+Only `PREPARED_NOT_DEPLOYED` supplies the frozen bundle hash, source SHA,
+OFF config, ASSETS, rollback Version and separately approved deployment command.
+The real Codespaces result must be checked; local fixtures are not a production
+readiness or real dry-run success claim.

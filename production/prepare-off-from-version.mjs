@@ -26,6 +26,13 @@ function safeMetadataFailure(field,endpoint,err){
  err=err??{};const code=err.message??err.code;
  return {field,endpoint,http:Number.isInteger(err.http)?err.http:null,codes:Array.isArray(err.codes)?err.codes.filter(Number.isInteger):[],code:/^[A-Z_]+$/.test(code)?code:'METADATA_READ_FAILED'};
 }
+// Identity-only proof from the already recorded Dashboard confirmation. This
+// does not fabricate an HTTP failure or claim a current D1 metadata read.
+export function confirmedDatabaseIdentity(v,confirmation=confirmedResources){
+ const b=inspectVersion(v).bindings.get('ORDERS_DB');
+ if(confirmation.account!==identity.account||confirmation.worker!==identity.worker||confirmation.database?.binding!=='ORDERS_DB'||confirmation.database?.type!=='d1'||confirmation.database?.id!==identity.database||confirmation.database?.name!=='yasoya-orders'||confirmation.source?.kind!=='user_dashboard_confirmation'||!text(confirmation.source.confirmedOn)||!text(confirmation.source.reference)||b.id!==confirmation.database.id)fail('CONFIRMED_DATABASE_BINDING_MISMATCH');
+ return {database:{uuid:b.id,name:confirmation.database.name},databaseEvidence:{method:'dashboard_confirmation_and_version_binding_without_api_read',source:confirmationPath,confirmation:structuredClone(confirmation.source),account:identity.account,worker:identity.worker,binding:b.name,databaseId:b.id,versionId:v.id,apiReadVerified:false,apiRetested:false}};
+}
 export function confirmedDatabaseEvidence(v,failure,confirmation=confirmedResources){
  const {bindings}=inspectVersion(v),binding=bindings.get('ORDERS_DB');
  // A narrowly scoped alternative identity proof, not a general auth bypass.
@@ -78,6 +85,7 @@ export function profileFromEvidence(v,e,assetDirectory){
   const expected=confirmedDatabaseEvidence(v,e.databaseEvidence.failedRead);
   if(!same(expected.database,e.database)||!same(expected.databaseEvidence,e.databaseEvidence))fail('DATABASE_PROVENANCE_MISMATCH');
  }
+ if(e.databaseEvidence?.method==='dashboard_confirmation_and_version_binding_without_api_read'){const expected=confirmedDatabaseIdentity(v);if(!same(e.database,expected.database)||!same(e.databaseEvidence,expected.databaseEvidence))fail('DATABASE_PROVENANCE_MISMATCH');}
  if(!e.namespace)missing.push('namespace');else if(e.namespace.id!==identity.namespace||e.namespace.class!=='PurchaseCoordinator'||e.namespace.script!==identity.worker||e.namespace.use_sqlite!==true)fail('LIVE_NAMESPACE_IDENTITY_MISMATCH');
  if(!Array.isArray(e.schedules))missing.push('schedules');
  // Version APIs can omit asset routing. Missing is not equivalent to defaults.
