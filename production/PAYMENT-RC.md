@@ -405,3 +405,29 @@ object failure, then bundles seven synthetic cases successfully: confirmed empty
 unspecified, smart, off, region, host and hostname. These are not live-setting
 results. Real Codespaces OFF dry-run still needs the updated launcher; no deploy,
 Production setting/data change or credential expiry diagnosis was performed.
+
+
+## Fixed prebuilt OFF packet — 2026-11-08
+
+`prepare-prebuilt-off-release.mjs --prepare` consumes the supplied successful
+`/tmp/yasoya-off-from-version-vGRUEf` output without rebuilding it. Worker source
+SHA stays `ce5ad8786df6643c6380f091c4dfbbb72559c6ff`, independent of the tool revision.
+It checks the success marker, exact Version/config/Secrets-name evidence,
+source-map contents against that Git object, module exports/imports, and every
+ASSETS file against assembly records (checkout JS against the reviewed Git blob).
+The supplied successful path is provenance; source-map comparison is not a new
+reproducible-build claim. No Worker code is evaluated during module inspection.
+
+A private 0700/0600 packet in the Git common directory contains immutable-input
+copies, hashes, tools and a new config pointing directly to the copied bundle
+with `no_bundle=true` and `find_additional_modules=false`. Original inputs are
+never overwritten. Both preparation and approved dispatch compare live Version,
+bindings, vars, routing/domains, schedules and settings; the historical D1 identity
+proof is reused without another D1 metadata request. Only `--deploy ... --approved`
+can call Wrangler deploy. The approval command pins the manifest hash. It rechecks packet hashes and the sole 100% rollback
+Version, records a one-shot marker, then uses the packet's pinned config and
+`--no-bundle`. Upload/result uncertainty stops and never auto-repeats publication.
+All raw CLI/auth output is captured only in memory; native debug logging is sunk
+to `/dev/null`. No SQL, Square, R2-data, DO initialization or checkout-ON action
+is included. Ten focused synthetic tests passed; real Codespaces preparation
+and its bundle hash remain unconfirmed until `--prepare` runs there.
