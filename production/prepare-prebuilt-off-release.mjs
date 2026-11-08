@@ -20,6 +20,29 @@ const stop=code=>{throw Error(code);},hash=b=>createHash('sha256').update(b).dig
 const json=async f=>JSON.parse(await readFile(f,'utf8'));
 const git=async(args,cwd)=>(await exec('git',args,{cwd,encoding:'utf8',maxBuffer:8*1024*1024})).stdout.trim();
 const quote=s=>"'"+s.replaceAll("'","'\\''")+"'";
+export const ARTIFACT_INPUTS=Object.freeze([
+ ['dry_run_status','dry-run/diagnostic.json','file'],
+ ['bundle','dry-run/bundle/storefront-worker.js','file'],
+ ['source_map','dry-run/bundle/storefront-worker.js.map','file'],
+ ['off_config','release/off.local.jsonc','file'],
+ ['assets_directory','release/site','directory'],
+ ['release_receipt','evidence.json','file'],
+ ['asset_manifest','release/assembly.json','file']
+]);
+export async function inspectArtifactInputs(root=DEFAULT_ROOT){
+ const rows=[];for(const [role,relative,expectedType]of ARTIFACT_INPUTS){
+  const file=path.join(root,relative);let type,issue;
+  try{const s=await lstat(file);type=s.isSymbolicLink()?'symbolic_link':s.isFile()?'file':s.isDirectory()?'directory':'special';
+   if(type!==expectedType)issue='wrong_type';else if(process.getuid&&s.uid!==process.getuid())issue='owner_mismatch';
+  }catch(e){if(['ENOENT','ENOTDIR'].includes(e.code)){type='missing';issue='missing';}else if(['EACCES','EPERM'].includes(e.code)){type='unreadable';issue='unreadable';}else throw e;}
+  rows.push({role,path:file,type,expectedType,...(issue?{issue}:{})});
+ }return rows;
+}
+export async function requireArtifactInputs(root){
+ const issues=(await inspectArtifactInputs(root)).filter(x=>x.issue);if(!issues.length)return;
+ const e=Error(issues.some(x=>x.issue==='missing')?'ARTIFACT_INPUT_MISSING':'ARTIFACT_INPUT_UNSAFE');
+ if(issues.some(x=>x.issue==='missing'))e.code='ENOENT';e.artifactIssues=issues;throw e;
+}
 async function regular(file){const s=await lstat(file);if(!s.isFile()||s.isSymbolicLink()||process.getuid&&s.uid!==process.getuid())stop('LOCAL_FILE_UNSAFE');return s;}
 async function privateDir(dir){await mkdir(dir,{recursive:true,mode:0o700});const m=await lstat(dir);if(!m.isDirectory()||m.isSymbolicLink()||process.getuid&&m.uid!==process.getuid())stop('PRIVATE_DIRECTORY_UNSAFE');await chmod(dir,0o700);}
 async function save(file,value){await writeFile(file,JSON.stringify(value,null,2)+'\n',{flag:'wx',mode:0o600});await chmod(file,0o600);}
@@ -81,8 +104,8 @@ async function liveMatches(get,v,e,c){
 export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(),output},deps={}){
  phase='repository';const remote=await git(['remote','get-url','origin'],repository);if(!/^(?:https:\/\/github\.com\/|git@github\.com:)awaiaune\/yasoyahonten(?:\.git)?$/.test(remote))stop('REPOSITORY_MISMATCH');
  phase='artifact_input';const bundle=path.join(root,'dry-run/bundle/storefront-worker.js'),input=path.join(root,'release/off.local.jsonc'),assets=path.join(root,'release/site');
- const success=await json(path.join(root,'dry-run/diagnostic.json'));if(success.status!=='passed'||success.exitCode!==0)stop('SUCCESSFUL_DRY_RUN_REQUIRED');
- await regular(bundle);await regular(bundle+'.map');await regular(input);const originalBundle=await inventory(path.dirname(bundle)),inputHash=hash(await readFile(input));const c=await checkProfile(input,'off');assertProfile(c);if(await realpath(c.assets.directory)!==await realpath(assets))stop('ASSET_PATH_MISMATCH');
+ await requireArtifactInputs(root);phase='artifact_input_dry_run_status';const success=await json(path.join(root,'dry-run/diagnostic.json'));if(success.status!=='passed'||success.exitCode!==0)stop('SUCCESSFUL_DRY_RUN_REQUIRED');
+ phase='artifact_input_bundle';await regular(bundle);phase='artifact_input_source_map';await regular(bundle+'.map');phase='artifact_input_off_config';await regular(input);phase='artifact_input_bundle_directory';const originalBundle=await inventory(path.dirname(bundle)),inputHash=hash(await readFile(input));phase='artifact_input_off_config';const c=await checkProfile(input,'off');assertProfile(c);phase='artifact_input_assets_directory';if(await realpath(c.assets.directory)!==await realpath(assets))stop('ASSET_PATH_MISMATCH');
  if((await stat(bundle)).mtimeMs>(await stat(path.join(root,'dry-run/diagnostic.json'))).mtimeMs)stop('BUNDLE_CHANGED_AFTER_DRY_RUN');
  const additional=(await readdir(path.dirname(bundle))).filter(x=>!['storefront-worker.js','storefront-worker.js.map','README.md'].includes(x));if(additional.length)stop('ADDITIONAL_MODULES_REQUIRE_REVIEW');
  phase='bundle_parse_and_source_sha';await parseBundle(bundle);const source=await sourceProof(bundle,c,repository),receipt=await json(path.join(root,'evidence.json'));
@@ -140,6 +163,6 @@ export async function deployPrepared(manifestFile,approved,deps={}){
  const done={status:'OFF_DEPLOYED',worker:identity.worker,versionId:active[0].version_id,percentage:100,requestedCheckoutEnabled:false,rollbackVersion:ROLLBACK};await save(path.join(directory,'deployed.json'),done);return done;
 }
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
- try{let result;const args=process.argv.slice(2);if(args[0]==='--deploy'&&args.length===5&&args[2]==='--manifest-sha'&&args[4]==='--approved')result=await deployPrepared(args[1],true,{expectedManifestHash:args[3]});else if(args[0]==='--prepare'&&args.length===1)result=await preparePrebuilt({});else stop('USAGE_PREPARE_OR_EXPLICIT_APPROVED_DEPLOY');console.log(JSON.stringify(result,null,2));}
- catch(e){console.error(JSON.stringify({status:'STOP',stage:phase,...(['ENOENT','EACCES','EPERM','ENOSPC'].includes(e.code)?{errno:e.code}:{}),code:/^[A-Z_]+$/.test(e.message)?e.message:'LOCAL_PREPARATION_FAILED',...(Number.isInteger(e.http)?{http:e.http}:{}),...(Array.isArray(e.codes)?{cloudflareCodes:e.codes.filter(Number.isInteger)}:{})}));process.exitCode=1;}
+ try{let result;const args=process.argv.slice(2);if(args[0]==='--inspect-inputs'&&args.length===1)result={status:'READ_ONLY_INPUT_TYPES',inputs:await inspectArtifactInputs()};else if(args[0]==='--deploy'&&args.length===5&&args[2]==='--manifest-sha'&&args[4]==='--approved')result=await deployPrepared(args[1],true,{expectedManifestHash:args[3]});else if(args[0]==='--prepare'&&args.length===1)result=await preparePrebuilt({});else stop('USAGE_PREPARE_OR_EXPLICIT_APPROVED_DEPLOY');console.log(JSON.stringify(result,null,2));}
+ catch(e){console.error(JSON.stringify({status:'STOP',stage:phase,...(e.artifactIssues?{artifactIssues:e.artifactIssues}:{}),...(['ENOENT','EACCES','EPERM','ENOSPC'].includes(e.code)?{errno:e.code}:{}),code:/^[A-Z_]+$/.test(e.message)?e.message:'LOCAL_PREPARATION_FAILED',...(Number.isInteger(e.http)?{http:e.http}:{}),...(Array.isArray(e.codes)?{cloudflareCodes:e.codes.filter(Number.isInteger)}:{})}));process.exitCode=1;}
 }

@@ -437,3 +437,20 @@ settings/routes/schedules and namespace metadata, retaining the recorded D1
 identity evidence and the Dashboard-confirmed database name with exact Version
 binding matching. It records this reconstruction explicitly and does not retry
 the denied D1 endpoint or invent routing, placement, bindings or namespace state.
+
+## Artifact-input ENOENT attribution — 2026-11-08
+
+Preparation now probes seven named inputs with lstat only: dry-run status,
+bundle, source map, OFF config, assets directory, release receipt and assembly
+record. Missing/wrong-kind inputs are reported together as bounded
+`artifactIssues` (role/path/type), before parsing or authentication. Later input
+reads have distinct phases for race/follow-up failures. `--inspect-inputs` is
+read-only and never decodes input contents, builds or accesses a service.
+
+Wrangler 4.155.0's buildWorker uses `sourcemap: uploadSourceMaps ?? true`;
+writeBundle writes maps only from the available `sourceMaps` collection. A map
+is not a universal prerequisite for a successful CLI build. This preparer still
+requires its existing provenance proof: no missing-map bypass or inferred
+success marker was added. The actual Codespaces missing file is unconfirmed;
+inspect only the seven input types first, then perform a separate fixed-source
+rebuild/hash comparison if map absence is confirmed and provenance requires it.
