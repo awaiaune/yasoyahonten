@@ -35,7 +35,7 @@ async function fixture(t){
 
 import {recoverOffRelease,discoverReleaseRoots,selectOperationalAssets} from '../production/recover-off-release.mjs';
 async function recoveryFixture(t){
- const f=await fixture(t),cache=path.join(f.dir,'private'),temp=path.join(f.dir,'empty-tmp');await mkdir(cache,{mode:0o700});await mkdir(temp);
+ const f=await fixture(t),cache=path.join(f.dir,'private'),temp=path.join(f.dir,'empty-tmp');await mkdir(cache,{mode:0o700});await mkdir(temp,{mode:0o700});
  const get=async p=>p.includes('/workers/workers/')?{id:ROLLBACK,assets:{config:{run_worker_first:true}}}:f.get(p);
  const ops={SOURCE_SHA,ROLLBACK,inventory,inspectPreparedPacket,preparePrebuilt:(o,d)=>preparePrebuilt({...o,output:path.join(cache,'prebuilt-off-'+Math.random().toString(16).slice(2))},{...d,versionFile:f.versionFile})};
  return {...f,cache,temp,get,ops,options:{repository:repo,cacheDirectory:cache,tmpDirectory:temp,versionTemporaryFile:f.versionFile,operationalAssets:path.join(f.root,'release/site')}};
@@ -50,7 +50,7 @@ test('persistent packet tampering stops instead of silently rebuilding',async t=
 test('persistent packets can be rediscovered when only the pointer was lost',async t=>{const f=await recoveryFixture(t);await discoveredInput(f);const r=await recoverOffRelease(f.options,f.ops,{get:f.get});await rm(path.join(f.cache,'current-prepared-off.json'));await rm(f.temp,{recursive:true});const next=await recoverOffRelease(f.options,f.ops,{get:f.get});assert.equal(next.manifest,r.manifest);});
 test('missing assets stop without regenerating a design from Git',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>selectOperationalAssets({trustedDirectory:path.join(f.dir,'missing')},f.ops),/OPERATIONAL_ASSETS_REQUIRED/);});
 test('operator assets mismatch stops rather than falling back to other trees',async t=>{const f=await recoveryFixture(t);await writeFile(path.join(f.options.operationalAssets,'index.html'),'changed');await assert.rejects(()=>selectOperationalAssets({trustedDirectory:f.options.operationalAssets},f.ops),/OPERATIONAL_ASSET_HASH_MISMATCH/);});
-test('discovery ignores unrelated directories and includes persistent successful builds',async t=>{const f=await recoveryFixture(t);await mkdir(path.join(f.cache,'builds'));await mkdir(path.join(f.cache,'builds','release-build-keep'));await mkdir(path.join(f.temp,'unrelated'));const roots=await discoverReleaseRoots(f.cache,f.temp);assert.equal(roots.roots.length,1);assert(roots.roots[0].endsWith('release-build-keep'));});
+test('discovery ignores unrelated directories and includes persistent successful builds',async t=>{const f=await recoveryFixture(t);await mkdir(path.join(f.cache,'builds'),{mode:0o700});await mkdir(path.join(f.cache,'builds','release-build-keep'));await mkdir(path.join(f.temp,'unrelated'));const roots=await discoverReleaseRoots(f.cache,f.temp);assert.equal(roots.roots.length,1);assert(roots.roots[0].endsWith('release-build-keep'));});
 
 test('all temporary artifacts missing: fixed-source real Wrangler build is frozen and reused privately',async t=>{
  const f=await recoveryFixture(t);let builds=0;const configHome=path.join(f.dir,'config');await mkdir(configHome);

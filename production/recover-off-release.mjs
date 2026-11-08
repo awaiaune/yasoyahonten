@@ -12,14 +12,33 @@ import {inspectVersion,identity,confirmedDatabaseIdentity} from './prepare-off-f
 const exec=promisify(execFile),here=path.dirname(fileURLToPath(import.meta.url)),hash=b=>createHash('sha256').update(b).digest('hex');
 const stop=c=>{throw Error(c);},json=async p=>JSON.parse(await readFile(p,'utf8'));
 export const OPERATIONAL_ASSETS='/workspaces/yasoya-v60-csp/production/.generated/v53'; // supplied by operator, not a fresh candidate build
-async function owned(p,kind){const m=await lstat(p);if(m.isSymbolicLink()||process.getuid&&m.uid!==process.getuid()||kind==='dir'&&!m.isDirectory()||kind==='file'&&!m.isFile())stop('RECOVERY_PATH_UNSAFE');return m;}
+// Shared /tmp is a trust boundary, not a user-owned release artifact.
+// These checks never change the shared directory's ownership or permissions.
+export function validateDiscoveryRoot(info,{shared=false,uid=process.getuid?.()}={}){
+ const directory=!info.isSymbolicLink()&&info.isDirectory(),mode=info.mode&0o7777;
+ if(shared){if(!directory||![0,uid].includes(info.uid)||mode!==0o1777)stop('RECOVERY_SHARED_ROOT_UNSAFE');}
+ else if(!directory||uid!==undefined&&info.uid!==uid||mode!==0o700)stop('RECOVERY_PRIVATE_ROOT_UNSAFE');
+ return info;
+}
+function validateOwned(info,kind){if(info.isSymbolicLink()||process.getuid&&info.uid!==process.getuid()||info.mode&0o022||kind==='dir'&&!info.isDirectory()||kind==='file'&&!info.isFile())stop('RECOVERY_PATH_UNSAFE');return info;}
+async function owned(p,kind){return validateOwned(await lstat(p),kind);}
 async function privateDir(p){await mkdir(p,{recursive:true,mode:0o700});await owned(p,'dir');await chmod(p,0o700);}
 async function secureTree(p){const info=await lstat(p);if(info.isSymbolicLink()&&path.basename(p)==='wrangler-discard.log'&&await realpath(p)==='/dev/null')return;await owned(p,info.isDirectory()?'dir':'file');await chmod(p,info.isDirectory()?0o700:0o600);if(info.isDirectory())for(const n of await readdir(p))await secureTree(path.join(p,n));}
 async function writePrivate(p,data){await writeFile(p,JSON.stringify(data,null,2)+'\n',{mode:0o600,flag:'wx'});await chmod(p,0o600);}
 async function optional(p){try{await owned(p,'file');return await json(p);}catch(e){if(e.code==='ENOENT')return null;throw e;}}
-async function childDirs(root,prefix){try{await owned(root,'dir');return (await readdir(root,{withFileTypes:true})).filter(d=>d.isDirectory()&&d.name.startsWith(prefix)).map(d=>path.join(root,d.name));}catch(e){if(e.code==='ENOENT')return [];throw e;}}
-export async function discoverReleaseRoots(cache,tmpDirectory='/tmp'){
- const roots=[...await childDirs(tmpDirectory,'yasoya-off-from-version-'),...await childDirs(path.join(cache,'builds'),'release-build-')],packets=await childDirs(cache,'prebuilt-off-');
+async function childDirs(root,prefix,{shared=false,io={lstat,readdir}}={}){
+ try{
+  validateDiscoveryRoot(await io.lstat(root),{shared});const found=[];
+  for(const entry of await io.readdir(root,{withFileTypes:true})){
+   if(!entry.name.startsWith(prefix))continue;const candidate=path.join(root,entry.name);
+   try{validateOwned(await io.lstat(candidate),'dir');found.push(candidate);}
+   catch(e){if(e.message==='RECOVERY_PATH_UNSAFE'||['ENOENT','ENOTDIR','EACCES','EPERM'].includes(e.code))continue;throw e;}
+  }
+  return found;
+ }catch(e){if(e.code==='ENOENT')return [];throw e;}
+}
+export async function discoverReleaseRoots(cache,tmpDirectory='/tmp',io={lstat,readdir}){
+ const roots=[...await childDirs(tmpDirectory,'yasoya-off-from-version-',{shared:path.resolve(tmpDirectory)==='/tmp',io}),...await childDirs(path.join(cache,'builds'),'release-build-',{io})],packets=await childDirs(cache,'prebuilt-off-',{io});
  return {roots,packets};
 }
 async function remember(cache,result){
