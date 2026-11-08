@@ -1,14 +1,23 @@
-import {integratedPublication,integratedGrant} from './integrated-policy.js';
+import {integratedPublication} from './integrated-policy.js';
 import {production} from '../production-policy.js';
 import {need} from './domain.js';
 import {salesCatalogCheck} from './sales-catalog-check.js';
 // Checkout validates the published commercial snapshot, not historical copy/images.
 // Successful immutable jobs bind SKU/IDs; inventory/catalog version changes never
 // rewrite that identity, and do not require replaying a Square write.
+// Read verification is independent of the permission to publish/write Catalog.
+// Keep the legacy Sandbox fence; Production requires its existing read/schema
+// grants, and Square.request still enforces Production identity and DB marker.
+export const salesCatalogVerificationEnabled=env=>production(env)
+ ?env.MANAGEMENT_ENABLED==='1'&&env.PRODUCTION_MANAGEMENT_READ_ENABLED==='1'&&env.PRODUCTION_MANAGEMENT_SCHEMA_READY==='1'
+ :integratedPublication(env);
 export async function inspectSalesCatalog(manager,mapping,object,variant){
- need(integratedPublication(manager.env),'統合公開は無効です。',403);
+ need(salesCatalogVerificationEnabled(manager.env),'購入用の商品読取照合は無効です。',403);
  const check=salesCatalogCheck(manager.env,mapping,object,variant);
- const fail=label=>({...check,ok:false,mismatches:[{key:'salesProof',label}],nextAction:'「公開する」で既存IDを維持した公開処理を実行してください。保留処理がある場合は同じ処理を確認・再開してください。'});
+ const fail=label=>({...check,ok:false,mismatches:[{key:'salesProof',label}],nextAction:production(manager.env)&&manager.env.PRODUCTION_MANAGEMENT_CATALOG_ENABLED!=='1'
+  ?'公開リビジョン・本番対応表・Square現在値を管理者が読取照合してください。購入を止め、Catalog再送・在庫上書きは行わないでください。'
+  :'「公開する」で既存IDを維持した公開処理を実行してください。保留処理がある場合は同じ処理を確認・再開してください。'});
+ if(production(manager.env)&&!(await manager.s.publicProducts()).some(p=>p.status==='published'&&p.variants.some(v=>v.id===variant.id&&v.active)))return fail('公開中・有効な購入対象ではありません');
  if(check.mismatches.some(m=>m.key!=='version'))return check;
  if(production(manager.env)){try{const verified=await manager.square.verified(mapping.variation_id);need(verified.variant_id===variant.id&&verified.item_id===mapping.item_id&&verified.sku===mapping.sku,'対応不一致',409);}catch{return fail('本番の実照合済み対応ID・SKU・instanceが一致しません');}}
  const job=await manager.s.one("SELECT j.* FROM mg_jobs j JOIN mg_variants v ON v.product_id=j.resource_id WHERE v.id=? AND j.kind='publish' AND j.state='done' AND j.result_json IS NOT NULL ORDER BY j.rowid DESC LIMIT 1",[variant.id]);

@@ -9,32 +9,58 @@ import {fixture,baseEnv,contact} from './production-fixture.mjs';
 import {PurchaseCoordinator} from '../worker/src/index.js';
 const source=await readFile(new URL('../js/checkout-v1.js',import.meta.url),'utf8');
 async function client(options={}){
- const values=options.values||new Map(),elements=new Map();let init,submit;
+ const values=options.values||new Map(),sessionValues=options.sessionValues||new Map(),elements=new Map();let init,submit;
  const state={tokens:0,payments:0,cleared:0,saved:null,pending:false,lost:false,notFound:false,enabled:true,requests:[],...options};
  const el=id=>{if(!elements.has(id))elements.set(id,{value:'offline',textContent:'',hidden:false,disabled:false,reportValidity:()=>true,addEventListener:(event,fn)=>{if(event==='submit')submit=fn;else elements.get(id)[event]=fn;}});return elements.get(id);};
  const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
- const context={crypto,URL,AbortSignal,Date,console:{error(){}},localStorage:storage,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async()=>{state.tokens++;if(state.gate)await state.gate;return {status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
+ const session={getItem:k=>sessionValues.get(k)||null,setItem:(k,v)=>sessionValues.set(k,v),removeItem:k=>sessionValues.delete(k)};
+ const context={crypto,URL,AbortSignal,Date,setTimeout,clearTimeout,console:{error(){}},localStorage:storage,sessionStorage:session,location:{href:'https://shop.invalid/checkout.html',replace(url){this.href=url;}},document:{getElementById:el,addEventListener:(name,fn)=>{if(name==='DOMContentLoaded')init=fn;}},window:{YASOYA_STORE_CONFIG:{workerBaseUrl:'https://api.invalid',squareApplicationId:'offline',squareLocationId:'offline'},YasoyaCart:{read:()=>[{id:'lemonbalm-10g',quantity:1}],clear:()=>state.cleared++},Square:{payments:()=>({card:async()=>({attach:async()=>{},tokenize:async details=>{state.verificationDetails=details;state.tokens++;if(state.tokenError)throw Error('private SDK error');if(state.gate)await state.gate;return state.tokenResult||{status:'OK',token:'offline-card-never-persist'};}})})}},fetch:async(url,options)=>{
   state.requests.push({url,cache:options.cache});
   if(url.endsWith('/checkout-capabilities'))return Response.json({contractVersion:state.version??1,supportedContracts:[1],checkoutEnabled:state.enabled});
   if(url.endsWith('/quote'))return Response.json({total:1330,subtotal:980,shipping:350,items:[]});
   if(url.endsWith('/payments/status'))return state.saved&&!state.notFound?Response.json(state.saved,{status:state.saved.ok?200:202}):Response.json({error:{message:'not started'}},{status:404});
-  if(url.endsWith('/payments')){state.payments++;const body=JSON.parse(options.body);assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');state.saved=state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'};if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.pending?202:200});}
+  if(url.endsWith('/payments')){state.payments++;if(state.paymentGate)await state.paymentGate;const body=JSON.parse(options.body);state.paymentBody=body;assert.equal(body.contractVersion,1);assert.equal(JSON.parse(values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');if(state.admission400)return Response.json({error:{code:'INVALID_REQUEST',message:'入力を確認してください。'}},{status:400});if(state.disabledOnSubmit)return Response.json({error:{code:'CHECKOUT_DISABLED',message:'受付停止'}},{status:503});state.saved=state.paymentResponse||(state.pending?{ok:false,phase:'unknown'}:{ok:true,paymentId:'offline-payment',orderReference:'offline-order'});if(state.lost)throw TypeError('offline disconnect');return Response.json(state.saved,{status:state.saved.ok?200:202});}
   throw Error('unexpected request');
  }};
- vm.runInNewContext(source,context);await init();return {state,values,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
+ vm.runInNewContext(source,context);await init();return {state,values,sessionValues,el,context,click:()=>submit?.({preventDefault(){},currentTarget:el('paymentForm')}),check:()=>el('checkPaymentStatus').click?.()};
 }
 test('v1 routes preserve request identity while unknown major versions fail before side effects',async()=>{
  const req=new Request('https://api.invalid/api/v1/payments',{method:'POST',body:'{"attemptId":"offline"}'}),r=checkoutRoute(req);assert.equal(r.originalPath,'/api/v1/payments');assert.equal(new URL(r.request.url).pathname,'/api/payments');assert.equal(await r.request.text(),'{"attemptId":"offline"}');assert.throws(()=>checkoutRoute(new Request('https://api.invalid/api/v2/payments')),{status:426});assert.equal(productionCheckoutEnabled({}),false);assert.equal(productionCheckoutEnabled({PRODUCTION_CHECKOUT_ENABLED:'wrong'}),false);
 });
 test('v1 double tap sends one token and one request and clears state only for confirmed success',async()=>{
  const c=await client();let release;c.state.gate=new Promise(r=>release=r);const a=c.click(),b=c.click();await new Promise(r=>setImmediate(r));assert.equal(c.state.tokens,1);release();await Promise.all([a,b]);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,1);assert.equal(c.values.size,0);assert(c.state.requests.every(r=>r.cache==='no-store'));
+ const receipt=JSON.parse(c.sessionValues.get('yasoya_verified_checkout_v1'));assert.equal(receipt.paymentId,'offline-payment');assert.equal(receipt.orderReference,'offline-order');assert.match(receipt.attemptId,/^[0-9a-f-]{36}$/);assert(!JSON.stringify(receipt).includes('offline-card-never-persist'));
 });
 test('v1 HTTP 202 and repeated checks keep the same order without another card token',async()=>{
- const c=await client({pending:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');await c.click();await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);assert(c.el('paymentButton').disabled);
+ const c=await client({pending:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');await c.click();await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);assert(c.el('paymentButton').disabled);assert.equal(c.sessionValues.has('yasoya_verified_checkout_v1'),false);
  c.state.saved={ok:true,paymentId:'offline-paid',orderReference:'offline-order'};await c.check();assert.equal(c.state.cleared,1);assert.equal(c.values.size,0);
 });
 test('v1 lost response and reload recover the same attempt, never persisting a card token',async()=>{
- const c=await client({lost:true});await c.click();assert.equal(c.state.cleared,0);assert(!JSON.stringify([...c.values]).includes('offline-card-never-persist'));const next=await client({values:c.values,saved:c.state.saved});assert.equal(next.state.cleared,1);assert.equal(next.state.tokens,0);
+ const c=await client({lost:true});await c.click();assert.equal(c.state.cleared,0);assert.match(c.el('paymentStatus').textContent,/決済結果を受信できません/);assert(!JSON.stringify([...c.values]).includes('offline-card-never-persist'));const next=await client({values:c.values,saved:c.state.saved});assert.equal(next.state.cleared,1);assert.equal(next.state.tokens,0);
+});
+for(const tokenOptions of [{tokenError:true},{tokenResult:{status:'INVALID',errors:[{message:'private SDK error'}]}},{tokenResult:{status:'CANCEL'}}])test('V59 tokenization failure stays before payment submission and hides provider details',async()=>{
+ const c=await client(tokenOptions);await c.click();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,0);
+ assert.match(c.el('paymentStatus').textContent,/トークン化/);assert(!c.el('paymentStatus').textContent.includes('private SDK error'));
+ const id=c.values.get('yasoya_checkout_attempt_v1');assert.equal(JSON.parse(c.values.get('yasoya_checkout_attempt_meta_v1')).state,'prepared');
+ assert(id);assert.equal(c.el('paymentButton').disabled,Boolean(tokenOptions.tokenError));
+});
+test('V59 rejected response and repeated status checks retain the attempt and disable another charge',async()=>{
+ const c=await client({paymentResponse:{ok:false,status:'unknown',paymentOutcome:'rejected',paymentFailure:{httpStatus:400,codes:['CARD_DECLINED']},retryAllowed:false}});
+ await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');await c.check();await c.click();
+ assert.match(c.el('paymentStatus').textContent,/要求を拒否/);assert.match(c.el('paymentStatus').textContent,/原因不明/);assert(!c.el('paymentStatus').textContent.includes('CARD_DECLINED'));
+ assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);assert(c.el('paymentButton').disabled);
+ assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert.equal(c.state.cleared,0);
+ c.state.saved={ok:false,manualReview:true,paymentOutcome:'rejected'};await c.check();assert.match(c.el('paymentStatus').textContent,/管理者による確認/);
+ c.state.saved={ok:false,status:'declined'};await c.check();assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+ c.state.saved={ok:false,status:'declined',retryAllowed:true};await c.check();assert.equal(c.values.size,0);
+ assert.match(c.el('paymentStatus').textContent,/不成立/);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);
+});
+test('V59 OFF response cannot downgrade a submitted attempt even after a later 404',async()=>{
+ const c=await client({disabledOnSubmit:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');
+ assert.equal(JSON.parse(c.values.get('yasoya_checkout_attempt_meta_v1')).state,'submitted');
+ c.state.enabled=true;c.state.notFound=true;await c.click();await c.check();
+ assert.match(c.el('paymentStatus').textContent,/再決済せず/);assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);
+ assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
 });
 test('submitted 404 and legacy attempt metadata remain uncertain; neither creates a replacement charge',async()=>{
  const c=await client({lost:true,notFound:true});await c.click();await c.click();await c.check();assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert(c.values.get('yasoya_checkout_attempt_v1'));
@@ -77,4 +103,35 @@ test('rolling release review retains published checkout filenames, v1 contracts 
  const changed=structuredClone(baseline);changed.sourceHashes['js/checkout-v1.js']='different';assert.throws(()=>reviewAgainstBaseline(baseline,changed));
  const next=structuredClone(baseline);next.sourceHashes['js/checkout-v1-next.js']='new-asset';assert.equal(reviewAgainstBaseline(baseline,next),true);
  assert.throws(()=>reviewAgainstBaseline(baseline,{...baseline,supportedContracts:[]}));assert.throws(()=>reviewAgainstBaseline(baseline,{...baseline,purchaseClass:'Replacement'}));
+});
+
+test('official integrated tokenization details use the server quote 1330 JPY and only its token reaches the payment request',async()=>{
+ // square/web-payments-quickstart@8adbbf1c6149931acef959279fcfac953f7775df/public/examples/card-charge.html
+ const c=await client();await c.click();const d=c.state.verificationDetails;
+ assert.equal(d.amount,'1330');assert.equal(d.currencyCode,'JPY');assert.equal(d.intent,'CHARGE');assert.equal(d.customerInitiated,true);assert.equal(d.sellerKeyedIn,false);
+ assert.equal(d.billingContact.countryCode,'JP');assert.equal(c.state.payments,1);assert.equal(c.state.paymentBody.sourceId,'offline-card-never-persist');assert(!Object.hasOwn(c.state.paymentBody,'verificationDetails'));assert(!Object.hasOwn(c.state.paymentBody,'verificationToken'));
+ assert(!JSON.stringify([...c.values,...c.sessionValues]).includes('offline-card-never-persist'));
+});
+for(const [classification,text] of [['three_ds_required','3Dセキュア'],['card_declined','カード会社'],['authentication','店舗側の決済認証'],['location','決済店舗設定'],['unknown','原因不明']])test(`Japanese failure message ${classification} retains uncertain attempt and never exposes provider details`,async()=>{
+ const c=await client({paymentResponse:{ok:false,status:'unknown',paymentOutcome:'rejected',retryAllowed:false,paymentFailure:{httpStatus:400,codes:['PRIVATE_CARD'],classification,detail:'PRIVATE_RESPONSE'}}});
+ await c.click();await c.check();assert.match(c.el('paymentStatus').textContent,new RegExp(text));assert(!c.el('paymentStatus').textContent.includes('PRIVATE_'));
+ assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert(c.values.get('yasoya_checkout_attempt_v1'));assert(c.el('paymentButton').disabled);
+});
+test('confirmed FAILED/CANCELED diagnosis is shown before enabling a separately refreshed attempt',async()=>{
+ const c=await client({paymentResponse:{ok:false,status:'declined',retryAllowed:true,paymentFailure:{classification:'three_ds_required',codes:['CARD_DECLINED_VERIFICATION_REQUIRED']}}});
+ await c.click();assert.match(c.el('paymentStatus').textContent,/3Dセキュア/);assert.match(c.el('paymentStatus').textContent,/不成立/);assert.equal(c.values.size,0);assert.equal(c.state.payments,1);assert.equal(c.state.cleared,0);
+});
+
+test('status control is disabled while payment response is pending, then enables for the same unknown attempt',async()=>{
+ let release,releaseToken;const gate=new Promise(r=>releaseToken=r),paymentGate=new Promise(r=>release=r);const id=crypto.randomUUID();const values=new Map([['yasoya_checkout_attempt_v1',id],['yasoya_checkout_attempt_meta_v1',JSON.stringify({id,state:'prepared'})]]);const c=await client({pending:true,paymentGate,gate,values});
+ const pending=c.click();await new Promise(r=>setImmediate(r));assert.equal(c.state.tokens,1);assert.equal(c.state.payments,0);assert.equal(c.el('checkPaymentStatus').hidden,false);assert.equal(c.el('checkPaymentStatus').disabled,true);
+ releaseToken();await new Promise(r=>setImmediate(r));assert.equal(c.state.payments,1);assert.equal(c.el('checkPaymentStatus').hidden,false);assert.equal(c.el('checkPaymentStatus').disabled,true);
+ await c.check();assert.equal(c.state.tokens,1);assert.equal(c.state.payments,1);
+ release();await pending;assert.equal(c.el('checkPaymentStatus').disabled,false);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+ await c.check();assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+});
+
+test('a generic HTTP 400 after dispatch is not proof of no charge and preserves the attempt through 404/reload',async()=>{
+ const c=await client({admission400:true});await c.click();const id=c.values.get('yasoya_checkout_attempt_v1');assert.match(c.el('paymentStatus').textContent,/HTTP 400/);assert.match(c.el('paymentStatus').textContent,/課金の成否は未確認/);await c.click();await c.check();assert.equal(c.state.payments,1);assert.equal(c.state.tokens,1);assert.equal(c.values.get('yasoya_checkout_attempt_v1'),id);
+ const next=await client({values:c.values});await next.click();assert.equal(next.state.payments,0);assert.equal(next.state.tokens,0);assert.equal(next.values.get('yasoya_checkout_attempt_v1'),id);
 });

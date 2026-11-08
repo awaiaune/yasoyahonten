@@ -1,0 +1,83 @@
+/* v54 TEA: same full-bleed frame geometry as the adjacent brand film.
+ * This stylesheet is scoped to the homepage and does not change checkout,
+ * admin, inventory, product detail, or the existing image/swipe behavior.
+ */
+body:has(.v21-film) .v20-tea {
+  display: block;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 0 clamp(40px, 5.5vw, 76px) !important;
+}
+body:has(.v21-film) .v23-tea-stage {
+  width: 100% !important;
+  max-width: none !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+  margin: 0 !important;
+}
+body:has(.v21-film) .v20-tea-indicator {
+  margin: 0 !important;
+  padding: 20px 0 24px;
+  box-sizing: border-box;
+}
+@media (max-width: 700px) {
+  body:has(.v21-film) .v23-tea-stage {
+    aspect-ratio: 4 / 5;
+  }
+  body:has(.v21-film) .v20-tea {
+    margin-bottom: 40px !important;
+  }
+  body:has(.v21-film) .v20-tea-indicator {
+    padding: 16px 0 20px;
+  }
+}
+
+/* v55: center the copy within the photograph and overlay progress on the image.
+ * The existing 40px+ separation from the film remains unchanged.
+ */
+body:has(.v21-film) .v20-tea {
+  position: relative;
+}
+body:has(.v21-film) .v23-tea-slide figcaption {
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: calc(100% - 36px);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  font-size: clamp(11px, 1.05vw, 15px);
+  letter-spacing: .23em;
+  line-height: 1.65;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, .72);
+}
+body:has(.v21-film) .v20-tea-indicator {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  right: 0;
+  bottom: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 9px;
+  padding: 0 !important;
+  pointer-events: none;
+}
+body:has(.v21-film) .v20-tea-indicator span {
+  background: rgba(255, 255, 255, .50);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, .32);
+}
+body:has(.v21-film) .v20-tea-indicator .is-active {
+  background: #fff;
+}
+@media (max-width: 700px) {
+  body:has(.v21-film) .v23-tea-slide figcaption {
+    font-size: 11px;
+    letter-spacing: .20em;
+  }
+  body:has(.v21-film) .v20-tea-indicator {
+    bottom: 20px;
+  }
+}

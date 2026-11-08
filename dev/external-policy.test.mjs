@@ -130,7 +130,7 @@ test('management-only Alarm recovers admin jobs but never resumes existing purch
  await assert.rejects(()=>coordinator.ledger.services.charge(record,'ignored'),{code:'CHECKOUT_DISABLED'});
  await assert.rejects(()=>coordinator.ledger.services.decrement(record),{code:'CHECKOUT_DISABLED'});
  await assert.rejects(()=>coordinator.ledger.services.notify(record),{code:'MAIL_DISABLED'});
- await assert.rejects(()=>coordinator.ledger.services.email(record),{code:'MAIL_DISABLED'});
+ await assert.rejects(()=>coordinator.ledger.services.mail.send({body:'{}',key:'offline-key'}),{code:'MAIL_DISABLED'});
  await worker.scheduled({},f.env,{});assert.deepEqual(await f.storage.get('attempt:'+id),record);assert.equal(f.r.square.payments.size,0);assert.equal(f.mails(),0);
 });
 test('management-only refuses duplicate external SKU and unmanaged variations instead of recreating or deleting objects',async t=>{

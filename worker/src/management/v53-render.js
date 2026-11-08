@@ -2,8 +2,9 @@ import {production} from '../production-policy.js';
 import {featuredProducts,retiredProduct} from './storefront-selection.js';
 import {Store} from './store.js';
 import {escape} from './storefront.js';
+import {presentationImageUrl} from './presentation-images.js';
 const href=p=>'/products/'+p.slug+'.html';
-const image=p=>p.images[0]?'/api/media/'+p.images[0]:p.fallbackImage||'';
+const image=p=>presentationImageUrl(p);
 const img=p=>image(p)?`<img src="${image(p)}" alt="${escape(p.alt)}" loading="lazy">`:'';
 const json=x=>JSON.stringify(x).replaceAll('<','\\u003c');
 export async function renderV53(request,env){
@@ -33,7 +34,7 @@ export async function renderV53(request,env){
    .on('.v30-current',{element:e=>e.setInnerContent('1')})
    .on('.v30-dots',{element:e=>e.setInnerContent(galleryImages.map((_,i)=>`<button type="button" data-go="${i}" aria-label="画像${i+1}" aria-current="${i===0}"></button>`).join(''),{html:true})})
    .on('.v30-purchase',{element:e=>e.setInnerContent(p.variants.map(v=>{
-    const available=p.status==='published'&&v.active&&p.checkoutVariantIds?.includes(v.id);
+    const available=(!production(env)||(env.PRODUCTION_CHECKOUT_ENABLED==='1'&&env.PRODUCTION_MANAGED_CHECKOUT_ENABLED==='1'))&&p.status==='published'&&v.active&&p.checkoutVariantIds?.includes(v.id);
     return `<div class="v53-variant-purchase"><div class="v30-product-line"><div><span class="v30-overline">JAPANESE BOTANICALS${v.amount?' · '+escape(v.amount):''}</span><strong>${escape(p.name)}${p.variants.length>1?' / '+escape(v.name):''}</strong></div><span class="v30-price">¥${v.price.toLocaleString('ja-JP')}<small> 税込</small></span></div><div class="v30-cart-row"><label class="v30-qty">数量<select class="product-quantity" id="qty-${escape(v.id)}" name="quantity">${Array.from({length:v.maxQuantity??10},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select></label><button type="button" data-add-to-cart data-quantity-selector="#qty-${escape(v.id)}" class="product-cart-button v30-cart-button" data-product-id="${escape(v.id)}" data-product-name="${escape(p.name+' '+(v.amount||''))}" data-product-price="${v.price}" ${available?'':'disabled data-site-disabled="true"'}>${available?'ADD TO CART <span>↗</span>':p.status!=='published'||!v.active?'販売停止':'購入準備中'}</button></div></div>`;
    }).join(''),{html:true})})
    .on('.v30-below',{element:e=>e.setInnerContent(`<div><span>ABOUT</span><p style="white-space:pre-line">${escape(p.description)}</p></div>`,{html:true})});

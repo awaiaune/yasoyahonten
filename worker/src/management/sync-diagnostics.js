@@ -1,10 +1,9 @@
-import {integratedPublication} from './integrated-policy.js';
 import {production} from '../production-policy.js';
-import {inspectSalesCatalog} from './sales-version-proof.js';
+import {inspectSalesCatalog,salesCatalogVerificationEnabled} from './sales-version-proof.js';
 import {catalogProof} from './catalog-proof.js';
 import {need} from './domain.js';
 export async function inspectSync(manager,id){
- need(integratedPublication(manager.env),'統合公開の読取診断は無効です。',403);
+ need(salesCatalogVerificationEnabled(manager.env),'商品読取診断は無効です。',403);
  const p=await manager.s.product(id);need(p,'商品がありません。',404);
  const locks=await manager.s.locked(p.draft.variants.map(v=>v.id));
  const jobs=[];for(const jobId of new Set(locks.map(l=>l.job_id))){

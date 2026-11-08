@@ -1,0 +1,94 @@
+// Local synthetic evidence and existing synthetic Wrangler output; GET/upload
+// transports are injected. No live Cloudflare, Square, D1 or deploy calls.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile,writeFile,mkdtemp,mkdir,readdir,cp,rm,stat,symlink,chmod} from 'node:fs/promises';
+import path from 'node:path';
+import {tmpdir} from 'node:os';
+import {createHash} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+const exec=promisify(execFile);
+import {preparePrebuilt,deployPrepared,inspectPreparedPacket,inventory,ROLLBACK,SOURCE_SHA} from '../production/prepare-prebuilt-off-release.mjs';
+import {identity,profileFromEvidence,confirmedDatabaseIdentity} from '../production/prepare-off-from-version.mjs';
+import {evidenceFromVersionAPI} from '../production/asset-routing-evidence.mjs';
+import {evidenceFromPlacementVersion} from '../production/placement-evidence.mjs';
+const repo=new URL('../',import.meta.url).pathname,h=b=>createHash('sha256').update(b).digest('hex');
+async function files(dir,prefix=''){const out={};for(const d of await readdir(dir,{withFileTypes:true})){if(d.isDirectory())Object.assign(out,await files(path.join(dir,d.name),prefix+d.name+'/'));else out[prefix+d.name]=h(await readFile(path.join(dir,d.name)));}return out;}
+async function fixture(t){
+ const dir=await mkdtemp(path.join(tmpdir(),'yasoya-prebuilt-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));const root=path.join(dir,'input'),output=path.join(dir,'packet');await mkdir(path.join(root,'dry-run/bundle'),{recursive:true});await mkdir(path.join(root,'release'));
+ // Deliberately synthetic prebuilt module: no rebuild, runtime evaluation,
+ // external dependencies or persistent /tmp fixture prerequisite.
+ const bundle=path.join(root,'dry-run/bundle/storefront-worker.js');await writeFile(bundle,'export class PurchaseCoordinator {}; export default {};\n//# sourceMappingURL=storefront-worker.js.map\n');
+ const sources=['production/storefront-worker.js','worker/src/index.js','worker/src/purchase-ledger.js','worker/src/order-mail-outbox.js'];const contents=[];for(const source of sources)contents.push((await exec('git',['show',SOURCE_SHA+':'+source],{cwd:repo,encoding:'utf8',maxBuffer:8*1024*1024})).stdout);
+ await writeFile(bundle+'.map',JSON.stringify({version:3,sources:sources.map(p=>path.join(repo,p)),sourcesContent:contents,mappings:'AAAA'}));
+ const vars={RUNTIME_TIER:'production',SQUARE_ENVIRONMENT:'production',SQUARE_LOCATION_ID:'LQ693S4H2NBZ8',PRODUCTION_WORKER_NAME:identity.worker,PRODUCTION_PURCHASE_PROTOCOL:'durable-v1',SITE_URL:'https://yasoyahonten.awaiaune.com',MANAGEMENT_ENABLED:'1',PRODUCTION_MANAGEMENT_SCHEMA_READY:'1',PRODUCTION_MANAGEMENT_READ_ENABLED:'1',PRODUCTION_STOREFRONT_ENABLED:'1',PRODUCTION_UNIFIED_PUBLISH_ENABLED:'0',PRODUCTION_STOREFRONT_PUBLISH_ENABLED:'1',PRODUCTION_INVENTORY_WRITER_APPROVAL:'shared-purchase-do-single-writer-v1',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_MANAGEMENT_INVENTORY_ENABLED:'1',STOREFRONT_RETIRE_GOLDENROD:'1',PRODUCTION_CHECKOUT_ENABLED:'0',PRODUCTION_MANAGED_CHECKOUT_ENABLED:'0'};
+ await cp(new URL('../production/.generated/v53/',import.meta.url),path.join(root,'release/site'),{recursive:true});
+ const v={id:ROLLBACK,resources:{script_runtime:{compatibility_date:'2026-08-04',compatibility_flags:[]},bindings:[...Object.entries(vars).map(([name,text])=>({type:'plain_text',name,text})),...['ADMIN_TOKEN','RESEND_API_KEY','SQUARE_ACCESS_TOKEN'].map(name=>({type:'secret_text',name})),{type:'d1',name:'ORDERS_DB',id:identity.database},{type:'durable_object_namespace',name:'PURCHASE_COORDINATOR',namespace_id:identity.namespace,class_name:'PurchaseCoordinator'},{type:'r2_bucket',name:'PRODUCT_IMAGES',bucket_name:identity.bucket},{type:'assets',name:'ASSETS'}]}};
+ const routing=evidenceFromVersionAPI({id:ROLLBACK,assets:{config:{run_worker_first:true}}},v),placement=evidenceFromPlacementVersion({id:ROLLBACK},v);
+ const e={account:identity.account,worker:identity.worker,versionId:ROLLBACK,activeVersionId:ROLLBACK,traffic:100,routes:[],domains:[{hostname:'yasoyahonten.awaiaune.com',service:identity.worker,zone_id:'a'.repeat(32)}],subdomain:{enabled:true,previews_enabled:false},database:{uuid:identity.database,name:'yasoya-orders'},namespace:{id:identity.namespace,class:'PurchaseCoordinator',script:identity.worker,use_sqlite:true},schedules:[],settings:{placement:{}},assetConfig:routing.config,assetRoutingEvidence:routing,placementEvidence:placement};
+ const {config:c,receipt}=profileFromEvidence(v,e,path.join(root,'release/site'));c.main=path.join(repo,'production/storefront-worker.js');await writeFile(path.join(root,'release/off.local.jsonc'),JSON.stringify(c));await writeFile(path.join(root,'evidence.json'),JSON.stringify(receipt));await writeFile(path.join(root,'metadata.json'),JSON.stringify(e));await writeFile(path.join(root,'release/assembly.json'),JSON.stringify({mode:'OFF',changedAssets:['js/checkout-v1.js'],assetSha256:await files(path.join(root,'release/site'))}));await writeFile(path.join(root,'dry-run/diagnostic.json'),JSON.stringify({status:'passed',exitCode:0}));
+ const versionFile=path.join(dir,'version.json');await writeFile(versionFile,JSON.stringify(v));const calls=[];let deployed=false;
+ const get=async p=>{calls.push(p);assert(!p.includes('/d1/'));const w='/accounts/'+identity.account+'/workers/scripts/'+identity.worker;if(p===w+'/deployments?page=1&per_page=1')return {deployments:[{versions:[{version_id:deployed?'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee':ROLLBACK,percentage:100}]}]};if(p===w+'/versions/'+ROLLBACK)return v;if(p===w+'/settings')return {...e.settings,bindings:v.resources.bindings};if(p===w+'/routes')return e.routes;if(p.includes('/workers/domains?'))return e.domains;if(p===w+'/subdomain')return e.subdomain;if(p===w+'/schedules')return {schedules:e.schedules};if(p==='/accounts/'+identity.account+'/workers/durable_objects/namespaces/'+identity.namespace)return e.namespace;assert.fail('unreviewed endpoint');};
+ return {dir,root,output,bundle,v,e,c,get,calls,versionFile,setDeployed:()=>{deployed=true;}};
+}
+
+import {recoverOffRelease,discoverReleaseRoots,selectOperationalAssets,validateAssetSourceRoot,validateExistingAssets} from '../production/recover-off-release.mjs';
+async function recoveryFixture(t){
+ const f=await fixture(t),cache=path.join(f.dir,'private'),temp=path.join(f.dir,'empty-tmp');await mkdir(cache,{mode:0o700});await mkdir(temp,{mode:0o700});
+ const get=async p=>p.includes('/workers/workers/')?{id:ROLLBACK,assets:{config:{run_worker_first:true}}}:f.get(p);
+ const ops={SOURCE_SHA,ROLLBACK,inventory,inspectPreparedPacket,preparePrebuilt:(o,d)=>preparePrebuilt({...o,output:path.join(cache,'prebuilt-off-'+Math.random().toString(16).slice(2))},{...d,versionFile:f.versionFile})};
+ return {...f,cache,temp,get,ops,options:{repository:repo,cacheDirectory:cache,tmpDirectory:temp,versionTemporaryFile:f.versionFile,operationalAssets:path.join(f.root,'release/site')}};
+}
+async function discoveredInput(f){const root=path.join(f.temp,'yasoya-off-from-version-found');await cp(f.root,root,{recursive:true});const c=structuredClone(f.c);c.assets.directory=path.join(root,'release/site');await writeFile(path.join(root,'release/off.local.jsonc'),JSON.stringify(c));await writeFile(path.join(root,'dry-run/diagnostic.json'),JSON.stringify({status:'passed',exitCode:0}));}
+test('Dashboard identity proof uses exact Version binding without pretending a D1 API read',async t=>{const f=await fixture(t),proof=confirmedDatabaseIdentity(f.v);assert.equal(proof.databaseEvidence.apiRetested,false);assert.equal(proof.databaseEvidence.apiReadVerified,false);assert(!proof.databaseEvidence.failedRead);const e={...f.e,...proof};assert.equal(profileFromEvidence(f.v,e,'/assets').config.d1_databases[0].database_id,identity.database);e.databaseEvidence.apiReadVerified=true;assert.throws(()=>profileFromEvidence(f.v,e,'/assets'));});
+test('source-matched successful artifacts are found without a fixed temporary directory',async t=>{
+ const f=await recoveryFixture(t);await discoveredInput(f);const r=await recoverOffRelease(f.options,f.ops,{get:f.get});assert.equal(r.status,'PREPARED_NOT_DEPLOYED');assert.equal(r.recovery.mode,'successful_artifacts_reused');assert.equal((await stat(path.join(f.cache,'current-prepared-off.json'))).mode&511,384);
+ await rm(f.temp,{recursive:true});await rm(f.root,{recursive:true});const again=await recoverOffRelease(f.options,f.ops,{get:f.get});assert.equal(again.manifestSha256,r.manifestSha256);assert.equal(again.recovery.mode,'persistent_packet_reused');
+});
+test('persistent packet tampering stops instead of silently rebuilding',async t=>{const f=await recoveryFixture(t);await discoveredInput(f);const r=await recoverOffRelease(f.options,f.ops,{get:f.get});await writeFile(r.config,'{}');await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get}),/FROZEN_ARTIFACT_CHANGED/);});
+test('persistent packets can be rediscovered when only the pointer was lost',async t=>{const f=await recoveryFixture(t);await discoveredInput(f);const r=await recoverOffRelease(f.options,f.ops,{get:f.get});await rm(path.join(f.cache,'current-prepared-off.json'));await rm(f.temp,{recursive:true});f.options.tmpDirectory='/tmp';const next=await recoverOffRelease(f.options,f.ops,{get:f.get,discoveryIO:{lstat:async p=>p==='/tmp'?{uid:process.getuid()+10,mode:0o1777,isDirectory:()=>true,isSymbolicLink:()=>false}:(await import('node:fs/promises')).lstat(p),readdir}});assert.equal(next.manifest,r.manifest);assert.equal(next.recovery.temporarySearch.status,'skipped');});
+test('missing assets stop without regenerating a design from Git',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>selectOperationalAssets({trustedDirectory:path.join(f.dir,'missing')},f.ops),/OPERATIONAL_ASSETS_REQUIRED/);});
+test('operator assets mismatch stops rather than falling back to other trees',async t=>{const f=await recoveryFixture(t);await writeFile(path.join(f.options.operationalAssets,'index.html'),'changed');await assert.rejects(()=>selectOperationalAssets({trustedDirectory:f.options.operationalAssets},f.ops),/OPERATIONAL_ASSET_HASH_MISMATCH/);});
+test('discovery ignores unrelated directories and includes persistent successful builds',async t=>{const f=await recoveryFixture(t);await mkdir(path.join(f.cache,'builds'),{mode:0o700});await mkdir(path.join(f.cache,'builds','release-build-keep'));await mkdir(path.join(f.temp,'unrelated'));const roots=await discoverReleaseRoots(f.cache,f.temp);assert.equal(roots.roots.length,1);assert(roots.roots[0].endsWith('release-build-keep'));});
+
+test('missing or unsafe temporary directory: fixed-source real Wrangler build is frozen and reused privately',async t=>{
+ for(const temporaryCase of ['missing','unsafe']){
+ const f=await recoveryFixture(t);f.options.tmpDirectory=temporaryCase==='missing'?path.join(f.dir,'missing-temporary'):'/tmp';let builds=0;const discoveryIO=temporaryCase==='unsafe'?{lstat:async p=>p==='/tmp'?{uid:process.getuid()+10,mode:0o1777,isDirectory:()=>true,isSymbolicLink:()=>false}:(await import('node:fs/promises')).lstat(p),readdir}:undefined;const configHome=path.join(f.dir,'config');await mkdir(configHome);
+ const r=await recoverOffRelease(f.options,f.ops,{get:f.get,discoveryIO,runBuild:async(cmd,args,opts)=>{builds++;assert.equal(cmd,'npx');assert(args.includes('--dry-run'));assert(args.includes('--upload-source-maps'));const runOptions={...opts,env:{...opts.env,XDG_CONFIG_HOME:configHome}};return process.env.YASOYA_TEST_WRANGLER_JS?exec(process.execPath,[process.env.YASOYA_TEST_WRANGLER_JS,...args.slice(2)],runOptions):exec(cmd,args,runOptions);}});
+ assert.equal(r.recovery.temporarySearch.status,'skipped');assert.equal(r.recovery.temporarySearch.code,temporaryCase==='missing'?'ENOENT':'RECOVERY_SHARED_ROOT_UNSAFE');assert.equal(builds,1);assert.equal(r.status,'PREPARED_NOT_DEPLOYED');assert.equal(r.recovery.regenerated,true);assert.match(r.bundleSha256,/^[a-f0-9]{64}$/);const m=JSON.parse(await readFile(r.manifest,'utf8'));assert.equal(m.source.sha,SOURCE_SHA);assert.equal(m.source.artifactOrigin.previousBundleComparison,'unavailable; past input artifacts were not reused');assert.equal((await stat(r.manifest)).mode&511,384);const c=JSON.parse(await readFile(r.config,'utf8'));assert.equal(c.vars.PRODUCTION_CHECKOUT_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');
+ const again=await recoverOffRelease(f.options,f.ops,{get:f.get,runBuild:()=>assert.fail('must reuse persistent packet')});assert.equal(again.manifestSha256,r.manifestSha256);
+ }
+});
+
+test('a missing source map remains a blocking provenance failure after regeneration',async t=>{
+ const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get,loadPreparer:async()=>({prepareFromVersion:async(o)=>{await cp(f.root,o.output,{recursive:true});await rm(path.join(o.output,'metadata.json'));const c=structuredClone(f.c);c.assets.directory=path.join(o.output,'release/site');await writeFile(path.join(o.output,'release/off.local.jsonc'),JSON.stringify(c));await rm(path.join(o.output,'dry-run/bundle/storefront-worker.js.map'));await writeFile(path.join(o.output,'dry-run/diagnostic.json'),JSON.stringify({status:'passed',exitCode:0}));return {directory:o.output,dryRun:true};}})}),/ARTIFACT_INPUT_MISSING/);await assert.rejects(()=>stat(path.join(f.cache,'current-prepared-off.json')),{code:'ENOENT'});
+});
+test('rebuild source mismatch stops without using another commit',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get,checkoutSource:async({sourceRoot})=>{await exec('git',['worktree','add','--detach',sourceRoot,'cbae707c32285ac3dc37236317eb3fc23be162ff'],{cwd:repo});}}),/REBUILD_SOURCE_SHA_MISMATCH/);});
+test('regeneration transport refuses a non-dry-run command',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get,loadPreparer:async()=>({prepareFromVersion:async(o,d)=>d.run('npx',['--yes','wrangler@4.155.0','deploy'],{})}),runBuild:()=>assert.fail('must not run deployment')}),/UNSAFE_REBUILD_COMMAND/);});
+test('a changed active Version stops before any artifact rebuild',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:p=>p.includes('/deployments?')?{deployments:[{versions:[{version_id:'changed',percentage:100}]}]}:f.get(p),runBuild:()=>assert.fail()}),/LIVE_VERSION_CHANGED/);});
+
+test('invalid persistent-cache permissions stop before authentication or regeneration',async t=>{const f=await recoveryFixture(t);await chmod(f.cache,0o755);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:()=>assert.fail('must stop before metadata')}),/RECOVERY_PRIVATE_ROOT_UNSAFE/);assert.equal((await stat(f.cache)).mode&0o777,0o755);});
+
+test('asset source metadata accepts readable working-tree ownership/modes but rejects links and non-directories',()=>{
+ const info=(uid,mode,link=false,dir=true)=>({uid,mode,isSymbolicLink:()=>link,isDirectory:()=>dir});
+ for(const s of [info(process.getuid(),0o775),info(process.getuid()+10,0o755),info(process.getuid()+10,0o775)])assert.doesNotThrow(()=>validateAssetSourceRoot(s));
+ for(const s of [info(process.getuid(),0o755,true),info(process.getuid(),0o644,false,false)])assert.throws(()=>validateAssetSourceRoot(s),/OPERATIONAL_ASSET_DIRECTORY_UNSAFE/);
+});
+test('asset source rejects root/nested links and special files without reading them',async t=>{
+ const f=await recoveryFixture(t),assets=f.options.operationalAssets,link=path.join(f.dir,'assets-link');await symlink(assets,link);await assert.rejects(()=>validateExistingAssets(link,inventory),/OPERATIONAL_ASSET_DIRECTORY_UNSAFE/);
+ const nested=path.join(assets,'unsafe-link');await symlink(f.versionFile,nested);await assert.rejects(()=>validateExistingAssets(assets,inventory),/ARTIFACT_LINK_REJECTED/);await rm(nested);
+ await exec('mkfifo',[path.join(assets,'unsafe-fifo')]);await assert.rejects(()=>validateExistingAssets(assets,inventory),/ARTIFACT_SPECIAL_FILE_REJECTED/);
+});
+test('asset source changes during assembly stop before freezing',async t=>{
+ const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get,loadPreparer:async()=>({prepareFromVersion:async(o)=>{await cp(f.root,o.output,{recursive:true});await writeFile(path.join(f.options.operationalAssets,'unexpected-added.txt'),'changed');return {directory:o.output,dryRun:true};}})}),/OPERATIONAL_ASSETS_CHANGED_DURING_PREPARATION/);
+});
+test('group-writable asset source survives real Wrangler dry-run unchanged; frozen copies remain private and tamper-detecting',async t=>{
+ const f=await recoveryFixture(t),assets=f.options.operationalAssets,css=path.join(assets,'css/checkout.css'),configHome=path.join(f.dir,'config');await mkdir(configHome);await chmod(assets,0o775);await chmod(css,0o664);const before=await inventory(assets);
+ const result=await recoverOffRelease(f.options,f.ops,{get:f.get,runBuild:async(cmd,args,opts)=>{const options={...opts,env:{...opts.env,XDG_CONFIG_HOME:configHome}};return process.env.YASOYA_TEST_WRANGLER_JS?exec(process.execPath,[process.env.YASOYA_TEST_WRANGLER_JS,...args.slice(2)],options):exec(cmd,args,options);}});
+ assert.equal(result.status,'PREPARED_NOT_DEPLOYED');assert.deepEqual(await inventory(assets),before);assert.equal((await stat(assets)).mode&0o777,0o775);assert.equal((await stat(css)).mode&0o777,0o664);
+ assert.equal((await stat(result.assets)).mode&0o777,0o700);assert.equal((await stat(path.join(result.assets,'css/checkout.css'))).mode&0o777,0o600);
+ const copied=await inventory(result.assets);for(const [file,digest]of Object.entries(before))if(file!=='js/checkout-v1.js')assert.equal(copied[file],digest);
+ const c=JSON.parse(await readFile(result.config,'utf8'));assert.equal(c.vars.PRODUCTION_CHECKOUT_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.deepEqual(c.migrations,[]);
+ await writeFile(path.join(result.assets,'css/checkout.css'),'tampered');await assert.rejects(()=>inspectPreparedPacket(result.manifest,result.manifestSha256,f.get),/FROZEN_ARTIFACT_CHANGED/);
+});

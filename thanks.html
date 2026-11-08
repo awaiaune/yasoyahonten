@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <title>ご注文ありがとうございます | 八草屋本店</title>
+    <title>注文状況の確認 | 八草屋本店</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -30,15 +30,17 @@
 
     <main class="thanks-page">
         <div class="thanks-inner">
-            <h1>THANK YOU</h1>
-            <p>
-                ご注文を受け付けました。<br>
-                植物を丁寧に整え、発送の準備を進めます。
-            </p>
+            <h1 id="thankYouHeading">Order status.</h1>
+            <p id="orderVerificationMessage" role="status" aria-live="polite">注文状況を確認しています…</p>
+<p id="verifiedOrderReferenceRow" hidden>注文番号：<span id="verifiedOrderReference"></span></p>
+<button id="retryOrderStatus" type="button" hidden>処理状況をもう一度確認する</button>
+
             <p>
                 <a href="index.html">八草屋本店へ戻る</a>
             </p>
         </div>
     </main>
+<script src="js/store-config.js"></script>
+<script defer src="js/thanks-verified-v57.js"></script>
 </body>
 </html>

@@ -7,13 +7,49 @@
     const productionPage=config?.environment==='production'&&config?.managedStorefront===true&&config?.workerBaseUrl===location.origin;
     const managedPage=sandboxPage||productionPage;
     let cardStage='準備',cardViolation=null;
+    let rejectAuthentication=null;
     function cardFeedback(text,state='loading'){const el=document.getElementById('cardInitializationStatus');if(el){el.textContent=text;if(el.dataset)el.dataset.state=state;}}
     document.addEventListener('securitypolicyviolation',event=>{
         if(!managedPage)return;
+        if(event.disposition==='report')return;
+        if(['frame-src','child-src','form-action','connect-src','script-src','script-src-elem','font-src'].includes(event.effectiveDirective))diagnostic('csp_blocked',{directive:event.effectiveDirective});
+        // Issuer URLs may contain authentication data. Do not read, log or save
+        // the blocked URL. An enforced frame/form directive proves site CSP;
+        // missing events do not prove Brave Shields or another specific cause.
+        if(rejectAuthentication && event.disposition==='enforce' && ['frame-src','child-src','form-action'].includes(event.effectiveDirective)){
+            rejectAuthentication(authenticationError('CARD_AUTH_CSP_BLOCKED','本人認証画面がサイトのCSP（'+event.effectiveDirective+'）で遮断されました。決済要求は送信していません。画面を更新せず、表示された診断コードを管理者へお知らせください。'));
+            return;
+        }
         let host;try{host=new URL(event.blockedURI).hostname;}catch{return;}
         if((host==='sandbox.web.squarecdn.com'||host==='web.squarecdn.com'||host.endsWith('.squareupsandbox.com')||host.endsWith('.squareup.com'))&&['script-src-elem','script-src','style-src-elem','style-src','frame-src','connect-src','font-src'].includes(event.effectiveDirective))cardViolation=event.effectiveDirective;
     });
     function cardFailure(code,message){const error=new Error(message+' ［'+code+'／'+cardStage+'］');error.code=code;return error;}
+    class AuthenticationError extends Error {constructor(code,message){super(message+' ［'+code+'］');this.code=code;}}
+    function authenticationError(code,message){return new AuthenticationError(code,message);}
+    async function tokenizeCard(details){
+        let timer;
+        try {
+            const interrupted=new Promise((_,reject)=>{
+                rejectAuthentication=reject;
+                timer=setTimeout(()=>reject(authenticationError('CARD_AUTH_TIMEOUT','本人認証の完了を確認できませんでした。決済要求は送信していません。ブラウザ保護・通信・認証操作・発行会社側の制限などが考えられますが、原因は未確認です。')),300000);
+            });
+            // Invoke SDK in the original trusted submit call stack, before any
+            // network wait or microtask. Verification itself remains mandatory.
+            diagnostic('sdk_start',{activation:activationState()});
+            const tokenizing=card.tokenize(details);
+            flushDiagnostics();
+            const result=await Promise.race([tokenizing,interrupted]);
+            diagnostic(result?.status==='OK'&&result?.token?'sdk_ok':'sdk_failed');
+            return result;
+        } catch(error) {
+            diagnostic('sdk_failed');
+            const old=card;card=undefined;
+            try{Promise.resolve(old?.destroy?.()).catch(()=>{});}catch{}
+            const failure=error instanceof AuthenticationError?error:
+                authenticationError('CARD_AUTH_UNCONFIRMED','カードの本人認証・トークン化の完了を確認できません。決済要求は送信していません。サイト側CSP違反は検出していませんが、Brave Shieldsなどのブラウザ保護・通信・認証操作・発行会社側の制限のどれかは未確認です。');
+            cardFeedback(failure.message,'error');throw failure;
+        } finally {clearTimeout(timer);rejectAuthentication=null;flushDiagnostics();}
+    }
     async function boundedCard(task){let timer;try{return await Promise.race([task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(cardFailure('CARD_INIT_TIMEOUT','カード入力フォームの'+cardStage+'が時間内に完了しませんでした。通信・認証・CSPを確認して画面を再読み込みしてください。')),12000);})]);}finally{clearTimeout(timer);}}
     async function waitSquare(){
         if(productionPage&&[...document.scripts].some(script=>script.src==='https://sandbox.web.squarecdn.com/v1/square.js'))throw cardFailure('CARD_SDK_ENVIRONMENT','Production画面でSandbox SDKを検出したため停止しました。');
@@ -30,11 +66,25 @@
 
     const META_KEY='yasoya_checkout_attempt_meta_v1';
     let capabilities=null;
+    const CLIENT_RELEASE='checkout-auth-activation-20261105';
+    const activationState=()=>typeof globalThis.navigator?.userActivation?.isActive==='boolean'?globalThis.navigator.userActivation.isActive:undefined;
+    let diagnosticAttempt=null, diagnosticSequence=0, diagnosticBuffer=[];
+    function diagnostic(stage,fields={}) {
+        if(!diagnosticAttempt)return;
+        diagnosticBuffer.push({stage,sequence:++diagnosticSequence,...fields});
+        diagnosticBuffer=diagnosticBuffer.slice(-16);
+    }
+    function flushDiagnostics() {
+        if(!diagnosticAttempt||!diagnosticBuffer.length)return;
+        const events=diagnosticBuffer.splice(0,16),id=diagnosticAttempt;
+        // Best effort, no token/contact/URL. Never blocks SDK, payment or recovery.
+        void api('/api/v1/payment-diagnostics',{method:'POST',body:JSON.stringify({attemptId:id,clientRelease:CLIENT_RELEASE,events}),keepalive:true}).catch(()=>{});
+    }
     function metadata(id){try{const m=JSON.parse(localStorage.getItem(META_KEY)||'null');return m?.id===id&&['prepared','submitted'].includes(m.state)?m:{id,state:'submitted'};}catch{return {id,state:'submitted'};}}
     function remember(id,state){localStorage.setItem(META_KEY,JSON.stringify({id,state}));}
     function attemptId(){let id=localStorage.getItem(ATTEMPT_KEY);if(!id){id=crypto.randomUUID();localStorage.setItem(ATTEMPT_KEY,id);remember(id,'prepared');}return id;}
     function feedback(text){document.getElementById('paymentStatus').textContent=text;}
-    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?'PAY NOW':'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check)check.hidden=!id;}
+    function buttonState(){const id=localStorage.getItem(ATTEMPT_KEY),sent=id&&metadata(id).state==='submitted',button=document.getElementById('paymentButton');button.disabled=completed||submitting||!card||!serverQuote||!capabilities?.checkoutEnabled||Boolean(sent);button.textContent=sent?'処理状況を確認してください':capabilities?.checkoutEnabled?'PAY NOW':'ただいま購入受付を停止しています';const check=document.getElementById('checkPaymentStatus');if(check){check.hidden=!id;check.disabled=submitting||completed;}}
     async function refreshCapabilities(){
         capabilities=await api('/api/v1/checkout-capabilities');
         if(capabilities.contractVersion!==1||!Array.isArray(capabilities.supportedContracts)||!capabilities.supportedContracts.includes(1))throw new Error('購入画面とAPIの版が一致しません。画面を更新してください。');
@@ -46,9 +96,33 @@
         try{return await api('/api/v1/payments/status',{method:'POST',body:JSON.stringify({attemptId:id,contractVersion:1})});}
         catch(error){if(error.status===404&&metadata(id).state==='prepared')return null;if(error.status===404)throw new Error('送信済み注文の結果を確認できません。再決済せず、同じ画面で処理状況を確認してください。');throw error;}
     }
+    function paymentExplanation(result){
+        const explanations={three_ds_required:'カードの本人認証（3Dセキュア）が必要、または完了していません。',card_declined:'カード会社に支払いが承認されませんでした。',card_invalid:'カード情報・有効期限・セキュリティコード等の確認が必要です。',token_invalid:'カード情報の送信に使う情報が無効、または期限切れです。',authentication:'店舗側の決済認証設定を確認する必要があります。',location:'店舗側の決済店舗設定を確認する必要があります。',request_invalid:'決済要求の内容を確認する必要があります。',provider_unavailable:'決済サービスの応答を確認できません。',unknown:'原因不明です。'};
+        const key=result?.paymentFailure?.classification;
+        return typeof key==='string'&&Object.hasOwn(explanations,key)?explanations[key]:explanations.unknown;
+    }
     function complete(result){
-        if(result?.status==='declined'){localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);throw new Error('決済が完了しなかったことを確認しました。再度お試しください。');}
-        if(!result?.ok||!result.paymentId||!result.orderReference)throw new Error('注文の処理状況を確認中です。再購入せず「処理状況を確認」を押してください。');
+        if(result?.status==='declined' && result.retryAllowed===true){
+            localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);
+            throw new Error(paymentExplanation(result)+' 決済の不成立をSquareとの照合で確認しました。課金・在庫減算は行っていません。画面を更新してカード情報を確認してください。本番ではSandboxテストカードは使用できません。');
+        }
+        if(!result?.ok||!result.paymentId||!result.orderReference){
+            const detail=' '+paymentExplanation(result);
+            if(result?.manualReview)throw new Error('注文は管理者による確認が必要です。再購入せずお問い合わせください。'+detail);
+            if(result?.paymentOutcome==='rejected')throw new Error('Squareが支払い要求を拒否しました。'+detail+' 再課金を防ぐため注文番号と在庫保留は維持しています。「処理状況を確認」から照合し、解消しない場合は管理者へお問い合わせください。本番ではSandboxテストカードは使えません。');
+            throw new Error('注文の処理状況を確認中です。決済結果は未確定です。再購入せず「処理状況を確認」を押してください。'+detail);
+        }
+        // Keep a short-lived, tab-scoped receipt reference for the thank-you verification.
+        // Never store the card token. If storage is unavailable, do not interrupt a paid order.
+        try {
+            const originalAttemptId=localStorage.getItem(ATTEMPT_KEY);
+            if (/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(originalAttemptId||'')) {
+                sessionStorage.setItem('yasoya_verified_checkout_v1',JSON.stringify({
+                    attemptId:originalAttemptId.toLowerCase(),paymentId:result.paymentId,
+                    orderReference:result.orderReference,createdAt:Date.now()
+                }));
+            }
+        } catch { /* A storage restriction must never turn one paid order into another charge. */ }
         completed=true;window.YasoyaCart.clear();localStorage.removeItem(ATTEMPT_KEY);localStorage.removeItem(META_KEY);
         location.href=`thanks.html?payment=${encodeURIComponent(result.paymentId)}&order=${encodeURIComponent(result.orderReference)}`;
     }
@@ -68,7 +142,8 @@
     }
 
     async function api(path, options = {}) {
-        const response = await fetch(`${config.workerBaseUrl}${path}`, {
+        let response;
+        try { response = await fetch(`${config.workerBaseUrl}${path}`, {
             cache: "no-store",
             ...options,
             signal:options.signal||AbortSignal.timeout(15000),
@@ -76,7 +151,11 @@
                 "Content-Type": "application/json",
                 ...(options.headers || {})
             }
-        });
+        }); } catch {
+            throw new Error(path.endsWith('/payments') || path.endsWith('/payments/status')
+                ? '決済結果を受信できませんでした。注文番号は維持しています。再購入せず「処理状況を確認」を押してください。'
+                : '通信を完了できませんでした。通信環境と認証状態を確認してください。');
+        }
 
         const body = await response.json().catch(() => ({}));
 
@@ -215,17 +294,25 @@
             return;
         }
 
+        const storedId=localStorage.getItem(ATTEMPT_KEY);
+        if(storedId&&metadata(storedId).state==='submitted')return;
         submitting = true;
+        buttonState();
         button.disabled = true;
         button.textContent = "PROCESSING";
         status.textContent = "";
 
         try {
-            const previous = await existingResult();
-            if (previous) { complete(previous); return; }
-            if(!(await refreshCapabilities()).checkoutEnabled)return;
+            // The initial status/capability/quote checks already completed before
+            // enabling this button. A submitted/foreign attempt is never tokenized.
             const id = attemptId();
+            if(metadata(id).state!=='prepared'||!capabilities?.checkoutEnabled)return;
+            if(diagnosticAttempt!==id){diagnosticAttempt=id;diagnosticSequence=0;}
+            diagnostic('pay_click',{activation:activationState()});
             const contact = formContact();
+            const items=getCartPayload();
+            const quoted=JSON.stringify(serverQuote);
+            const cart=JSON.stringify(items);
 
             const verificationDetails = {
                 amount: String(serverQuote.total),
@@ -236,23 +323,36 @@
                 billingContact: contact
             };
 
-            const tokenResult = await card.tokenize(verificationDetails);
+            let tokenResult;
+            status.textContent='カード情報・本人認証を確認しています。決済要求はまだ送信していません。';
+            tokenResult = await tokenizeCard(verificationDetails);
 
-            if (tokenResult.status !== "OK" || !tokenResult.token) {
+            if (tokenResult?.status !== "OK" || !tokenResult?.token) {
                 throw new Error(
-                    tokenResult.errors?.[0]?.message ||
-                    "カード情報を確認できませんでした。"
+                    "カード情報の認証・トークン化を完了できませんでした。決済要求は送信していません。入力内容と本人認証を確認してください。本番ではSandboxテストカードは使用できません。"
                 );
             }
 
+            // Read-only rechecks happen AFTER authentication but BEFORE payment.
+            // A timeout, changed quote/cart, shutdown, or another tab's submission
+            // must discard this token rather than charging an unverified amount.
+            const previous=await existingResult();
+            if(previous){complete(previous);return;}
+            if(!(await refreshCapabilities()).checkoutEnabled)return;
+            await loadQuote();
+            if(quoted!==JSON.stringify(serverQuote)||cart!==JSON.stringify(getCartPayload()))
+                throw new Error('商品・送料・在庫の確認内容が変わりました。決済要求は送信していません。内容を確認して画面を更新してください。');
+            if(localStorage.getItem(ATTEMPT_KEY)!==id||metadata(id).state!=='prepared')
+                throw new Error('別の画面で注文操作が行われました。再決済せず処理状況を確認してください。');
             remember(id,'submitted');
+            diagnostic('payment_dispatch');flushDiagnostics();
             const paymentResult = await api("/api/v1/payments", {
                 method: "POST",
                 body: JSON.stringify({
                     contractVersion: 1,
                     attemptId: id,
                     sourceId: tokenResult.token,
-                    items: getCartPayload(),
+                    items,
                     contact
                 })
             });
@@ -260,9 +360,13 @@
             complete(paymentResult);
         } catch (error) {
 
-            status.textContent = error.message || "決済に失敗しました。";
-            if(error.code==='CHECKOUT_DISABLED'){const id=localStorage.getItem(ATTEMPT_KEY);if(id)remember(id,'prepared');capabilities={...capabilities,checkoutEnabled:false};}
+            if(error.status&&localStorage.getItem(ATTEMPT_KEY)&&metadata(localStorage.getItem(ATTEMPT_KEY)).state==='submitted')error.message=(error.message||'応答を確認できません。')+' HTTP '+error.status+'。この応答だけでは課金の成否は未確認です。送信済み試行IDを維持しています。再購入せず処理状況を確認してください。';
+            status.textContent = error.message || "決済結果を確認できません。再購入せず処理状況を確認してください。";
+            // An OFF response must never turn an already submitted attempt back
+            // into a new charge after a later 404, reload or reopening of sales.
+            if(error.code==='CHECKOUT_DISABLED')capabilities={...capabilities,checkoutEnabled:false};
         } finally {
+            flushDiagnostics();
             submitting = false;
             buttonState();
         }

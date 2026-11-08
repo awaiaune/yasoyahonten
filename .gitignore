@@ -13,3 +13,6 @@ dev/.state/
 **/yasoya-orders*.sql
 **/restore-verification.sqlite
 **/backup-verification.json
+
+# Never commit a real release profile.
+production/release/*.local.jsonc
