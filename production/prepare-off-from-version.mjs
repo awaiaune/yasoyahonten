@@ -1,3 +1,4 @@
+import {placementFromEvidence,validatePlacementEvidence} from './placement-evidence.mjs';
 import {validateAssetEvidence} from './asset-routing-evidence.mjs';
 // Release preparation only. No historical profile, remote mutations or deploy.
 import {readFile,writeFile,mkdtemp,mkdir,lstat,realpath} from 'node:fs/promises';
@@ -108,12 +109,13 @@ export function profileFromEvidence(v,e,assetDirectory){
   default:fail('UNSUPPORTED_BINDING_TYPE');
  }
  if(e.schedules.length)c.triggers={crons:e.schedules.map(s=>{if(!text(s.cron))fail('INVALID_CRON');return s.cron;})};
- for(const key of ['observability','limits','placement','tail_consumers','usage_model'])if(e.settings?.[key]!==undefined)c[key]=structuredClone(e.settings[key]);
+ for(const key of ['observability','limits','tail_consumers','usage_model'])if(e.settings?.[key]!==undefined)c[key]=structuredClone(e.settings[key]);
+ const placement=placementFromEvidence(e.settings?.placement,e.placementEvidence,v);if(placement!==undefined)c.placement=placement;
  try{validateOffConfig(c);}catch(err){
   const fields={PRODUCTION_IDENTITY_INVALID:['RUNTIME_TIER','SQUARE_ENVIRONMENT','SQUARE_LOCATION_ID','PRODUCTION_WORKER_NAME','PRODUCTION_PURCHASE_PROTOCOL','SITE_URL'],EXISTING_CUSTOM_DOMAIN_REQUIRED:['routes'],EXISTING_MANAGEMENT_REQUIRED:['MANAGEMENT_ENABLED','PRODUCTION_MANAGEMENT_SCHEMA_READY','PRODUCTION_MANAGEMENT_READ_ENABLED','PRODUCTION_STOREFRONT_ENABLED'],SALES_VERIFICATION_PROFILE_REQUIRED:['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED'],EXISTING_INVENTORY_APPROVAL_REQUIRED:['PRODUCTION_INVENTORY_WRITER_APPROVAL'],CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID:['PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED','STOREFRONT_RETIRE_GOLDENROD']};
   err.fields=fields[err.message];throw err;
  }
- return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus explicit metadata provenance',databaseEvidence:e.databaseEvidence??{method:'supplied_metadata',apiReadVerified:false},metadataReadFailures:e.metadataFailures||[],assetRoutingEvidence:e.assetRoutingEvidence??null,assetSourceVerification:'Known live file hashes and unchanged local copy only; complete live ASSETS identity is not established by this preparation.'}};
+ return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus explicit metadata provenance',databaseEvidence:e.databaseEvidence??{method:'supplied_metadata',apiReadVerified:false},metadataReadFailures:e.metadataFailures||[],placementEvidence:e.placementEvidence??null,assetRoutingEvidence:e.assetRoutingEvidence??null,assetSourceVerification:'Known live file hashes and unchanged local copy only; complete live ASSETS identity is not established by this preparation.'}};
 }
 
 // Only GET requests to these fixed Cloudflare metadata endpoints. The collector
@@ -213,11 +215,12 @@ const acquisition={
  asset_routing:'Run diagnose-off-release.mjs: GET workers/workers/yasoya-honten-payments/versions/{activeVersion} returns version-bound assets.config. Reuse private version-bound routing evidence, or check matching deployment receipts in the three existing Codespaces roots. No defaults or historical ready.jsonc.',
  asset_directory:'Version JSON has no local asset path or image bytes. Locate the directory used for the current release (find /workspaces -type d -path \'*/production/.generated/v53\' -not -path \'*/node_modules/*\'). Do not select a freshly rebuilt candidate directory. Pass --assets DIRECTORY for the existing operational ASSETS directory; the script checks known live HTML/cart hashes and preserves its images/product/admin files. The uploaded 20-file ZIP is not a full ASSETS directory.'
 };
-async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile,assets,output,collect=false,dryRun=false},deps={},stage){
+async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile,placementEvidenceFile,assets,output,collect=false,dryRun=false},deps={},stage){
  stage('version_json_read');
  const v=unwrapCachedVersion(JSON.parse(await readFile(versionFile,'utf8')));stage('version_validate');inspectVersion(v);
  let e;if(collect){stage('authentication');const get=deps.get??await authenticatedMetadataReader();stage('metadata_collect');e=await collectEvidence(v,get);}else if(evidenceFile){stage('evidence_read');e=JSON.parse(await readFile(evidenceFile,'utf8'));}else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
  if(assetSettingsFile){stage('asset_settings_read');const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');validateAssetEvidence(manual,v);e.assetConfig=manual.config;e.assetRoutingEvidence=manual;}
+ if(placementEvidenceFile){stage('placement_settings_read');const proof=JSON.parse(await readFile(placementEvidenceFile,'utf8'));validatePlacementEvidence(proof,v);e.placementEvidence=proof;}
  let prepared;
  try{stage('asset_directory_resolve');const assetDirectory=assets?await realpath(assets):undefined;stage('profile_validate');prepared=profileFromEvidence(v,e,assetDirectory);}catch(err){
   err.metadataReadFailures=e.metadataFailures||[];
@@ -242,7 +245,7 @@ async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile
   stage('asset_assembly');await assembleOff(recovered,path.join(dir,'release'));
   await writeFile(path.join(dir,'evidence.json'),JSON.stringify(receipt,null,2)+'\n',{flag:'wx',mode:0o600});
   if(dryRun){stage('wrangler_dry_run');await runOffDryRun(path.join(dir,'release/off.local.jsonc'),path.join(dir,'dry-run'),deps);}
-  return {directory:dir,version:v.id,dryRun,databaseEvidence:receipt.databaseEvidence};
+  return {directory:dir,version:v.id,dryRun,databaseEvidence:receipt.databaseEvidence,placementResolution:{inputShape:e.settings?.placement===undefined?'absent':Object.keys(e.settings.placement).length?'configured':'empty',versionShape:e.placementEvidence?.versionShape??'not_requested',action:config.placement===undefined?'omit_unconfigured':'preserve_explicit'}};
  }catch(err){err.diagnostic??=safeReleaseDiagnostic(stage.current||'preparation',err);err.directory??=dir;await writeFile(path.join(dir,'failure.json'),JSON.stringify(err.diagnostic)+'\n',{mode:0o600});throw err;}
 }
 export async function prepareFromVersion(options,deps={}){
@@ -253,7 +256,7 @@ export async function prepareFromVersion(options,deps={}){
 if(process.argv[1]&&pathToFileURL(path.resolve(process.argv[1])).href===import.meta.url){
  try{
   const args=process.argv.slice(2),options={versionFile:args.shift()};
-  while(args.length){const flag=args.shift();if(flag==='--collect')options.collect=true;else if(flag==='--dry-run')options.dryRun=true;else {const key={'--evidence':'evidenceFile','--assets':'assets','--asset-settings':'assetSettingsFile','--output':'output'}[flag];if(!key||!args.length)fail('INVALID_ARGUMENTS');options[key]=args.shift();}}
+  while(args.length){const flag=args.shift();if(flag==='--collect')options.collect=true;else if(flag==='--dry-run')options.dryRun=true;else {const key={'--evidence':'evidenceFile','--assets':'assets','--asset-settings':'assetSettingsFile','--placement-evidence':'placementEvidenceFile','--output':'output'}[flag];if(!key||!args.length)fail('INVALID_ARGUMENTS');options[key]=args.shift();}}
   if(!options.versionFile)fail('VERSION_JSON_PATH_REQUIRED');
   const r=await prepareFromVersion(options);console.log((r.dryRun?'SUCCESS: OFF dry-run passed. ':'OFF release prepared. ')+r.directory+'; no deployment.');
   if(r.databaseEvidence.method==='dashboard_confirmation_and_live_version_binding')console.log('D1 identity: confirmed Dashboard record + exact live Version Binding; D1 metadata API read remains UNVERIFIED (HTTP '+r.databaseEvidence.failedRead.http+', code 10000). Provenance recorded in evidence.json.');

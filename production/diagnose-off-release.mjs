@@ -9,7 +9,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 const exec=promisify(execFile);
 const git=async(args,cwd=process.cwd())=>(await exec('git',args,{cwd,encoding:'utf8',maxBuffer:2*1024*1024})).stdout.trim();
-const releaseFiles=['asset-routing-evidence.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','recover-live-version.mjs','confirmed-production-resources.json','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs'];
+const releaseFiles=['placement-evidence.mjs','asset-routing-evidence.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','recover-live-version.mjs','confirmed-production-resources.json','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs'];
 export function worktreeFailure(stage,code,cause={}){
  const diagnostic={stage,code};
  if(Number.isInteger(cause.code))diagnostic.exitCode=cause.code;
@@ -80,25 +80,27 @@ export async function validateResumeRuntime(config,target,source,readGit=git){
  if(await readGit(['diff','--name-only',prior,target,'--','worker','js','production/storefront-worker.js','production/api-worker.js','production/access.js'],source))throw Error('RESUME_RUNTIME_DIFFERS');
 }
 export async function diagnose(){
- let stage='git_head_read',journal,module,diagnostic;
+ let stage='git_head_read',journal,module,diagnostic,placementResolution;
  const events=[],report=(phase,status='started',extra={})=>{stage=phase;const event={stage:phase,status,...extra};events.push(event);};
  try{
   report('git_head_read');const remote=await git(['remote','get-url','origin']);if(!/^(?:https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)awaiaune\/yasoyahonten(?:\.git)?$/.test(remote))throw Error('REPOSITORY_MISMATCH');const target=await git(['rev-parse','FETCH_HEAD']);if(!/^[a-f0-9]{40}$/.test(target))throw Error('FETCH_HEAD_INVALID');
   const selected=await selectSourceWorktree(target,{onStage:phase=>report(phase)}),{source}=selected;
   report('source_worktree_ready','passed',{mode:selected.mode,skipped:selected.skipped});
   report('diagnostic_journal_create');try{journal=await mkdtemp(path.join(tmpdir(),'yasoya-off-diagnostic-'));}catch(cause){throw worktreeFailure(stage,'DIAGNOSTIC_JOURNAL_CREATE_FAILED',cause);}
-  report('release_module_load');let recovery,routing;
+  report('release_module_load');let recovery,routing,placement;
   try{
    module=await import(pathToFileURL(path.join(source,'production/prepare-off-from-version.mjs')));
    diagnostic=await import(pathToFileURL(path.join(source,'production/release-diagnostics.mjs')));
    recovery=await import(pathToFileURL(path.join(source,'production/recover-live-version.mjs')));
    routing=await import(pathToFileURL(path.join(source,'production/asset-routing-evidence.mjs')));
+   placement=await import(pathToFileURL(path.join(source,'production/placement-evidence.mjs')));
   }catch(cause){throw worktreeFailure(stage,'RELEASE_MODULE_LOAD_FAILED',cause);}
   report('version_cache_location');const common=await realpath(path.resolve(await git(['rev-parse','--git-common-dir'])));
   if(common===tmpdir()||common.startsWith(tmpdir()+path.sep))throw Error('VERSION_PERSISTENT_CACHE_UNAVAILABLE');
   let reader;const get=async endpoint=>{reader??=await module.authenticatedMetadataReader();return reader(endpoint);};
   const {version:v,versionFile}=await recovery.recoverLiveVersion({cacheDirectory:path.join(common,'yasoya-release-private')},{get,inspect:module.inspectVersion,onStage:phase=>report(phase)});
   const assetEvidence=await routing.resolveAssetRouting(v,{cacheDirectory:path.join(common,'yasoya-release-private'),get,onStage:phase=>report(phase)});
+  const placementEvidence=await placement.resolvePlacementEvidence(v,{cacheDirectory:path.join(common,'yasoya-release-private'),get,onStage:phase=>report(phase)});
   report('previous_output_search');
   const profile=await newest('yasoya-off-from-version-','release/off.local.jsonc',async file=>routing.sameAssetRouting(JSON.parse(await readFile(file,'utf8')).assets,assetEvidence.proof));
   if(profile){
@@ -109,13 +111,14 @@ export async function diagnose(){
    if(receipt.rollbackVersion!==v.id)throw Error('RESUME_VERSION_MISMATCH');
    if(!isDeepStrictEqual(c.vars,module.inspectVersion(v).vars))throw Error('RESUME_VARIABLES_MISMATCH');
    await validateResumeRuntime(c,target,source);
-   report('wrangler_dry_run');await diagnostic.runOffDryRun(profile,path.join(journal,'dry-run'));
+   report('placement_profile_validate');const adjusted=await placement.prepareResumePlacement(profile,placementEvidence.proof,v);placementResolution={inputShape:adjusted.inputShape,versionShape:adjusted.versionShape,action:adjusted.action};report('placement_profile_validate','passed',placementResolution);
+   report('wrangler_dry_run');await diagnostic.runOffDryRun(adjusted.profile,path.join(journal,'dry-run'));
   }else{
    report('previous_metadata_search');const evidenceFile=await newest('yasoya-off-evidence-','evidence.json',async file=>JSON.parse(await readFile(file,'utf8')).versionId===v.id);
    const retained=evidenceFile??await newest('yasoya-off-from-version-','metadata.json',async file=>JSON.parse(await readFile(file,'utf8')).versionId===v.id);
-   await module.prepareFromVersion({versionFile,assetSettingsFile:assetEvidence.file,evidenceFile:retained,collect:!retained,assets:'/workspaces/yasoya-v60-csp/production/.generated/v53',dryRun:true},{get,onStage:phase=>report(phase)});
+   const prepared=await module.prepareFromVersion({versionFile,placementEvidenceFile:placementEvidence.file,assetSettingsFile:assetEvidence.file,evidenceFile:retained,collect:!retained,assets:'/workspaces/yasoya-v60-csp/production/.generated/v53',dryRun:true},{get,onStage:phase=>report(phase)});placementResolution=prepared.placementResolution;
   }
-  report('complete','passed',{exitCode:0});await writeFile(path.join(journal,'events.json'),JSON.stringify(events)+'\n',{mode:0o600});console.log(JSON.stringify({status:'SUCCESS',stage:'wrangler_dry_run',exitCode:0}));
+  report('complete','passed',{exitCode:0});await writeFile(path.join(journal,'events.json'),JSON.stringify(events)+'\n',{mode:0o600});console.log(JSON.stringify({status:'SUCCESS',stage:'wrangler_dry_run',exitCode:0,placement:placementResolution}));
  }catch(error){
   let safe=diagnostic?.safeReleaseDiagnostic(stage,error);
   // The preparer/runner supply a sanitized diagnostic. Unknown startup errors

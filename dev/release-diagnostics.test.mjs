@@ -104,3 +104,14 @@ test('configuration warnings alone are not treated as the cause of a later local
  const d=safeReleaseDiagnostic('wrangler_dry_run',{code:1,stderr:'[WARNING] Processing PRIVATE configuration:\nExpected "assets.directory" to be of type string but got "PRIVATE".\n[ERROR] Missing file or directory: PRIVATE/.wrangler'});
  assert(!d.rules.includes('WRANGLER_CONFIG_REJECTED'));assert(d.rules.includes('WRANGLER_LOCAL_CONFIG_DIRECTORY_MISSING'));assert(!d.wrangler);
 });
+test('resume removes only Version-confirmed empty placement into a private sibling, preserving original profile/assets and all settings',async t=>{
+ const {prepareResumePlacement,evidenceFromPlacementVersion}=await import('../production/placement-evidence.mjs');const f=await fixture(t),c=syntheticOffProfile(),v={id:'36ab2dba-dd44-4f39-bc69-6db729bd24d5'};c.placement={};await writeFile(f.profile,JSON.stringify(c));const original=await readFile(f.profile),proof=evidenceFromPlacementVersion({id:v.id},v);
+ const r=await prepareResumePlacement(f.profile,proof,v);assert.equal(r.action,'omit_version_confirmed_unconfigured');assert.notEqual(r.profile,f.profile);assert.equal(path.dirname(r.profile),path.dirname(f.profile));assert.deepEqual(await readFile(f.profile),original);
+ const next=JSON.parse(await readFile(r.profile,'utf8'));delete c.placement;assert.deepEqual(next,c);assert.equal((await lstat(r.profile)).mode&511,384);assert.equal((await prepareResumePlacement(f.profile,proof,v)).profile,r.profile);
+ await assert.rejects(()=>prepareResumePlacement(f.profile,evidenceFromPlacementVersion({id:v.id,placement:{mode:'smart'}},v),v),/PLACEMENT_EVIDENCE_CONFLICT/);
+});
+
+test('placement repair refuses inline credentials before creating a copy',async t=>{
+ const {prepareResumePlacement,evidenceFromPlacementVersion}=await import('../production/placement-evidence.mjs');const f=await fixture(t),c=syntheticOffProfile(),v={id:'36ab2dba-dd44-4f39-bc69-6db729bd24d5'};c.placement={};c.vars.SQUARE_ACCESS_TOKEN='PRIVATE_TOKEN';await writeFile(f.profile,JSON.stringify(c));
+ await assert.rejects(()=>prepareResumePlacement(f.profile,evidenceFromPlacementVersion({id:v.id},v),v),/UNSAFE_DRY_RUN_PROFILE/);assert.deepEqual(await readdir(f.dir),['off.local.jsonc']);
+});

@@ -183,3 +183,13 @@ test('D1-denied preparation reaches OFF dry-run without touching actual D1/DO/R2
  assert.deepEqual(receipt.assetRoutingEvidence,proof);assert.deepEqual(config.assets.run_worker_first,proof.config.run_worker_first);assert.equal(receipt.databaseEvidence.apiReadVerified,false);assert.equal(receipt.metadataReadFailures[0].http,401);assert.equal(config.d1_databases[0].database_name,'yasoya-orders');assert.equal(config.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(config.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.equal(config.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED,'0');assert.deepEqual(config.migrations,[]);
  assert.equal(await readFile(path.join(output,'release/site/images/current-only.bin'),'utf8'),'preserve-current-image');assert.equal(await readFile(path.join(assets,'images/current-only.bin'),'utf8'),'preserve-current-image');assert(!JSON.stringify(config).includes('SQUARE_ACCESS_TOKEN'));
 });
+test('empty Settings placement is omitted only when the same Version proves no placement; other config stays identical',async()=>{
+ const {evidenceFromPlacementVersion}=await import('../production/placement-evidence.mjs');const {v,e}=fixture(),before=profileFromEvidence(v,e,'/assets').config;
+ e.settings.placement={};assert.throws(()=>profileFromEvidence(v,e,'/assets'),/PLACEMENT_EVIDENCE_REQUIRED/);
+ e.placementEvidence=evidenceFromPlacementVersion({id:v.id},v);const after=profileFromEvidence(v,e,'/assets');assert.deepEqual(after.config,before);assert.equal(after.receipt.placementEvidence.versionShape,'absent');
+ e.placementEvidence=evidenceFromPlacementVersion({id:v.id,placement:{mode:'smart'}},v);assert.throws(()=>profileFromEvidence(v,e,'/assets'),/PLACEMENT_EVIDENCE_CONFLICT/);
+});
+test('targeted API placement is mapped into Wrangler form without touching bindings/flags',async()=>{
+ const {evidenceFromPlacementVersion}=await import('../production/placement-evidence.mjs');const {v,e}=fixture();e.settings.placement={mode:'targeted',target:[{host:'example.com:443'}]};e.placementEvidence=evidenceFromPlacementVersion({id:v.id,placement:{host:'example.com:443'}},v);
+ const c=profileFromEvidence(v,e,'/assets').config;assert.deepEqual(c.placement,{mode:'targeted',host:'example.com:443'});assert.equal(c.vars.PRODUCTION_CHECKOUT_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.deepEqual(c.migrations,[]);
+});

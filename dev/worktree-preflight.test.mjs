@@ -71,7 +71,7 @@ test('module loading errors are not conflated with worktree creation',()=>{
 });
 async function repoFixture(t){
  const dir=await mkdtemp(path.join(tmpdir(),'yasoya-worktree-test-')),repo=path.join(dir,'repo');t.after(()=>rm(dir,{recursive:true,force:true}));await exec('git',['init',repo]);const g=async(args,cwd=repo)=>(await exec('git',args,{cwd,encoding:'utf8'})).stdout.trim();await g(['config','user.name','Offline Test']);await g(['config','user.email','offline@example.invalid']);await g(['remote','add','origin','https://github.com/awaiaune/yasoyahonten.git']);await mkdir(path.join(repo,'production'));
- for(const name of ['asset-routing-evidence.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','recover-live-version.mjs','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs'])await writeFile(path.join(repo,'production',name),name==='release-diagnostics.mjs'?'export const safeReleaseDiagnostic=(stage,error)=>({stage,code:error.message});':'export {};');
+ for(const name of ['placement-evidence.mjs','asset-routing-evidence.mjs','prepare-off-from-version.mjs','release-diagnostics.mjs','recover-live-version.mjs','prepare-checkout-v58.mjs','prepare-off-live-assets.mjs'])await writeFile(path.join(repo,'production',name),name==='release-diagnostics.mjs'?'export const safeReleaseDiagnostic=(stage,error)=>({stage,code:error.message});':'export {};');
  await writeFile(path.join(repo,'production/confirmed-production-resources.json'),'{}');await writeFile(path.join(repo,'tracked.txt'),'original');await g(['add','.']);await g(['commit','-m','offline fixture']);const target=await g(['rev-parse','HEAD']);return {dir,repo,g,target};
 }
 test('real Git creates a detached source while preserving existing changes and local settings',async t=>{

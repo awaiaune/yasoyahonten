@@ -380,3 +380,28 @@ preview_urls. Two intentional real-CLI failures correctly reported
 These are regression fixtures, **not findings about the live settings**.
 No Production configuration key or value was changed. Real Codespaces dry-run
 and its exact rejected key remain unconfirmed until the updated launcher runs.
+
+## Evidence-gated placement normalization — 2026-11-08
+
+The real CLI reproduces `placement.mode / REQUIRED` for `placement: {}`.
+Copying `settings.placement` directly is not a safe serialization of that shape;
+the actual live input shape remains unknown in this executor. The launcher now
+reads placement from the exact active Version's Workers Versions GET and caches
+only a validated Worker/account/Version-bound placement proof (0700/0600).
+It compares this proof with Settings-derived input or the existing validated OFF
+profile. Only Version-confirmed unconfigured placement can omit an empty object.
+Smart/off/hint and single targeted region/host/hostname directives are retained;
+API `target` arrays must contain exactly one known target and flatten to Wrangler's
+explicit targeted form. Unknown keys, nulls and conflicts stop without value logs.
+
+Resume preserves the old profile and ASSETS. A changed serialization is written
+to a private, content-addressed sibling profile and reused on later runs; relative
+paths and all non-placement fields remain identical. Final success reports only
+input shape, Version shape and action, never target values. Cached Version,
+routing and D1 identity evidence continue through their existing safety guards.
+
+Validation: 107 targeted tests pass. Actual Wrangler 4.155.0 reproduces the empty
+object failure, then bundles seven synthetic cases successfully: confirmed empty,
+unspecified, smart, off, region, host and hostname. These are not live-setting
+results. Real Codespaces OFF dry-run still needs the updated launcher; no deploy,
+Production setting/data change or credential expiry diagnosis was performed.
