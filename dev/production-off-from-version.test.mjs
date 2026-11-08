@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {readFile,writeFile,mkdtemp,cp,rm,lstat,stat} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {evidenceFromVersionAPI} from '../production/asset-routing-evidence.mjs';
 import {identity,inspectVersion,profileFromEvidence,collectEvidence,apiReader,prepareFromVersion,confirmedDatabaseEvidence} from '../production/prepare-off-from-version.mjs';
 const root=new URL('../',import.meta.url),versionId='36ab2dba-dd44-4f39-bc69-6db729bd24d5';
 const clone=structuredClone;
@@ -39,7 +40,7 @@ for(const [label,mutate]of [
  ['unknown binding type',v=>v.resources.bindings.push({type:'unknown_new_api_type',name:'UNREVIEWED'})]
 ])test('fail closed: '+label,()=>{const {v,e}=fixture();mutate(v);assert.throws(()=>profileFromEvidence(v,e,'/assets'));});
 test('split rollout, unknown Worker and worker-first OFF stop',()=>{
- const {v,e}=fixture();for(const change of [{traffic:50},{activeVersionId:'other'},{worker:'another'},{assetConfig:{run_worker_first:false}}])assert.throws(()=>profileFromEvidence(v,{...e,...change},'/assets'));
+ const {v,e}=fixture();for(const change of [{traffic:50},{activeVersionId:'other'},{worker:'another'},{assetConfig:{run_worker_first:false}},{assetConfig:{run_worker_first:['/api/*']}}])assert.throws(()=>profileFromEvidence(v,{...e,...change},'/assets'));
 });
 function metadata(f){
  const a='/accounts/'+identity.account,w=a+'/workers/scripts/'+identity.worker;
@@ -71,7 +72,7 @@ test('manual asset evidence must match the same Worker/Version and cannot overri
  const dir=await mkdtemp(path.join(tmpdir(),'yasoya-version-asset-evidence-'));t.after(()=>rm(dir,{recursive:true,force:true}));const {v,e}=fixture(),versionFile=path.join(dir,'version.json'),evidenceFile=path.join(dir,'evidence.json'),assetSettingsFile=path.join(dir,'assets.json');await writeFile(versionFile,JSON.stringify(v));await writeFile(evidenceFile,JSON.stringify(e));
  await writeFile(assetSettingsFile,JSON.stringify({worker:identity.worker,versionId:'other',config:{run_worker_first:true}}));await assert.rejects(()=>prepareFromVersion({versionFile,evidenceFile,assetSettingsFile}),/EVIDENCE_IDENTITY_MISMATCH/);
  await writeFile(assetSettingsFile,JSON.stringify({worker:identity.worker,versionId:v.id,config:{run_worker_first:false}}));await assert.rejects(()=>prepareFromVersion({versionFile,evidenceFile,assetSettingsFile}),/EVIDENCE_CONFLICT/);
- delete e.assetConfig;await writeFile(evidenceFile,JSON.stringify(e));await writeFile(assetSettingsFile,JSON.stringify({worker:identity.worker,versionId:v.id,config:{run_worker_first:true}}));await assert.rejects(()=>prepareFromVersion({versionFile,evidenceFile,assetSettingsFile}),err=>err.missing.join(',')==='asset_directory');
+ delete e.assetConfig;await writeFile(evidenceFile,JSON.stringify(e));await writeFile(assetSettingsFile,JSON.stringify({worker:identity.worker,versionId:v.id,config:{run_worker_first:true},assetEvidenceSchema:1,account:identity.account,binding:'ASSETS',source:{kind:'dashboard_confirmation',screen:'Version-specific Assets',confirmedAt:'2026-11-08T00:00:00Z'}}));await assert.rejects(()=>prepareFromVersion({versionFile,evidenceFile,assetSettingsFile}),err=>err.missing.join(',')==='asset_directory');
 });
 test('private new OFF release, exact operational asset preservation, dry-run only and no original profile needed',async t=>{
  const dir=await mkdtemp(path.join(tmpdir(),'yasoya-version-release-'));t.after(()=>rm(dir,{recursive:true,force:true}));const f=fixture(),data=metadata(f),versionFile=path.join(dir,'version.json'),assets=path.join(dir,'current-assets'),output=path.join(dir,'release'),commands=[];
@@ -175,9 +176,10 @@ test('cached fallback provenance cannot be changed into a broader identity/read-
 test('D1-denied preparation reaches OFF dry-run without touching actual D1/DO/R2, source assets or Secrets',async t=>{
  const dir=await mkdtemp(path.join(tmpdir(),'yasoya-d1-denied-off-'));t.after(()=>rm(dir,{recursive:true,force:true}));const f=fixture(),data=metadata(f),versionFile=path.join(dir,'version.json'),assets=path.join(dir,'current-assets'),output=path.join(dir,'new-release'),commands=[];
  await writeFile(versionFile,JSON.stringify(f.v));await cp(new URL('production/.generated/v53/',root),assets,{recursive:true});await writeFile(path.join(assets,'images/current-only.bin'),'preserve-current-image');
- const result=await prepareFromVersion({versionFile,assets,output,collect:true,dryRun:true},{get:async p=>{if(p===d1Path)throw readError();return data.get(p);},run:async(cmd,args)=>{commands.push({cmd,args});return {stdout:'offline dry-run substitute',stderr:''};}});
+ const assetSettingsFile=path.join(dir,'routing.json');const proof=evidenceFromVersionAPI({id:f.v.id,assets:{config:f.e.assetConfig}},f.v);await writeFile(assetSettingsFile,JSON.stringify(proof));delete data.get('/accounts/'+identity.account+'/workers/scripts/'+identity.worker+'/settings').assets;
+ const result=await prepareFromVersion({versionFile,assetSettingsFile,assets,output,collect:true,dryRun:true},{get:async p=>{if(p===d1Path)throw readError();return data.get(p);},run:async(cmd,args)=>{commands.push({cmd,args});return {stdout:'offline dry-run substitute',stderr:''};}});
  assert.equal(result.dryRun,true);assert.equal(commands.length,1);assert(commands[0].args.includes('--dry-run'));assert(!commands[0].args.includes('--remote'));
  const receipt=JSON.parse(await readFile(path.join(output,'evidence.json'),'utf8')),config=JSON.parse(await readFile(path.join(output,'release/off.local.jsonc'),'utf8'));
- assert.equal(receipt.databaseEvidence.apiReadVerified,false);assert.equal(receipt.metadataReadFailures[0].http,401);assert.equal(config.d1_databases[0].database_name,'yasoya-orders');assert.equal(config.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(config.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.equal(config.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED,'0');assert.deepEqual(config.migrations,[]);
+ assert.deepEqual(receipt.assetRoutingEvidence,proof);assert.deepEqual(config.assets.run_worker_first,proof.config.run_worker_first);assert.equal(receipt.databaseEvidence.apiReadVerified,false);assert.equal(receipt.metadataReadFailures[0].http,401);assert.equal(config.d1_databases[0].database_name,'yasoya-orders');assert.equal(config.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(config.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.equal(config.vars.PRODUCTION_MANAGED_CHECKOUT_ENABLED,'0');assert.deepEqual(config.migrations,[]);
  assert.equal(await readFile(path.join(output,'release/site/images/current-only.bin'),'utf8'),'preserve-current-image');assert.equal(await readFile(path.join(assets,'images/current-only.bin'),'utf8'),'preserve-current-image');assert(!JSON.stringify(config).includes('SQUARE_ACCESS_TOKEN'));
 });

@@ -1,3 +1,4 @@
+import {validateAssetEvidence} from './asset-routing-evidence.mjs';
 // Release preparation only. No historical profile, remote mutations or deploy.
 import {readFile,writeFile,mkdtemp,mkdir,lstat,realpath} from 'node:fs/promises';
 import {execFile} from 'node:child_process';
@@ -80,7 +81,7 @@ export function profileFromEvidence(v,e,assetDirectory){
  if(!Array.isArray(e.schedules))missing.push('schedules');
  // Version APIs can omit asset routing. Missing is not equivalent to defaults.
  const assetConfig=e.assetConfig??v.resources.assets?.config;
- if(typeof assetConfig?.run_worker_first!=='boolean')missing.push('asset_routing');
+ if(!assetConfig||!Object.hasOwn(assetConfig,'run_worker_first'))missing.push('asset_routing');
  if(!assetDirectory)missing.push('asset_directory');
  for(const failure of e.metadataFailures||[]){
   const resolved=failure.field==='database_name'&&e.databaseEvidence?.method==='dashboard_confirmation_and_live_version_binding'&&same(failure,e.databaseEvidence.failedRead);
@@ -112,7 +113,7 @@ export function profileFromEvidence(v,e,assetDirectory){
   const fields={PRODUCTION_IDENTITY_INVALID:['RUNTIME_TIER','SQUARE_ENVIRONMENT','SQUARE_LOCATION_ID','PRODUCTION_WORKER_NAME','PRODUCTION_PURCHASE_PROTOCOL','SITE_URL'],EXISTING_CUSTOM_DOMAIN_REQUIRED:['routes'],EXISTING_MANAGEMENT_REQUIRED:['MANAGEMENT_ENABLED','PRODUCTION_MANAGEMENT_SCHEMA_READY','PRODUCTION_MANAGEMENT_READ_ENABLED','PRODUCTION_STOREFRONT_ENABLED'],SALES_VERIFICATION_PROFILE_REQUIRED:['PRODUCTION_UNIFIED_PUBLISH_ENABLED','PRODUCTION_STOREFRONT_PUBLISH_ENABLED'],EXISTING_INVENTORY_APPROVAL_REQUIRED:['PRODUCTION_INVENTORY_WRITER_APPROVAL'],CATALOG_INVENTORY_OR_RETIREMENT_GUARD_INVALID:['PRODUCTION_MANAGEMENT_CATALOG_ENABLED','PRODUCTION_MANAGEMENT_INVENTORY_ENABLED','STOREFRONT_RETIRE_GOLDENROD']};
   err.fields=fields[err.message];throw err;
  }
- return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus explicit metadata provenance',databaseEvidence:e.databaseEvidence??{method:'supplied_metadata',apiReadVerified:false},metadataReadFailures:e.metadataFailures||[],assetSourceVerification:'Known live file hashes and unchanged local copy only; complete live ASSETS identity is not established by this preparation.'}};
+ return {config:c,receipt:{worker:identity.worker,rollbackVersion:v.id,secretNames:secrets,namespaceId:identity.namespace,migrationIntent:'none; existing namespace retained',source:'live version bindings plus explicit metadata provenance',databaseEvidence:e.databaseEvidence??{method:'supplied_metadata',apiReadVerified:false},metadataReadFailures:e.metadataFailures||[],assetRoutingEvidence:e.assetRoutingEvidence??null,assetSourceVerification:'Known live file hashes and unchanged local copy only; complete live ASSETS identity is not established by this preparation.'}};
 }
 
 // Only GET requests to these fixed Cloudflare metadata endpoints. The collector
@@ -209,14 +210,14 @@ const acquisition={
  namespace:'GET workers/durable_objects/namespaces/'+identity.namespace+' (--collect)',
  domains:'GET workers/domains?service=yasoya-honten-payments (--collect); this required read cannot use the D1 identity fallback.',
  schedules:'GET workers/scripts/yasoya-honten-payments/schedules (--collect)',
- asset_routing:'GET workers/scripts/yasoya-honten-payments/settings (--collect). If omitted by API, export the CURRENT asset routing settings (run_worker_first and any explicitly configured html_handling/not_found_handling/base_path) to a private JSON file and pass --asset-settings FILE. Do not use historical ready.jsonc.',
+ asset_routing:'Run diagnose-off-release.mjs: GET workers/workers/yasoya-honten-payments/versions/{activeVersion} returns version-bound assets.config. Reuse private version-bound routing evidence, or check matching deployment receipts in the three existing Codespaces roots. No defaults or historical ready.jsonc.',
  asset_directory:'Version JSON has no local asset path or image bytes. Locate the directory used for the current release (find /workspaces -type d -path \'*/production/.generated/v53\' -not -path \'*/node_modules/*\'). Do not select a freshly rebuilt candidate directory. Pass --assets DIRECTORY for the existing operational ASSETS directory; the script checks known live HTML/cart hashes and preserves its images/product/admin files. The uploaded 20-file ZIP is not a full ASSETS directory.'
 };
 async function prepareImplementation({versionFile,evidenceFile,assetSettingsFile,assets,output,collect=false,dryRun=false},deps={},stage){
  stage('version_json_read');
  const v=unwrapCachedVersion(JSON.parse(await readFile(versionFile,'utf8')));stage('version_validate');inspectVersion(v);
  let e;if(collect){stage('authentication');const get=deps.get??await authenticatedMetadataReader();stage('metadata_collect');e=await collectEvidence(v,get);}else if(evidenceFile){stage('evidence_read');e=JSON.parse(await readFile(evidenceFile,'utf8'));}else needs(['routes','subdomain','database_name','namespace','schedules','asset_routing',...(!assets?['asset_directory']:[])]);
- if(assetSettingsFile){stage('asset_settings_read');const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');e.assetConfig=manual.config;}
+ if(assetSettingsFile){stage('asset_settings_read');const manual=JSON.parse(await readFile(assetSettingsFile,'utf8'));if(manual.versionId!==v.id||manual.worker!==identity.worker)fail('ASSET_SETTINGS_EVIDENCE_IDENTITY_MISMATCH');if(e.assetConfig&&!same(e.assetConfig,manual.config))fail('ASSET_SETTINGS_EVIDENCE_CONFLICT');validateAssetEvidence(manual,v);e.assetConfig=manual.config;e.assetRoutingEvidence=manual;}
  let prepared;
  try{stage('asset_directory_resolve');const assetDirectory=assets?await realpath(assets):undefined;stage('profile_validate');prepared=profileFromEvidence(v,e,assetDirectory);}catch(err){
   err.metadataReadFailures=e.metadataFailures||[];

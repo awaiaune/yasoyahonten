@@ -327,3 +327,35 @@ OFF generation test preserve the exact Wrangler database_id and all four flags.
 External metadata and Wrangler dispatch in these tests are substitutes; three
 Worker bundles built locally. Actual Codespaces Production OFF dry-run remains
 unverified until the updated diagnostic command succeeds there.
+
+## Version-bound Assets routing — 2026-11-08
+
+The scripts Versions endpoint does not document Assets routing in its Version
+resources. The official Workers Beta Versions GET does expose `assets.config`:
+`GET /accounts/{account}/workers/workers/{worker-name}/versions/{version-id}`.
+Reference: Cloudflare's official `cloudflare-typescript` SDK,
+`src/resources/workers/beta/workers/versions.ts` (`VersionGetParams`, `Assets.Config`).
+The Worker identifier accepts its name. No `include=modules` is requested.
+
+The diagnostic now reads this endpoint for the already validated sole active
+Version, verifies the ASSETS binding, and saves **only** the four routing fields
+and account/Worker/Version/source provenance to the Git common directory's
+`yasoya-release-private/asset-routing-{version-id}.json` (directory 0700, file
+0600). Upload JWTs, authors, raw API responses and Secret values are not saved.
+The active deployment is checked before writing new evidence; normal Version
+recovery checks it before cached evidence reuse. Unknown routing fields, identity
+conflicts and live-Version changes stop. `run_worker_first` is never inferred;
+false/scoped rules remain rejected by the existing Worker-first release policy.
+
+If the API does not expose routing, search only existing production/.wrangler/
+dev/.state records in the three specified Codespaces projects. A plain config,
+stock Wrangler deploy JSON, or the public 19-file match is not routing proof.
+A matching successful deployment must contain its uploaded routing or bind the
+captured config bytes with a matching SHA-256; historical ready.jsonc is excluded.
+Conflicting records stop. If no proof exists, report the GET status/code and
+record-search counts plus one grouped Dashboard checklist. No defaults are added.
+
+Existing metadata and D1 identity fallback remain unchanged. A prior OFF profile
+is resumed only if its routing exactly matches this evidence; otherwise it is
+preserved and a new OFF profile is prepared. Actual Production OFF dry-run is
+unconfirmed until the updated diagnostic succeeds in the authenticated Codespace.
