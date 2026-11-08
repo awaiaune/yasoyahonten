@@ -33,7 +33,7 @@ async function fixture(t){
  return {dir,root,output,bundle,v,e,c,get,calls,versionFile,setDeployed:()=>{deployed=true;}};
 }
 
-import {recoverOffRelease,discoverReleaseRoots,selectOperationalAssets} from '../production/recover-off-release.mjs';
+import {recoverOffRelease,discoverReleaseRoots,selectOperationalAssets,validateAssetSourceRoot,validateExistingAssets} from '../production/recover-off-release.mjs';
 async function recoveryFixture(t){
  const f=await fixture(t),cache=path.join(f.dir,'private'),temp=path.join(f.dir,'empty-tmp');await mkdir(cache,{mode:0o700});await mkdir(temp,{mode:0o700});
  const get=async p=>p.includes('/workers/workers/')?{id:ROLLBACK,assets:{config:{run_worker_first:true}}}:f.get(p);
@@ -69,3 +69,26 @@ test('regeneration transport refuses a non-dry-run command',async t=>{const f=aw
 test('a changed active Version stops before any artifact rebuild',async t=>{const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:p=>p.includes('/deployments?')?{deployments:[{versions:[{version_id:'changed',percentage:100}]}]}:f.get(p),runBuild:()=>assert.fail()}),/LIVE_VERSION_CHANGED/);});
 
 test('invalid persistent-cache permissions stop before authentication or regeneration',async t=>{const f=await recoveryFixture(t);await chmod(f.cache,0o755);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:()=>assert.fail('must stop before metadata')}),/RECOVERY_PRIVATE_ROOT_UNSAFE/);assert.equal((await stat(f.cache)).mode&0o777,0o755);});
+
+test('asset source metadata accepts readable working-tree ownership/modes but rejects links and non-directories',()=>{
+ const info=(uid,mode,link=false,dir=true)=>({uid,mode,isSymbolicLink:()=>link,isDirectory:()=>dir});
+ for(const s of [info(process.getuid(),0o775),info(process.getuid()+10,0o755),info(process.getuid()+10,0o775)])assert.doesNotThrow(()=>validateAssetSourceRoot(s));
+ for(const s of [info(process.getuid(),0o755,true),info(process.getuid(),0o644,false,false)])assert.throws(()=>validateAssetSourceRoot(s),/OPERATIONAL_ASSET_DIRECTORY_UNSAFE/);
+});
+test('asset source rejects root/nested links and special files without reading them',async t=>{
+ const f=await recoveryFixture(t),assets=f.options.operationalAssets,link=path.join(f.dir,'assets-link');await symlink(assets,link);await assert.rejects(()=>validateExistingAssets(link,inventory),/OPERATIONAL_ASSET_DIRECTORY_UNSAFE/);
+ const nested=path.join(assets,'unsafe-link');await symlink(f.versionFile,nested);await assert.rejects(()=>validateExistingAssets(assets,inventory),/ARTIFACT_LINK_REJECTED/);await rm(nested);
+ await exec('mkfifo',[path.join(assets,'unsafe-fifo')]);await assert.rejects(()=>validateExistingAssets(assets,inventory),/ARTIFACT_SPECIAL_FILE_REJECTED/);
+});
+test('asset source changes during assembly stop before freezing',async t=>{
+ const f=await recoveryFixture(t);await assert.rejects(()=>recoverOffRelease(f.options,f.ops,{get:f.get,loadPreparer:async()=>({prepareFromVersion:async(o)=>{await cp(f.root,o.output,{recursive:true});await writeFile(path.join(f.options.operationalAssets,'unexpected-added.txt'),'changed');return {directory:o.output,dryRun:true};}})}),/OPERATIONAL_ASSETS_CHANGED_DURING_PREPARATION/);
+});
+test('group-writable asset source survives real Wrangler dry-run unchanged; frozen copies remain private and tamper-detecting',async t=>{
+ const f=await recoveryFixture(t),assets=f.options.operationalAssets,css=path.join(assets,'css/checkout.css'),configHome=path.join(f.dir,'config');await mkdir(configHome);await chmod(assets,0o775);await chmod(css,0o664);const before=await inventory(assets);
+ const result=await recoverOffRelease(f.options,f.ops,{get:f.get,runBuild:async(cmd,args,opts)=>{const options={...opts,env:{...opts.env,XDG_CONFIG_HOME:configHome}};return process.env.YASOYA_TEST_WRANGLER_JS?exec(process.execPath,[process.env.YASOYA_TEST_WRANGLER_JS,...args.slice(2)],options):exec(cmd,args,options);}});
+ assert.equal(result.status,'PREPARED_NOT_DEPLOYED');assert.deepEqual(await inventory(assets),before);assert.equal((await stat(assets)).mode&0o777,0o775);assert.equal((await stat(css)).mode&0o777,0o664);
+ assert.equal((await stat(result.assets)).mode&0o777,0o700);assert.equal((await stat(path.join(result.assets,'css/checkout.css'))).mode&0o777,0o600);
+ const copied=await inventory(result.assets);for(const [file,digest]of Object.entries(before))if(file!=='js/checkout-v1.js')assert.equal(copied[file],digest);
+ const c=JSON.parse(await readFile(result.config,'utf8'));assert.equal(c.vars.PRODUCTION_CHECKOUT_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_CATALOG_ENABLED,'0');assert.equal(c.vars.PRODUCTION_MANAGEMENT_INVENTORY_ENABLED,'1');assert.deepEqual(c.migrations,[]);
+ await writeFile(path.join(result.assets,'css/checkout.css'),'tampered');await assert.rejects(()=>inspectPreparedPacket(result.manifest,result.manifestSha256,f.get),/FROZEN_ARTIFACT_CHANGED/);
+});

@@ -26,7 +26,7 @@ export function validateDiscoveryRoot(info,{shared=false,uid=process.getuid?.()}
 function validateOwned(info,kind){if(info.isSymbolicLink()||process.getuid&&info.uid!==process.getuid()||info.mode&0o022||kind==='dir'&&!info.isDirectory()||kind==='file'&&!info.isFile())stop('RECOVERY_PATH_UNSAFE');return info;}
 async function owned(p,kind){return validateOwned(await lstat(p),kind);}
 async function privateDir(p){await mkdir(p,{recursive:true,mode:0o700});const info=await owned(p,'dir');if((info.mode&0o7777)!==0o700)stop('RECOVERY_PRIVATE_ROOT_UNSAFE');}
-async function secureTree(p){const info=await lstat(p);if(info.isSymbolicLink()&&path.basename(p)==='wrangler-discard.log'&&await realpath(p)==='/dev/null')return;await owned(p,info.isDirectory()?'dir':'file');await chmod(p,info.isDirectory()?0o700:0o600);if(info.isDirectory())for(const n of await readdir(p))await secureTree(path.join(p,n));}
+async function secureTree(p){const info=await lstat(p);if(info.isSymbolicLink()&&path.basename(p)==='wrangler-discard.log'&&await realpath(p)==='/dev/null')return;if(info.isSymbolicLink()||!info.isDirectory()&&!info.isFile()||process.getuid&&info.uid!==process.getuid())stop('RECOVERY_PATH_UNSAFE');await chmod(p,info.isDirectory()?0o700:0o600);if(info.isDirectory())for(const n of await readdir(p))await secureTree(path.join(p,n));}
 async function writePrivate(p,data){await writeFile(p,JSON.stringify(data,null,2)+'\n',{mode:0o600,flag:'wx'});await chmod(p,0o600);}
 async function optional(p){try{await owned(p,'file');return await json(p);}catch(e){if(e.code==='ENOENT')return null;throw e;}}
 async function childDirs(root,prefix,{shared=false,missingIsError=false,io={lstat,readdir}}={}){
@@ -57,8 +57,11 @@ async function remember(cache,result){
  try{await writePrivate(temp,{schema:1,worker:identity.worker,releaseSha:result.releaseSha,manifest:result.manifest,manifestSha256:result.manifestSha256});await rename(temp,pointer);}finally{try{await unlink(temp);}catch(e){if(e.code!=='ENOENT')throw e;}}
 }
 function descriptor(m){return m?.schema===1&&m.worker===identity.worker;}
+// Read-only operational inputs need readable ordinary files, not private-output
+// ownership/modes. Known content and the full copy are verified independently.
+export function validateAssetSourceRoot(info){if(info.isSymbolicLink()||!info.isDirectory())stop('OPERATIONAL_ASSET_DIRECTORY_UNSAFE');}
 export async function validateExistingAssets(dir,inventory){
- await owned(dir,'dir');const manifest=await json(path.join(here,'live-design-manifest.json')),tree=await inventory(dir);
+ validateAssetSourceRoot(await lstat(dir));const manifest=await json(path.join(here,'live-design-manifest.json')),tree=await inventory(dir);
  for(const [name,digest]of Object.entries({...manifest.exactLiveFiles,'index.html':manifest.homepageTemplateSha256}))if(tree[name]!==digest)stop('OPERATIONAL_ASSET_HASH_MISMATCH');
  if((await readFile(path.join(dir,'js/store-config.js'),'utf8'))!=='throw new Error("Production runtime configuration must be served by the Worker");')stop('DYNAMIC_STORE_CONFIG_STUB_REQUIRED');
  return {directory:dir,tree,sha256:hash(JSON.stringify(tree)),scope:'operator-confirmed operational directory / known live hashes / full local copy; not a full remote ASSETS parity claim'};
@@ -134,6 +137,7 @@ export async function recoverOffRelease(options,ops,deps={}){
  const run=async(cmd,args,opts)=>{if(cmd!=='npx'||args[1]!=='wrangler@4.155.0'||!args.includes('--dry-run')||args.some(a=>['--var','--env','--secrets-file'].includes(a)))stop('UNSAFE_REBUILD_COMMAND');return (deps.runBuild??exec)(cmd,[...args,'--upload-source-maps'],opts);};
  stage('regeneration_dry_run');const build=await pinned.prepareFromVersion({versionFile:path.join(state,'version.json'),evidenceFile:path.join(state,'metadata.json'),assetSettingsFile:path.join(state,'routing.json'),placementEvidenceFile:path.join(state,'placement.json'),assets:asset.directory,output,dryRun:true},{get,run});
  if(build.dryRun!==true||path.resolve(build.directory)!==path.resolve(output))stop('REBUILD_SUCCESS_RECORD_INVALID');
+ if(!same((await json(path.join(output,'release/assembly.json'))).assetSha256,asset.tree)||!same(await ops.inventory(asset.directory),asset.tree))stop('OPERATIONAL_ASSETS_CHANGED_DURING_PREPARATION');
  await writePrivate(path.join(output,'metadata.json'),e);await secureTree(output); // collect=false: old pinned preparer does not save this itself.
  const origin={kind:'regenerated_fixed_source',sourceSha:ops.SOURCE_SHA,wranglerVersion:'4.155.0',sourceMapRequested:true,temporarySearch:found.temporarySearch,previousBundleComparison:'unavailable; past input artifacts were not reused',assetsSource:asset.source,assetsFingerprint:asset.sha256,assetIdentityScope:asset.scope};
  stage('freeze_regenerated_artifacts');const result=await ops.preparePrebuilt({root:output,repository},{get,artifactOrigin:origin});await remember(cache,result);return {...result,recovery:{mode:'regenerated_fixed_source',regenerated:true,previousBundleComparison:'unavailable',rejectedArtifacts:rejected,temporarySearch:found.temporarySearch}};
