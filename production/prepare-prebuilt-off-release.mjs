@@ -76,7 +76,7 @@ async function liveMatches(get,v,e,c){
  if(!same(comparable(profileFromEvidence(v,next,c.assets.directory).config),comparable(c)))stop('LIVE_CONFIGURATION_CHANGED');
  // Keep the historical D1 identity/read-failure proof. Do not retry the denied
  // D1 endpoint, query customer data, recover a payment, or touch Square.
- return rollback;
+ return {rollback,evidence:next};
 }
 export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(),output},deps={}){
  phase='repository';const remote=await git(['remote','get-url','origin'],repository);if(!/^(?:https:\/\/github\.com\/|git@github\.com:)awaiaune\/yasoyahonten(?:\.git)?$/.test(remote))stop('REPOSITORY_MISMATCH');
@@ -93,9 +93,9 @@ export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(
  const routing=receipt.assetRoutingEvidence??await json(path.join(cache,'asset-routing-'+ROLLBACK+'.json'));validateAssetEvidence(routing,v);if(!sameAssetRouting(c.assets,routing))stop('ASSET_ROUTING_MISMATCH');
  const placement=receipt.placementEvidence??await json(path.join(cache,'placement-'+ROLLBACK+'.json'));validatePlacementEvidence(placement,v);
  phase='saved_metadata';let e;const metadataFiles=[deps.metadataFile??path.join(root,'metadata.json')];if(!deps.metadataFile){for(const d of await readdir('/tmp',{withFileTypes:true}))if(d.isDirectory()&&d.name.startsWith('yasoya-off-evidence-'))metadataFiles.push(path.join('/tmp',d.name,'evidence.json'));}
- for(const file of metadataFiles){try{const candidate=await json(file);if(candidate.account===identity.account&&candidate.worker===identity.worker&&candidate.versionId===ROLLBACK){e=candidate;break;}}catch(err){if(file===metadataFiles[0]&&err.code!=='ENOENT')throw err;}}if(!e)stop('MATCHING_LOCAL_METADATA_REQUIRED');
- e.assetConfig=routing.config;e.assetRoutingEvidence=routing;e.placementEvidence=placement;
- if(!same(comparable(profileFromEvidence(v,e,assets).config),comparable(c)))stop('OFF_CONFIG_METADATA_MISMATCH');
+ for(const file of metadataFiles){try{const candidate=await json(file);if(candidate.account!==identity.account||candidate.worker!==identity.worker||candidate.versionId!==ROLLBACK)continue;candidate.assetConfig=routing.config;candidate.assetRoutingEvidence=routing;candidate.placementEvidence=placement;
+   if(!same(comparable(profileFromEvidence(v,candidate,assets).config),comparable(c))){if(file===metadataFiles[0])stop('OFF_CONFIG_METADATA_MISMATCH');continue;}e=candidate;break;
+  }catch(err){if(file===metadataFiles[0]&&err.code!=='ENOENT')throw err;}}
  phase='asset_manifest';const assembly=await json(path.join(root,'release/assembly.json')),tree=await inventory(assets);
  if(assembly.mode!=='OFF'||!same(assembly.changedAssets,['js/checkout-v1.js'])||!same(Object.keys(tree).sort(),Object.keys(assembly.assetSha256).sort()))stop('ASSET_MANIFEST_MISMATCH');
  for(const [file,digest]of Object.entries(tree)){
@@ -104,7 +104,15 @@ export async function preparePrebuilt({root=DEFAULT_ROOT,repository=process.cwd(
  }
  phase='private_output';if(output&&(path.resolve(output)===path.resolve(root)||path.resolve(output).startsWith(path.resolve(root)+path.sep)||path.resolve(root).startsWith(path.resolve(output)+path.sep)))stop('OUTPUT_OVERLAPS_INPUT');
  if(output){try{await lstat(output);stop('OUTPUT_EXISTS');}catch(e){if(e.code!=='ENOENT')throw e;}await privateDir(output);}else{await privateDir(cache);output=await mkdtemp(path.join(cache,'prebuilt-off-'));await chmod(output,0o700);}
- await privateDir(path.join(output,'runtime'));const connection=deps.get?{get:deps.get}:await reader(path.join(output,'runtime'));const rollback=await liveMatches(connection.get,v,e,c);
+ await privateDir(path.join(output,'runtime'));phase='authentication_read';const connection=deps.get?{get:deps.get}:await reader(path.join(output,'runtime'));
+ if(!e){
+  phase='namespace_metadata';const namespace=await connection.get(`/accounts/${identity.account}/workers/durable_objects/namespaces/${identity.namespace}`);
+  if(!receipt.databaseEvidence)stop('RECORDED_DATABASE_EVIDENCE_REQUIRED');
+  e={account:identity.account,worker:identity.worker,versionId:ROLLBACK,database:{uuid:identity.database,name:'yasoya-orders'},databaseEvidence:receipt.databaseEvidence,namespace,
+   metadataFailures:receipt.databaseEvidence.failedRead?[receipt.databaseEvidence.failedRead]:[],assetConfig:routing.config,assetRoutingEvidence:routing,placementEvidence:placement,
+   localEvidenceReconstruction:{databaseNameSource:'production/confirmed-production-resources.json: user Dashboard identity confirmation plus exact Version binding',namespaceSource:'Cloudflare namespace metadata GET',scope:'current settings/routes fetched next; D1 API not retested'}};
+ }
+ const observed=await liveMatches(connection.get,v,e,c),rollback=observed.rollback;e=observed.evidence;
  phase='freeze_artifacts';await copyPrivate(path.dirname(bundle),path.join(output,'bundle'));await copyPrivate(assets,path.join(output,'site'));
  const frozen=structuredClone(c);frozen.main=path.join(output,'bundle/storefront-worker.js');frozen.assets.directory=path.join(output,'site');frozen.no_bundle=true;frozen.find_additional_modules=false;
  await save(path.join(output,'off.deploy.jsonc'),frozen);await save(path.join(output,'version.json'),v);await save(path.join(output,'metadata.json'),e);await save(path.join(output,'original-off.json'),c);await save(path.join(output,'rollback.json'),rollback);
@@ -123,7 +131,7 @@ export async function deployPrepared(manifestFile,approved,deps={}){
  phase='frozen_artifacts';await verifyPayload();try{await lstat(path.join(directory,'deploy-started.json'));stop('PREVIOUS_DEPLOY_REQUIRES_REVIEW');}catch(e){if(e.code!=='ENOENT')throw e;}
  const v=validatedVersion(await json(path.join(directory,'version.json')),inspectVersion),e=await json(path.join(directory,'metadata.json')),original=await checkProfile(path.join(directory,'original-off.json'),'off'),c=await json(path.join(directory,'off.deploy.jsonc'));assertProfile(c);
  const expected={...original,main:path.join(directory,'bundle/storefront-worker.js'),assets:{...original.assets,directory:path.join(directory,'site')},no_bundle:true,find_additional_modules:false};if(!same(expected,c))stop('DEPLOY_CONFIG_CHANGED');
- const connection=deps.get?{get:deps.get,env:process.env}:await reader(path.join(directory,'runtime')),rollback=await liveMatches(connection.get,v,e,original);await verifyPayload();
+ phase='authentication_read';const connection=deps.get?{get:deps.get,env:process.env}:await reader(path.join(directory,'runtime')),observed=await liveMatches(connection.get,v,e,original),rollback=observed.rollback;await verifyPayload();
  // Save the last read-only check and an exclusive one-shot marker before upload.
  phase='publication';await save(path.join(directory,'deploy-started.json'),{worker:identity.worker,rollback,startedAt:new Date().toISOString()});
  try{await (deps.run??exec)('npx',['--yes','wrangler@4.155.0','deploy','--config',path.join(directory,'off.deploy.jsonc'),'--name',identity.worker,'--no-bundle'],{cwd:directory,env:connection.env,encoding:'utf8',timeout:180000,maxBuffer:8*1024*1024});}catch{stop('DEPLOY_RESULT_REQUIRES_READONLY_REVIEW');}

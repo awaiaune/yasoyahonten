@@ -429,5 +429,11 @@ Version, records a one-shot marker, then uses the packet's pinned config and
 `--no-bundle`. Upload/result uncertainty stops and never auto-repeats publication.
 All raw CLI/auth output is captured only in memory; native debug logging is sunk
 to `/dev/null`. No SQL, Square, R2-data, DO initialization or checkout-ON action
-is included. Ten focused synthetic tests passed; real Codespaces preparation
+is included. Eleven focused synthetic tests passed; real Codespaces preparation
 and its bundle hash remain unconfirmed until `--prepare` runs there.
+
+If the temporary metadata JSON has disappeared, the preparer reads current
+settings/routes/schedules and namespace metadata, retaining the recorded D1
+identity evidence and the Dashboard-confirmed database name with exact Version
+binding matching. It records this reconstruction explicitly and does not retry
+the denied D1 endpoint or invent routing, placement, bindings or namespace state.
