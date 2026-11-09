@@ -1,0 +1,47 @@
+diff --git a/admin/index.html b/admin/index.html
+--- a/admin/index.html
++++ b/admin/index.html
+@@ -44,6 +44,10 @@
+           <h3>不成立の決済の診断</h3>
+           <p id="paymentFailuresMessage" class="message" role="status" aria-live="polite">未確認</p>
+           <ul id="paymentFailuresList" class="payment-attempt-list" aria-label="不成立の決済試行"></ul>
++          <h3>決済段階の診断履歴</h3>
++          <p class="hint">最大7日・直近200試行。ブラウザ報告は決済成立の証拠ではありません。欠落は未確認として扱います。</p>
++          <p id="paymentTraceMessage" role="status">未確認</p>
++          <div id="paymentTraceList" class="payment-attempt-list"></div>
+         </section>
+       </section>
+       <section id="ordersPanel" class="screen" hidden aria-labelledby="ordersTitle">
+diff --git a/js/admin.js b/js/admin.js
+index ce03b75..c98b3bd 100644
+--- a/js/admin.js
++++ b/js/admin.js
+@@ -115,7 +115,7 @@
+     message('paymentAttemptsMessage', '未確認：確認しています…', 'loading');
+     if($('paymentFailuresMessage'))message('paymentFailuresMessage','未確認：確認しています…','loading');
+     try {
+-      const result = await data('/api/admin/payment-attempts?include_failed=1', {
++      const result = await data('/api/admin/payment-attempts?include_failed=1&include_diagnostics=1', {
+         method:'GET', cache:'no-store', credentials:'same-origin', redirect:'manual', signal:AbortSignal.timeout(10000)
+       });
+       if (!Array.isArray(result?.attempts) || result.attempts.some(r => !r || typeof r !== 'object' || Array.isArray(r))) throw Error('Invalid response');
+@@ -134,10 +134,19 @@
+           message('paymentFailuresMessage',`不成立の決済：${result.failures.length}件（確認時点）。この一覧から再決済・復旧は実行しません。`);
+         }else message('paymentFailuresMessage','未確認：現在のAPIから不成立の診断履歴を取得できません。','error');
+       }
++      if($('paymentTraceList')){
++        const stages={pay_click:'PAY NOW押下',sdk_start:'SDK本人認証開始',sdk_ok:'SDKトークン化完了（決済未確定）',sdk_failed:'SDK認証失敗・中断',csp_blocked:'CSP遮断検出',payment_dispatch:'購入API送信開始',square_send:'Square決済要求開始',square_response:'Square応答受信',square_unknown:'Square応答未確認',payment_paid:'決済成立を照合',payment_declined:'決済不成立を照合',payment_unknown:'決済結果未確定',inventory_applied:'在庫反映済み',inventory_pending:'在庫反映未完了',order_stored:'注文保存済み',order_pending:'注文保存未完了',mail_state:'メール受付状態'};
++        const mail={unrecorded:'未記録',pending:'待機',unknown:'受付不明',accepted:'受付済み（配信未確認）',delivered:'配信済み',manual_review:'要確認'};
++        const traceDate=ms=>Number.isFinite(ms)&&ms>0&&ms<8640000000000000?date(new Date(ms).toISOString()):'未確認';
++        const traces=Array.isArray(result.diagnostics)?result.diagnostics:[];
++        $('paymentTraceMessage').textContent=Array.isArray(result.diagnostics)?`診断 ${traces.length}試行（取得できない段階は未確認）`:'未確認：このAPIでは診断履歴を取得できません。';
++        $('paymentTraceList').innerHTML=traces.slice(0,200).map((r,i)=>`<details class="management-card"><summary>試行 ${i+1} ／ ${esc(traceDate(r.createdAt))}</summary><p>試行ID：${esc(/^[a-f0-9-]{36}$/i.test(r.attemptId||'')?r.attemptId:'未確認')}</p><ol>${(Array.isArray(r.events)?r.events:[]).slice(0,64).filter(e=>Object.hasOwn(stages,e.stage)).map(e=>`<li>${esc(traceDate(e.at))}：${esc(stages[e.stage])}（${e.source==='server'?'サーバー記録':'ブラウザ報告・未検証'}）${typeof e.activation==='boolean'?' ／ 操作有効：'+(e.activation?'あり':'なし'):''}${['frame-src','child-src','form-action','connect-src','script-src','script-src-elem','font-src'].includes(e.directive)?' ／ '+esc(e.directive):''}${Number.isInteger(e.httpStatus)&&e.httpStatus>=100&&e.httpStatus<=599?' ／ HTTP '+e.httpStatus:''}${typeof e.requestId==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(e.requestId)?' ／ Request ID：'+esc(e.requestId):''}${Array.isArray(e.codes)?' ／ '+esc(e.codes.filter(c=>diagnosticCodes.has(c)).join('・')):''}${e.stage==='mail_state'?' ／ 管理者：'+esc(mail[e.admin]||'未確認')+'・購入者：'+esc(mail[e.customer]||'未確認'):''}</li>`).join('')}</ol></details>`).join('');
++      }
+       message('paymentAttemptsMessage', `未解決の決済試行：${result.attempts.length}件（確認時点）。` +
+         (result.attempts.length ? ' 再決済してよいか、この一覧だけでは判断できません。再購入せず、試行IDと在庫保留を維持して照合してください。' : ' 購入受付の再開可否は別途確認してください。'), result.attempts.length ? 'error' : 'success');
+     } catch {
+       list.innerHTML = ''; if(failures)failures.innerHTML='';
++      if($('paymentTraceList'))$('paymentTraceList').innerHTML='';if($('paymentTraceMessage'))$('paymentTraceMessage').textContent='未確認：診断履歴を取得できませんでした。';
+       if($('paymentFailuresMessage'))message('paymentFailuresMessage','未確認：診断履歴を取得できませんでした。','error');
+       message('paymentAttemptsMessage', '未確認：取得できませんでした。通信とCloudflare Access・管理者認証を確認し、もう一度確認してください。0件とは判断できません。', 'error');
+     } finally {

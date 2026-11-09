@@ -17,7 +17,7 @@ test('authenticated Production administrator GET is pure on a cold coordinator w
  const f=await fixture(t,{env:{PRODUCTION_CHECKOUT_ENABLED:'0',PRODUCTION_MANAGED_CHECKOUT_ENABLED:'0',PRODUCTION_MANAGEMENT_CATALOG_ENABLED:'0',PRODUCTION_UNIFIED_PUBLISH_ENABLED:'0'}});
  const id=crypto.randomUUID(),r=record(id);f.storage.data.set('attempt:'+id,r);f.storage.data.set('sku-holds',{'yomogi-10g':[id]});const before=structuredClone(f.storage.data),alarm=f.storage.alarm,orders=f.native.prepare('SELECT COUNT(*) n FROM orders').get().n;
  for(const name of ['put','delete','setAlarm','deleteAlarm'])f.storage[name]=async()=>{throw Error('GET cannot mutate DO state');};
- for(let n=0;n<2;n++){const response=await f.call('/api/admin/payment-attempts?include_failed=1&include_diagnostics=1');assert.equal(response.status,200);const d=await response.json();assert.equal(d.attempts.length,1);assert.equal(d.attempts[0].attemptId,id);assert.deepEqual(f.storage.data,before);assert.equal(f.storage.alarm,alarm);}
+ for(let n=0;n<2;n++){const response=await f.call('/api/admin/payment-attempts?include_failed=1&include_diagnostics=1');assert.equal(response.status,200);const d=await response.json();assert(Array.isArray(d.diagnostics));assert(Array.isArray(d.failures));assert.equal(d.attempts.length,1);assert.equal(d.attempts[0].attemptId,id);assert.deepEqual(f.storage.data,before);assert.equal(f.storage.alarm,alarm);}
  assert.equal(f.native.prepare('SELECT COUNT(*) n FROM orders').get().n,orders);assert.equal(f.fake.payments.size,0);assert.equal(f.squareCalls.length,0);assert.equal(f.mails.length,0);
 });
 test('order and mail-status GET run SELECT only and do not initialize a cold Outbox',async t=>{
