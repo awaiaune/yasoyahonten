@@ -25,10 +25,22 @@ then (only after approval) deploy **yasoya-honten-admin**, using the patched ASS
 Do not use admin.example.jsonc as a snapshot of live settings. Do not deploy the
 payments Worker, modify main, enable checkout, run SQL or change any Secret.
 
-Before publication record the full **admin** active Version, separate from the
+Admin rollback identity was confirmed by the user in Cloudflare Dashboard on
+2026-11-09 (JST): **027b2201-4955-4856-9e9d-b380bcfff23e**; displayed age: “4d ago”.
+The exact upload timestamp and deployed asset hashes are still unverified; do not
+convert this rounded age into an exact timestamp. Recheck this same admin Version
+and 100% traffic immediately before any approved update. A mismatch stops.
+
+A normal browser navigation to the diagnostics API is not an alternative to the
+UI: both Cloudflare Access JWT validation and Authorization Bearer ADMIN_TOKEN
+are required. The existing admin data() function supplies these credentials;
+normal address-bar navigation does not reuse its Authorization header. Do not
+put credentials in query strings or remove either authentication gate.
+
+Before publication retain this full **admin** Version, separate from the
 payment OFF Version. Afterward verify Access still blocks unauthenticated access,
 log in normally and use the existing “未解決決済を確認” button to expand the trace.
 If the API omits diagnostics, the section must say 未確認 rather than vanish.
-Rollback uses that recorded admin Version with Wrangler's `rollback VERSION
+Rollback uses that recorded admin Version (027b2201-4955-4856-9e9d-b380bcfff23e) with Wrangler's `rollback VERSION
 --name yasoya-honten-admin --config VERIFIED_ADMIN_CONFIG --yes`, after approval.
 Neither admin rollback nor this asset patch restores/changes D1, DO or Square data.
