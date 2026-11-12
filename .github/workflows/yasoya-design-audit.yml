@@ -1,0 +1,103 @@
+name: YASOYA | Design-only deploy preflight (read-only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Review live assets and CSS-only patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/product-layout-e-outline-20261112
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Confirm only CSS changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin release/production-payment-rc-20261106
+          python3 - <<'PY'
+          import pathlib,subprocess,sys,os
+          expected='staging/site/css/managed-product.css'
+          files=subprocess.check_output(['git','diff','--name-only','FETCH_HEAD','HEAD'],text=True).splitlines()
+          if files!=[expected]:
+              sys.exit('STOP: unexpected changes: '+str(files))
+          css=pathlib.Path(expected).read_text()
+          for value in ['--yasoya-product-title-gap: 36px','--yasoya-product-image-stage: 382px','--yasoya-product-info-gap: 8px','border-radius: 10px','rgba(255,255,255,.055)','rgba(237,234,226,.82)']:
+              if value not in css: sys.exit('STOP: design setting not found: '+value)
+          print('PASS: only CSS changed.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('### 変更内容\n- CSS 1ファイルのみ。決済・SEO・通知コード変更なし。\n')
+          PY
+
+      - name: Read production Worker configuration
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import os,json,sys,urllib.request,urllib.error
+          token=os.getenv('CF_API_TOKEN','')
+          account=os.getenv('CF_ACCOUNT_ID','')
+          if not token or not account: sys.exit('STOP: Cloudflare secrets missing')
+          api='https://api.cloudflare.com/client/v4'
+          base=f'/accounts/{account}/workers/scripts/yasoya-honten-payments'
+          def get(path):
+              req=urllib.request.Request(api+path,headers={'Authorization':'Bearer '+token,'Accept':'application/json'})
+              try:
+                  with urllib.request.urlopen(req,timeout=25) as resp: j=json.load(resp)
+              except urllib.error.HTTPError as e: sys.exit('STOP: Cloudflare API HTTP '+str(e.code))
+              if j.get('success') is not True: sys.exit('STOP: Cloudflare API response not successful')
+              return j.get('result') or {}
+          deploys=get(base+'/deployments').get('deployments') or []
+          if not deploys: sys.exit('STOP: Cannot read deployments')
+          active=[v for v in deploys[0].get('versions',[]) if v.get('percentage')==100]
+          if len(active)!=1: sys.exit('STOP: Expected one active 100% version')
+          vid=active[0]['version_id']
+          details=get(base+'/versions/'+vid)
+          bindings=(details.get('resources') or {}).get('bindings') or []
+          vals={b.get('name'):b for b in bindings}
+          check=vals.get('PRODUCTION_CHECKOUT_ENABLED',{}).get('text')=='1'
+          managed=vals.get('PRODUCTION_MANAGED_CHECKOUT_ENABLED',{}).get('text')=='1'
+          assets='ASSETS' in vals
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('\n### 本番Worker（読み取り専用）\n')
+              out.write('- Version ID: '+vid+' / 100%\n')
+              out.write('- Bindings: '+str(len(bindings))+'\n')
+              out.write('- 購入フラグ: '+('1/1' if check and managed else '未確認')+'\n')
+              out.write('- ASSETS: '+('あり' if assets else '未確認')+'\n')
+          print('Version:',vid,'bindings:',len(bindings),'flags OK:',check and managed,'assets:',assets)
+          if not (check and managed and assets): sys.exit('STOP: Production state differs from expected')
+          PY
+
+      - name: Compare current public CSS with GitHub baseline
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os,hashlib,subprocess,urllib.request,urllib.error
+          baseline=subprocess.check_output(['git','show','FETCH_HEAD:staging/site/css/managed-product.css'])
+          proposed=open('staging/site/css/managed-product.css','rb').read()
+          url='https://yasoyahonten.awaiaune.com/css/managed-product.css'
+          try:
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 YasoyaReadOnlyAudit'})
+              with urllib.request.urlopen(req,timeout=25) as r: body=r.read(500000);status=r.status
+              if status!=200: finding='HTTP '+str(status)
+              elif hashlib.sha256(body).digest()==hashlib.sha256(baseline).digest(): finding='CSS matches original GitHub baseline'
+              elif hashlib.sha256(body).digest()==hashlib.sha256(proposed).digest(): finding='CSS already matches proposed design'
+              else: finding='CSS differs from GitHub baseline — do not replace'
+          except urllib.error.HTTPError as e: finding='HTTP '+str(e.code)+' — origin access not confirmed'
+          except Exception as e: finding=type(e).__name__+' — origin access not confirmed'
+          print('Public CSS result:',finding)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('\n### 公開CSS照合\n- '+finding+'\n')
+              out.write('- 注意：本番の全ASSETSの完全な一覧は未取得。このワークフローは一切デプロイしない。\n')
+              out.write('- 画像・HTML・Worker・決済・在庫・SEO・通知は変更なし。\n')
+          PY
