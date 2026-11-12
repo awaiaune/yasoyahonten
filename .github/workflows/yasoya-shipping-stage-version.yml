@@ -99,8 +99,16 @@ jobs:
                   t=p.get_content_type()
                   if t not in ('application/javascript+module','text/javascript+module','application/javascript','text/javascript','application/wasm','text/plain','application/octet-stream','application/source-map'):sys.exit('STOP: unknown MIME type')
                   parts.append([name,p.get_filename() or name,t,data])
-          matches=[i for i,p in enumerate(parts) if b'freeThreshold:3e3' in p[3]]
-          if len(matches)!=1 or parts[matches[0]][3].count(b'freeThreshold:3e3')!=1:sys.exit('STOP: not exactly one compressed shipping threshold')
+          # Print only structural counts and MIME types, never source or binding values.
+          marker=b'freeThreshold:3e3'
+          counts=[(p[0][:60],p[2],len(p[3]),p[3].count(marker)) for p in parts]
+          raw_count=body.count(marker)
+          metadata_count=json.dumps(source_meta,ensure_ascii=False).encode().count(marker)
+          print('DIAGNOSTIC raw-count:',raw_count,'nonmetadata parts:',len(parts),'metadata-count:',metadata_count,flush=True)
+          print('DIAGNOSTIC part-counts (name,type,bytes,marker-count):',counts,flush=True)
+          matches=[i for i,p in enumerate(parts) if p[3].count(marker)>0]
+          if len(matches)!=1 or parts[matches[0]][3].count(marker)!=1:
+              sys.exit('STOP: multipart script marker mismatch; no upload. Raw='+str(raw_count)+'; matches='+str(len(matches)))
           i=matches[0]
           if b'freeThreshold:1500' in parts[i][3]:sys.exit('STOP: already modified')
           parts[i][3]=parts[i][3].replace(b'freeThreshold:3e3',b'freeThreshold:1500')
