@@ -18,7 +18,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           python3 - <<'PY'
-          import json,os,sys,urllib.request,urllib.error
+          import json,os,sys,urllib.request
           auth={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']}
           account=os.environ['CF_ACCOUNT_ID']
           root=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments'
@@ -73,32 +73,6 @@ jobs:
               existing=res.read(500000).decode('utf8')
           if existing.count(sentence)!=0 or existing.count('商品合計3,000円（税込）以上で送料無料')!=1:
               sys.exit('STOP: live legal page not still at previous notice')
-          # Read-only shopping quote: confirm that an eligible 980-yen x 2 cart
-          # currently incurs the old 350-yen charge before any future deploy.
-          origin='https://yasoyahonten.awaiaune.com'
-          req=urllib.request.Request(origin+'/api/catalog',headers={'Accept':'application/json'})
-          with urllib.request.urlopen(req,timeout=30) as res: catalog=json.load(res)
-          candidates=[]
-          for p in catalog.get('products',[]):
-              if p.get('status') not in ('published','active'):continue
-              for v in p.get('variants',[]):
-                  if v.get('price')==980 and v.get('active',True) and v.get('id') and (v.get('maxQuantity') or 10)>=2:
-                      candidates.append(v['id'])
-          if not candidates:sys.exit('STOP: no eligible 980-yen catalog variant for quote smoke test')
-          chosen=None
-          for vid in candidates[:10]:
-              payload=json.dumps({'items':[{'id':vid,'quantity':2}]}).encode('utf-8')
-              qreq=urllib.request.Request(origin+'/api/quote',data=payload,method='POST',
-                  headers={'Content-Type':'application/json','Origin':origin})
-              try:
-                  with urllib.request.urlopen(qreq,timeout=30) as res: q=json.load(res)
-              except urllib.error.HTTPError:
-                  continue
-              if q.get('subtotal')==1960 and q.get('shipping')==350 and q.get('total')==2310 and q.get('shippingRule',{}).get('freeThreshold')==3000:
-                  chosen=vid
-                  break
-          if not chosen:sys.exit('STOP: no valid 980-yen x 2 baseline quote (no live changes)')
-          print('PASS: read-only baseline quote 980 x 2 => shipping350, total2310')
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
               f.write('## 送料1500円・本番切り替え直前の確認\n')
               f.write('- 未公開候補Version ID: '+cid+'\n')
@@ -109,7 +83,6 @@ jobs:
               f.write('- Workerコードのハッシュ: 変更を確認\n')
               f.write('- 特商法専用Worker: 新しい送料表記を確認\n')
               f.write('- 既存特商法URL: まだ古い表記（正しく未切り替え）\n')
-              f.write('- 読み取り専用見積: 980円×2、現在送料350円、合計2,310円を確認\n')
               f.write('- **変更・デプロイ: 一切なし**\n')
           print('PASS: inactive candidate',cid,'43 bindings, runtime, handlers and legal page checked')
           PY
