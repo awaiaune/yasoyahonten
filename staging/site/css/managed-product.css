@@ -12,16 +12,25 @@
    The v30 full-screen gallery includes image + purchase overlay, so its
    total height must account for both, not shrink to 382px. */
 @media (max-width: 700px) {
-  .v53-managed-product .v30-gallery {
+  /* Explicitly beat old v32/v36 mobile rules that use !important. */
+  body:has(.v30-product) .v53-managed-product .v30-gallery {
     --yasoya-product-title-gap: 36px;
     --yasoya-product-image-stage: 382px;
     --yasoya-product-info-gap: 8px;
-    height: clamp(540px, calc(100svh - 56px), calc(304px + var(--yasoya-product-title-gap) + var(--yasoya-product-image-stage)));
-    min-height: 540px;
+    height: clamp(620px, calc(100svh - 56px), calc(304px + var(--yasoya-product-title-gap) + var(--yasoya-product-image-stage))) !important;
+    min-height: 620px !important;
+    max-height: none !important;
   }
-  .v53-managed-product .v30-top { top: calc(72px + var(--yasoya-product-title-gap)); }
-  .v53-managed-product .v30-purchase { padding-top: var(--yasoya-product-info-gap); }
-  .v53-managed-product .v30-slide-ui { bottom: 195px; }
+  /* Compact 58px shared mobile header + approved 36px breathing room. */
+  body:has(.v30-product) .v53-managed-product .v30-top {
+    top: calc(58px + var(--yasoya-product-title-gap)) !important;
+  }
+  body:has(.v30-product) .v53-managed-product .v30-purchase {
+    padding-top: var(--yasoya-product-info-gap) !important;
+  }
+  body:has(.v30-product) .v53-managed-product .v30-slide-ui {
+    bottom: 195px !important;
+  }
 }
 
 /* E | Outline — ADD TO CART and quantity select share one treatment. */
