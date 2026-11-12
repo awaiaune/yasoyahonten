@@ -1,0 +1,142 @@
+name: YASOYA | 送料無料1500円 非公開バージョン準備
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: yasoya-shipping-version
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipping-free-threshold-1500-20261112
+          persist-credentials: false
+      - name: Source diff safety
+        shell: bash
+        run: |
+          git fetch --depth=1 origin release/production-payment-rc-20261106
+          python3 - <<'PY'
+          import pathlib,subprocess,sys
+          paths=sorted(subprocess.check_output(['git','diff','--name-only','FETCH_HEAD','HEAD'],text=True).splitlines())
+          want=sorted(['worker/src/catalog.js','README.md','tokushoho.html','staging/site/tokushoho.html'])
+          if paths!=want:sys.exit('STOP: unexpected changes '+str(paths))
+          original=subprocess.check_output(['git','show','FETCH_HEAD:worker/src/catalog.js']).decode()
+          changed=pathlib.Path('worker/src/catalog.js').read_text()
+          if original.count('freeThreshold: 3000')!=1 or changed!=original.replace('freeThreshold: 3000','freeThreshold: 1500'):sys.exit('STOP: source changes not shipping-only')
+          for path in ('tokushoho.html','staging/site/tokushoho.html'):
+              old=subprocess.check_output(['git','show','FETCH_HEAD:'+path]).decode()
+              sentence='全国一律350円（税込）／商品合計3,000円（税込）以上で送料無料'
+              new=pathlib.Path(path).read_text()
+              if old.count(sentence)!=1 or new!=old.replace(sentence,sentence.replace('3,000','1,500')):sys.exit('STOP: legal notice changes not shipping-only')
+          print('PASS: exactly the approved shipping source changes')
+          PY
+      - name: Upload only an inactive version of the real Worker
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re,sys,uuid,urllib.request,urllib.error
+          from email import policy
+          from email.parser import BytesParser
+          auth={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']}
+          root='https://api.cloudflare.com/client/v4/accounts/'+os.environ['CF_ACCOUNT_ID']+'/workers/scripts/yasoya-honten-payments'
+          baseline='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          def read(url,raw=False):
+              req=urllib.request.Request(url,headers={**auth,'Accept':'*/*'})
+              with urllib.request.urlopen(req,timeout=35) as r:
+                  if raw:return r.headers.get('Content-Type',''),r.read(5000000)
+                  d=json.load(r)
+              if d.get('success') is not True:sys.exit('STOP: Cloudflare API reported failure')
+              return d.get('result')
+          def live():
+              ds=read(root+'/deployments')['deployments']
+              found=[v.get('version_id') for v in ds[0].get('versions',[]) if v.get('percentage')==100]
+              return found[0] if len(found)==1 else None
+          if live()!=baseline:sys.exit('STOP: live version changed')
+          v=read(root+'/versions?per_page=1')
+          items=v.get('items',v.get('versions',[])) if isinstance(v,dict) else v
+          if not items or items[0].get('id')!=baseline:sys.exit('STOP: latest version is not baseline; inherit unsafe')
+          old=read(root+'/versions/'+baseline)
+          settings=read(root+'/settings')
+          bs=old.get('resources',{}).get('bindings',[]) or settings.get('bindings',[])
+          if isinstance(bs,dict):bs=bs.get('bindings',bs.get('items',[]))
+          names=[b['name'] for b in bs]
+          if len(names)!=43 or len(set(names))!=43 or not {'ASSETS','ORDERS_DB','PURCHASE_COORDINATOR'}.issubset(names):
+              sys.exit('STOP: required 43 bindings missing')
+          types={b['name']:b['type'] for b in bs}
+          script=read(root)
+          compat=settings.get('compatibility_date') or old.get('resources',{}).get('script',{}).get('compatibility_date') or script.get('compatibility_date')
+          flags=settings.get('compatibility_flags')
+          if flags is None:flags=script.get('compatibility_flags',[])
+          if not isinstance(compat,str) or not re.fullmatch(r'20\d\d-\d\d-\d\d',compat) or not isinstance(flags,list):
+              sys.exit('STOP: original compatibility configuration unknown')
+          assets=settings.get('assets')
+          if isinstance(assets,dict) and assets.get('config') not in ({},None):
+              sys.exit('STOP: custom asset routing needs explicit review')
+          content_type,body=read(root+'/content/v2',True)
+          if 'multipart/' not in content_type:sys.exit('STOP: source is not a multipart Worker')
+          mime=b'MIME-Version: 1.0\r\nContent-Type: '+content_type.encode()+b'\r\n\r\n'+body
+          parsed=BytesParser(policy=policy.default).parsebytes(mime)
+          if not parsed.is_multipart():sys.exit('STOP: failed to read Worker bundle')
+          parts=[];source_meta={}
+          for p in parsed.iter_parts():
+              name=p.get_param('name',header='content-disposition')
+              data=p.get_payload(decode=True)
+              if not name or not isinstance(data,bytes):sys.exit('STOP: invalid bundled module')
+              if name=='metadata':
+                  source_meta=json.loads(data)
+              else:
+                  t=p.get_content_type()
+                  if t not in ('application/javascript+module','text/javascript+module','application/javascript','text/javascript','application/wasm','text/plain','application/octet-stream','application/source-map'):sys.exit('STOP: unknown MIME type')
+                  parts.append([name,p.get_filename() or name,t,data])
+          matches=[i for i,p in enumerate(parts) if b'freeThreshold:3e3' in p[3]]
+          if len(matches)!=1 or parts[matches[0]][3].count(b'freeThreshold:3e3')!=1:sys.exit('STOP: not exactly one compressed shipping threshold')
+          i=matches[0]
+          if b'freeThreshold:1500' in parts[i][3]:sys.exit('STOP: already modified')
+          parts[i][3]=parts[i][3].replace(b'freeThreshold:3e3',b'freeThreshold:1500')
+          js=[p for p in parts if 'javascript' in p[2]]
+          main=source_meta.get('main_module') or (js[0][0] if len(js)==1 else None)
+          if main not in [p[0] for p in js] or any('module' not in p[2] for p in js):
+              sys.exit('STOP: unsupported entrypoint; no live change')
+          metadata={'main_module':main,'keep_assets':True,'bindings':[{'type':'inherit','name':n} for n in names],
+                    'compatibility_date':compat,'compatibility_flags':flags,
+                    'annotations':{'workers/message':'INACTIVE: 1500-JPY free shipping. One literal change in live bundle.'}}
+          bound='----yasoya-'+uuid.uuid4().hex
+          payload=bytearray()
+          def append(n,d,t,filename=None):
+              h='Content-Disposition: form-data; name="'+n+'"'
+              if filename:h+='; filename="'+filename+'"'
+              payload.extend(('--'+bound+'\r\n'+h+'\r\nContent-Type: '+t+'\r\n\r\n').encode())
+              payload.extend(d);payload.extend(b'\r\n')
+          append('metadata',json.dumps(metadata).encode(),'application/json')
+          for n,fn,t,d in parts:append(n,d,t,fn)
+          payload.extend(('--'+bound+'--\r\n').encode())
+          req=urllib.request.Request(root+'/versions?bindings_inherit=strict',data=bytes(payload),method='POST',headers={**auth,'Content-Type':'multipart/form-data; boundary='+bound})
+          try:
+              with urllib.request.urlopen(req,timeout=70) as r:out=json.load(r)
+          except urllib.error.HTTPError as e:sys.exit('STOP: upload rejected HTTP '+str(e.code)+' '+e.read(750).decode('utf8','replace')[:350])
+          if out.get('success') is not True:sys.exit('STOP: upload failure '+str(out.get('errors',[]))[:200])
+          cid=out.get('result',{}).get('id')
+          if not isinstance(cid,str) or not re.fullmatch('[a-f0-9-]{36}',cid) or cid==baseline:sys.exit('STOP: candidate id invalid')
+          new=read(root+'/versions/'+cid)
+          nb=new.get('resources',{}).get('bindings',[])
+          if isinstance(nb,dict):nb=nb.get('bindings',nb.get('items',[]))
+          if len(nb)!=43 or sorted(b['name'] for b in nb)!=sorted(names) or any(b['type']!=types[b['name']] for b in nb):
+              sys.exit('STOP: candidate lost binding(s); do not deploy')
+          if live()!=baseline:sys.exit('STOP: live changed; do not deploy')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## 送料1500円・非公開版準備\n')
+              f.write('- 新しい候補Version ID: '+cid+'\n')
+              f.write('- 本番Version ID: '+baseline+'（変更なし）\n')
+              f.write('- 元の本番コード内の1か所だけ: freeThreshold:3e3 → freeThreshold:1500\n')
+              f.write('- 元の43 bindings: 名前と種類をすべて引継ぎ検証済み\n')
+              f.write('- 静的ASSETS: keep_assets=true、Secrets: inherit + strict\n')
+              f.write('- ステータス: 未公開（本番へのデプロイなし）\n')
+          print('SUCCESS: created inactive Worker Version. Original production remains unchanged.')
+          PY
