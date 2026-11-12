@@ -18,7 +18,7 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           python3 - <<'PY'
-          import json,os,sys,urllib.request
+          import json,os,sys,urllib.request,re
           from email import policy
           from email.parser import BytesParser
           root='https://api.cloudflare.com/client/v4/accounts/'+os.environ['CF_ACCOUNT_ID']+'/workers/scripts/yasoya-honten-payments'
@@ -29,19 +29,20 @@ jobs:
               raw=response.read(5000000)
           assert 'multipart/' in content_type,'STOP: unexpected API response type'
           marker=b'freeThreshold:3e3'
+          regex=rb'freeThreshold\s*:\s*3e3\b'
           msg=BytesParser(policy=policy.default).parsebytes(b'MIME-Version: 1.0\r\nContent-Type: '+content_type.encode()+b'\r\n\r\n'+raw)
           if not msg.is_multipart():sys.exit('STOP: not multipart')
           rows=[]
           for p in msg.iter_parts():
               name=p.get_param('name',header='content-disposition')
               data=p.get_payload(decode=True)
-              rows.append({'name':str(name)[:55],'mime':p.get_content_type(),'bytes':len(data or b''),'marker':(data or b'').count(marker)})
+              rows.append({'name':str(name)[:55],'mime':p.get_content_type(),'bytes':len(data or b''),'exact':(data or b'').count(marker),'regex':len(re.findall(regex,data or b''))})
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as output:
               output.write('## 本番Workerの読取診断（変更なし）\n')
               output.write('- MIME parts: '+str(len(rows))+'\n')
               output.write('- Response bytes: '+str(len(raw))+'\n')
-              output.write('- Raw marker count: '+str(raw.count(marker))+'\n')
-              for x in rows:output.write('- module '+x['name']+' / '+x['mime']+' / '+str(x['bytes'])+'bytes / marker='+str(x['marker'])+'\n')
+              output.write('- Raw marker count: '+str(raw.count(marker))+'; Regex count: '+str(len(re.findall(regex,raw)))+'\n')
+              for x in rows:output.write('- module '+x['name']+' / '+x['mime']+' / '+str(x['bytes'])+'bytes / marker='+str(x['exact'])+'; regex='+str(x['regex'])+'\n')
               output.write('- 本番への変更: **なし**\n')
-          print('DIAGNOSTIC',json.dumps({'raw_count':raw.count(marker),'parts':rows},ensure_ascii=False))
+          print('DIAGNOSTIC',json.dumps({'raw_count':raw.count(marker),'regex_count':len(re.findall(regex,raw)),'parts':rows},ensure_ascii=False))
           PY
