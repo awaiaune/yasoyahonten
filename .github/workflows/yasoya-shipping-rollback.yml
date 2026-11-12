@@ -1,0 +1,45 @@
+name: YASOYA | 送料変更の切り戻し
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: yasoya-shipping-production
+  cancel-in-progress: false
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restore pre-shipping production version only
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json,os,sys,urllib.request
+          root='https://api.cloudflare.com/client/v4/accounts/'+os.environ['CF_ACCOUNT_ID']+'/workers/scripts/yasoya-honten-payments'
+          token=os.environ['CF_API_TOKEN']
+          approved='4b6bd7d0-cf2a-43d4-887e-5fac0529eadf'
+          original='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          def api(path,body=None):
+              data=None if body is None else json.dumps(body).encode('utf-8')
+              h={'Authorization':'Bearer '+token,'Accept':'application/json'}
+              if data is not None:h['Content-Type']='application/json'
+              req=urllib.request.Request(root+path,method='POST' if body is not None else 'GET',data=data,headers=h)
+              with urllib.request.urlopen(req,timeout=35) as resp:value=json.load(resp)
+              if value.get('success') is not True:sys.exit('STOP: Cloudflare returned API error')
+              return value['result']
+          def active():
+              deps=api('/deployments')['deployments']
+              a=[v['version_id'] for v in deps[0].get('versions',[]) if v.get('percentage')==100]
+              return a[0] if len(a)==1 else None
+          if active()!=approved:sys.exit('STOP: current version is not the approved 1500-yen release; manual review required')
+          d={'strategy':'percentage','versions':[{'percentage':100,'version_id':original}],
+             'annotations':{'workers/message':'Rollback shipping 1500 to original 3000 due to issue'}}
+          api('/deployments',d)
+          if active()!=original:sys.exit('ALERT: rollback request sent, but Cloudflare did not confirm active original version')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('## 送料条件の切り戻し成功\n- 元のWorkerへ100%復帰\n- 送料無料条件は3,000円に戻る\n- 特商法用Routeが有効ならCloudflareで削除して旧表示に戻す必要があります\n')
+          print('SUCCESS: original production Worker is restored. Remove the legal notice Route if it was enabled.')
+          PY
