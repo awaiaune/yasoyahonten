@@ -1,0 +1,104 @@
+name: YASOYA | 送料無料1500円 本番切替
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: yasoya-shipping-production
+  cancel-in-progress: false
+jobs:
+  activate:
+    name: Deploy audited shipping version at 100 percent
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Activate only fixed approved Worker Version
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json,os,sys,time,urllib.error,urllib.request
+          account=os.environ['CF_ACCOUNT_ID']
+          auth={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']}
+          root=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments'
+          old_id='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          new_id='4b6bd7d0-cf2a-43d4-887e-5fac0529eadf'
+          def api(path,method='GET',payload=None):
+              headers={**auth,'Accept':'application/json'}
+              data=None
+              if payload is not None:
+                  data=json.dumps(payload).encode('utf-8')
+                  headers['Content-Type']='application/json'
+              req=urllib.request.Request(root+path,headers=headers,method=method,data=data)
+              with urllib.request.urlopen(req,timeout=45) as res:
+                  value=json.load(res)
+              if value.get('success') is not True:
+                  sys.exit('STOP: Cloudflare returned error: '+str(value.get('errors',[]))[:250])
+              return value['result']
+          def active_id():
+              deployments=api('/deployments')['deployments']
+              entries=[x.get('version_id') for x in deployments[0].get('versions',[]) if x.get('percentage')==100]
+              return entries[0] if len(entries)==1 else None
+          if active_id()!=old_id:
+              sys.exit('STOP: the live version is not the audited baseline; cannot publish')
+          list_result=api('/versions?per_page=2')
+          items=list_result.get('items',list_result.get('versions',[])) if isinstance(list_result,dict) else list_result
+          if not items or items[0].get('id')!=new_id:
+              sys.exit('STOP: the approved candidate is not the latest uploaded version')
+          old=api('/versions/'+old_id)
+          new=api('/versions/'+new_id)
+          def binds(v):
+              b=v.get('resources',{}).get('bindings',[])
+              if isinstance(b,dict):b=b.get('bindings',b.get('items',[]))
+              return b
+          orig,proposed=binds(old),binds(new)
+          def sig(items):return sorted((x['name'],x['type']) for x in items)
+          if len(orig)!=43 or len(proposed)!=43 or sig(orig)!=sig(proposed):
+              sys.exit('STOP: binding changes found, do not activate')
+          runtime0=old.get('resources',{}).get('script_runtime',{})
+          runtime1=new.get('resources',{}).get('script_runtime',{})
+          for key in ('compatibility_date','compatibility_flags','exports','migration_tag'):
+              if runtime0.get(key)!=runtime1.get(key):
+                  sys.exit('STOP: runtime changed: '+key)
+          script0=old.get('resources',{}).get('script',{})
+          script1=new.get('resources',{}).get('script',{})
+          for key in ('handlers','named_handlers'):
+              if script0.get(key)!=script1.get(key):
+                  sys.exit('STOP: handler changed: '+key)
+          if script0.get('etag')==script1.get('etag'):
+              sys.exit('STOP: candidate code hash is unchanged')
+          legal='https://yasoya-shipping-legal-20261113.tatsurou3523.workers.dev/tokushoho.html'
+          with urllib.request.urlopen(urllib.request.Request(legal,headers={'User-Agent':'Mozilla/5.0 YASOYA-shipping-release'}),timeout=30) as res:
+              if res.status!=200:sys.exit('STOP: legal page Worker unavailable')
+              html=res.read(500000).decode('utf-8')
+          updated='全国一律350円（税込）／商品合計1,500円（税込）以上で送料無料'
+          if html.count(updated)!=1 or '商品合計3,000円（税込）以上で送料無料' in html:
+              sys.exit('STOP: legal page does not contain approved notice')
+          if active_id()!=old_id:
+              sys.exit('STOP: live Worker changed during preflight')
+          print('PASS: all 43 bindings, runtime, handlers and legal page ready. Starting 100% version deployment.')
+          deployment={'strategy':'percentage','versions':[{'percentage':100,'version_id':new_id}],
+              'annotations':{'workers/message':'Approved free shipping minimum 1500 JPY. Original live version preserved for rollback.'}}
+          try:
+              result=api('/deployments',method='POST',payload=deployment)
+          except urllib.error.HTTPError as e:
+              sys.exit('STOP: deployment API rejected request HTTP '+str(e.code)+'. Do not force deploy.')
+          for _ in range(8):
+              if active_id()==new_id:break
+              time.sleep(2)
+          else:
+              sys.exit('ALERT: deployment response received, but active version could not be confirmed; inspect Cloudflare before retry')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## 送料無料1,500円 本番切替結果\n')
+              f.write('- Worker本番Version: '+new_id+'（100%）\n')
+              f.write('- 変更前Version: '+old_id+'（切り戻し候補）\n')
+              f.write('- バインディング: 43/43同一の名称・種類\n')
+              f.write('- Runtime設定・DO handlers: 維持\n')
+              f.write('- 本番送料計算: 1,500円の候補版へ切替\n')
+              f.write('- 特商法: 専用Worker準備済み、本番URLのRouteは別操作\n')
+              f.write('- 次にCloudflareでRoute yasoyahonten.awaiaune.com/tokushoho.html をWorker yasoya-shipping-legal-20261113 に追加\n')
+              f.write('- カート決済は支払い確定前の注文確認画面で2袋送料0円を確認\n')
+          print('SUCCESS: shipping version 1500 JPY at 100%. Add legal Route immediately.')
+          PY
