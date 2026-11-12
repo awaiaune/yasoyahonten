@@ -6,3 +6,57 @@
 .v53-managed-product .v30-top h1{overflow-wrap:anywhere;text-wrap:balance}
 .v53-managed-product .v53-variant-purchase+.v53-variant-purchase{margin-top:20px}
 .v53-managed-product .v30-purchase{overflow-y:auto;overscroll-behavior:contain}
+
+/* Product layout refinement — visual styles only, 2026-11-12.
+   Approved preview: title spacing 36px, image stage 382px, info top 8px.
+   The v30 full-screen gallery includes image + purchase overlay, so its
+   total height must account for both, not shrink to 382px. */
+@media (max-width: 700px) {
+  .v53-managed-product .v30-gallery {
+    --yasoya-product-title-gap: 36px;
+    --yasoya-product-image-stage: 382px;
+    --yasoya-product-info-gap: 8px;
+    height: clamp(540px, calc(100svh - 56px), calc(304px + var(--yasoya-product-title-gap) + var(--yasoya-product-image-stage)));
+    min-height: 540px;
+  }
+  .v53-managed-product .v30-top { top: calc(72px + var(--yasoya-product-title-gap)); }
+  .v53-managed-product .v30-purchase { padding-top: var(--yasoya-product-info-gap); }
+  .v53-managed-product .v30-slide-ui { bottom: 195px; }
+}
+
+/* E | Outline — ADD TO CART and quantity select share one treatment. */
+.v53-managed-product .v30-cart-row .v30-cart-button,
+.v53-managed-product .v30-qty select {
+  border: 1px solid rgba(237,234,226,.82) !important;
+  border-radius: 10px !important;
+  background: rgba(255,255,255,.055) !important;
+  color: #edeae2 !important;
+  box-shadow: 0 5px 14px -1px rgba(0,0,0,.144) !important;
+  transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.v53-managed-product .v30-cart-row .v30-cart-button:not(:disabled):active {
+  background: rgba(255,255,255,.12) !important;
+}
+.v53-managed-product .v30-cart-row .v30-cart-button:disabled,
+.v53-managed-product .v30-qty select:disabled {
+  opacity: .46;
+  box-shadow: none !important;
+}
+.v53-managed-product .v30-cart-row .v30-cart-button:focus-visible,
+.v53-managed-product .v30-qty select:focus-visible {
+  outline: 2px solid #edeae2;
+  outline-offset: 3px;
+}
+.v53-managed-product .v30-qty select {
+  min-width: 68px;
+  min-height: 50px;
+  padding: 12px 8px;
+}
+.v53-managed-product .v30-qty select option {
+  color: #222;
+  background: #f3f0e8;
+}
+@media (prefers-reduced-motion: reduce) {
+  .v53-managed-product .v30-cart-row .v30-cart-button,
+  .v53-managed-product .v30-qty select { transition: none; }
+}
