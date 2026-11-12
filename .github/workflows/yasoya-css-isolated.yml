@@ -1,0 +1,126 @@
+name: YASOYA | CSS専用Workerを準備
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy isolated CSS Worker without changing live store
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout approved CSS branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/product-layout-e-outline-20261112
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify CSS-only change and current live stylesheet
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin release/production-payment-rc-20261106
+          python3 - <<'PY'
+          import hashlib,pathlib,subprocess,sys,urllib.request,urllib.error,os
+          name='staging/site/css/managed-product.css'
+          changed=subprocess.check_output(['git','diff','--name-only','FETCH_HEAD','HEAD'],text=True).splitlines()
+          if changed!=[name]: sys.exit('STOP: changed files are not CSS-only: '+str(changed))
+          original=subprocess.check_output(['git','show','FETCH_HEAD:'+name])
+          proposed=pathlib.Path(name).read_bytes()
+          for v in [b'--yasoya-product-title-gap: 36px',b'--yasoya-product-image-stage: 382px',b'--yasoya-product-info-gap: 8px',b'border-radius: 10px',b'rgba(255,255,255,.055)',b'rgba(237,234,226,.82)']:
+              if v not in proposed: sys.exit('STOP: approved CSS setting missing')
+          url='https://yasoyahonten.awaiaune.com/css/managed-product.css'
+          try:
+              req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 YasoyaCSSAudit'})
+              with urllib.request.urlopen(req,timeout=30) as res:
+                  if res.status!=200: sys.exit('STOP: live CSS not HTTP 200')
+                  live=res.read(500000)
+          except urllib.error.HTTPError as e: sys.exit('STOP: live CSS HTTP '+str(e.code))
+          if hashlib.sha256(original).digest()!=hashlib.sha256(live).digest():
+              sys.exit('STOP: current live CSS differs from original GitHub file')
+          print('PASS: only CSS changed; original live CSS matches GitHub.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('### 安全確認\n- CSSファイル1つだけが変更対象\n- 公開CSSは変更前と一致\n')
+          PY
+
+      - name: Confirm current production version
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import os,sys,json,urllib.request
+          account=os.environ['CF_ACCOUNT_ID']
+          url=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments/deployments'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']})
+          with urllib.request.urlopen(req,timeout=25) as r: data=json.load(r)
+          if data.get('success') is not True: sys.exit('STOP: Cloudflare API failed')
+          d=data.get('result',{}).get('deployments') or []
+          if not d: sys.exit('STOP: no deployments')
+          a=[v for v in d[0].get('versions',[]) if v.get('percentage')==100]
+          expected='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          if len(a)!=1 or a[0].get('version_id')!=expected:
+              sys.exit('STOP: original production version changed')
+          print('PASS: existing production Worker is unchanged.')
+          PY
+
+      - name: Create tiny CSS-only Worker in temporary directory
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib
+          source=pathlib.Path('staging/site/css/managed-product.css').read_text('utf8')
+          folder=pathlib.Path(os.environ['RUNNER_TEMP'])/'yasoya-css-worker'
+          folder.mkdir(parents=True,exist_ok=True)
+          content=(
+            '// YASOYA_DESIGN_CSS_WORKER_20261112: serves only the authorized CSS URL.\n'
+            'const CSS='+json.dumps(source,ensure_ascii=False)+';\n'
+            'export default { async fetch(request) {\n'
+            '  const url=new URL(request.url);\n'
+            '  if(url.pathname!=="/css/managed-product.css")return new Response("Not Found",{status:404});\n'
+            '  if(request.method!=="GET"&&request.method!=="HEAD")return new Response("Method Not Allowed",{status:405});\n'
+            '  const headers={"Content-Type":"text/css; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};\n'
+            '  return new Response(request.method==="HEAD"?null:CSS,{status:200,headers});\n'
+            '} };\n'
+          )
+          (folder/'index.js').write_text(content,'utf8')
+          config={'name':'yasoya-product-css-20261112','main':'./index.js','compatibility_date':'2026-11-12','workers_dev':True,'send_metrics':False}
+          (folder/'wrangler.jsonc').write_text(json.dumps(config,indent=2),'utf8')
+          print('Prepared CSS-only Worker, with no production routing.')
+          PY
+
+      - name: Deploy only the isolated Worker
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.155.0 deploy --config "$RUNNER_TEMP/yasoya-css-worker/wrangler.jsonc"
+          echo "CSS-only Worker uploaded separately. Original site routes are unchanged." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Confirm original production worker is still the same
+        shell: bash
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import os,sys,json,urllib.request
+          account=os.environ['CF_ACCOUNT_ID']
+          url=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments/deployments'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']})
+          with urllib.request.urlopen(req,timeout=25) as r: data=json.load(r)
+          active=[v for v in data['result']['deployments'][0].get('versions',[]) if v.get('percentage')==100]
+          if len(active)!=1 or active[0].get('version_id')!='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82':
+              sys.exit('STOP: the original Worker changed; investigate before applying any route')
+          print('SUCCESS: original worker unchanged. No CSS route has been activated yet.')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('\n### 結果\n- 元の本番Workerは変更なし\n- CSS専用Workerを準備済み\n- 本番URLへのルート接続はまだ実施していません\n')
+          PY
