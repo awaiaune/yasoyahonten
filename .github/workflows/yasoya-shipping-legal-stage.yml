@@ -1,0 +1,67 @@
+name: YASOYA | 特商法1500円・独立ページ準備
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/yasoya-shipping-legal-stage.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/shipping-free-threshold-1500-20261112
+          persist-credentials: false
+      - name: Validate and snapshot existing public legal page, edit one sentence only
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json,os,pathlib,sys,urllib.request
+          sentence='全国一律350円（税込）／商品合計3,000円（税込）以上で送料無料'
+          updated=sentence.replace('3,000','1,500')
+          approved=pathlib.Path('tokushoho.html').read_text('utf-8')
+          if approved.count(updated)!=1 or approved.count(sentence)>0:sys.exit('STOP: legal branch not updated exactly once')
+          url='https://yasoyahonten.awaiaune.com/tokushoho.html'
+          req=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 YASOYA-legal-safe-stage'})
+          with urllib.request.urlopen(req,timeout=35) as r:
+              if r.status!=200 or 'html' not in r.headers.get('Content-Type',''):sys.exit('STOP: live legal page not HTML 200')
+              raw=r.read(500000)
+          try:live=raw.decode('utf-8')
+          except UnicodeDecodeError:sys.exit('STOP: legal page encoding unexpected')
+          if live.count(sentence)!=1 or live.count(updated)!=0:sys.exit('STOP: live legal text differs; cannot patch safely')
+          if '<html' not in live.lower() or '</html>' not in live.lower():sys.exit('STOP: invalid full HTML')
+          changed=live.replace(sentence,updated)
+          if changed==live or changed.replace(updated,sentence)!=live:sys.exit('STOP: legal edit exceeded one sentence')
+          directory=pathlib.Path(os.environ['RUNNER_TEMP'])/'yasoya-shipping-legal'
+          directory.mkdir(exist_ok=True,parents=True)
+          code=(
+            '// YASOYA legal notice exact-path static override only. No checkout/inventory/SEO code.\n'
+            'const PAGE='+json.dumps(changed,ensure_ascii=False)+';\n'
+            'export default { async fetch(req) {\n'
+            ' const u=new URL(req.url);\n'
+            ' if(u.pathname!=="/tokushoho.html")return new Response("Not Found",{status:404});\n'
+            ' if(req.method!=="GET" && req.method!=="HEAD")return new Response("Method Not Allowed",{status:405});\n'
+            ' const h={"Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store","X-Content-Type-Options":"nosniff"};\n'
+            ' return new Response(req.method==="HEAD"?null:PAGE,{status:200,headers:h});\n'
+            '} };\n'
+          )
+          (directory/'index.js').write_text(code,'utf-8')
+          conf={'name':'yasoya-shipping-legal-20261113','main':'./index.js','compatibility_date':'2026-11-12','workers_dev':True,'send_metrics':False}
+          (directory/'wrangler.jsonc').write_text(json.dumps(conf,indent=2),'utf-8')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('### 公開ページの安全確認\n- 元の特商法ページから**送料文言1件だけ**を変更\n- 変更後: '+updated+'\n- CSS、画像、フォーム、商品ページ、決済・在庫・管理Worker: 変更なし\n')
+          print('PASS: exact legal sentence patched from current public page')
+          PY
+      - name: Deploy separate legal-only Worker (no route changes)
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4.155.0 deploy --config "$RUNNER_TEMP/yasoya-shipping-legal/wrangler.jsonc"
+          echo '### 配信準備\n- 独立Worker: yasoya-shipping-legal-20261113\n- 本番URLのRouteは未設定\n- 本番購入Workerには変更なし\n' >> "$GITHUB_STEP_SUMMARY"
