@@ -29,7 +29,7 @@
     padding-top: var(--yasoya-product-info-gap) !important;
   }
   body:has(.v30-product) .v53-managed-product .v30-slide-ui {
-    bottom: 195px !important;
+    bottom: 129px !important;
   }
 }
 
