@@ -7,9 +7,6 @@ const href=p=>'/products/'+p.slug+'.html';
 const image=p=>presentationImageUrl(p);
 const img=p=>image(p)?`<img src="${image(p)}" alt="${escape(p.alt)}" loading="lazy">`:'';
 const json=x=>JSON.stringify(x).replaceAll('<','\\u003c');
-// Mobile product layout and unified cart/select treatment; scoped to managed products only.
-const productRefinementCss="<style id=\"yasoya-product-refinement-20261112\">\n/* E: outline, user-selected 10px radius and 18% preview shadow */\n.v53-managed-product .v30-cart-row .v30-cart-button,\n.v53-managed-product .v30-qty select {\n  border: 1px solid rgba(237,234,226,.82) !important;\n  border-radius: 10px !important;\n  background: rgba(255,255,255,.055) !important;\n  color: #edeae2 !important;\n  box-shadow: 0 5px 14px -1px rgba(0,0,0,.144) !important;\n  transition: background-color .2s ease, border-color .2s ease, box-shadow .2s ease;\n}\n.v53-managed-product .v30-cart-row .v30-cart-button:not(:disabled):active { background: rgba(255,255,255,.12) !important; }\n.v53-managed-product .v30-cart-row .v30-cart-button:disabled,\n.v53-managed-product .v30-qty select:disabled { opacity: .46; box-shadow: none !important; }\n.v53-managed-product .v30-cart-row .v30-cart-button:focus-visible,\n.v53-managed-product .v30-qty select:focus-visible { outline: 2px solid #edeae2; outline-offset: 3px; }\n.v53-managed-product .v30-qty select { min-width: 68px; min-height: 50px; padding: 12px 8px; }\n.v53-managed-product .v30-qty select option { color: #222; background: #f3f0e8; }\n@media (max-width: 700px) {\n  .v53-managed-product .v30-gallery {\n    --yasoya-product-title-gap: 36px;\n    --yasoya-product-image-stage: 382px;\n    --yasoya-product-info-gap: 8px;\n    height: clamp(540px, calc(100svh - 56px), calc(304px + var(--yasoya-product-title-gap) + var(--yasoya-product-image-stage)));\n    min-height: 540px;\n  }\n  .v53-managed-product .v30-top { top: calc(72px + var(--yasoya-product-title-gap)); }\n  .v53-managed-product .v30-purchase { padding-top: var(--yasoya-product-info-gap); }\n  .v53-managed-product .v30-slide-ui { bottom: 195px; }\n}\n@media (prefers-reduced-motion: reduce) {\n  .v53-managed-product .v30-cart-row .v30-cart-button,\n  .v53-managed-product .v30-qty select { transition: none; }\n}\n</style>";
-
 export async function renderV53(request,env){
  const u=new URL(request.url),match=u.pathname.match(/^\/products\/([a-z0-9-]+)\.html$/);
  if(!match&&!['/','/index.html','/products.html'].includes(u.pathname))return null;
@@ -25,7 +22,7 @@ export async function renderV53(request,env){
   const galleryImages=p.images.length?p.images:p.fallbackImage?[null]:[];
   const gallery=galleryImages.map((id,i)=>`<figure class="v30-slide ${i===0?'is-active':''}" data-index="${i}" aria-hidden="${i!==0}"><img src="${id?'/api/media/'+id:p.fallbackImage}" alt="${escape(p.alt)}"><figcaption class="v30-caption"><span>${i+1}</span></figcaption></figure>`).join('');
   r=r.on('.v30-product',{element:e=>e.setAttribute('class','v30-product v53-managed-product')})
-   .on('head',{element:e=>e.append('<link rel="stylesheet" href="/css/managed-product.css">'+productRefinementCss,{html:true})})
+   .on('head',{element:e=>e.append('<link rel="stylesheet" href="/css/managed-product.css">',{html:true})})
    .on('body',{element:e=>e.append('<script src="/js/managed-product.js"></script>',{html:true})})
    .on('title',{element:e=>e.setInnerContent(p.name+'｜八草屋本店')})
    .on('meta[name="description"]',{element:e=>e.setAttribute('content',p.description.replace(/<[^>]*>/g,'').slice(0,160))})
