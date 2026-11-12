@@ -70,10 +70,14 @@ jobs:
           if len(names)!=43 or len(set(names))!=43 or not {'ASSETS','ORDERS_DB','PURCHASE_COORDINATOR'}.issubset(names):
               sys.exit('STOP: required 43 bindings missing')
           types={b['name']:b['type'] for b in bs}
-          script=read(root)
-          compat=settings.get('compatibility_date') or old.get('resources',{}).get('script',{}).get('compatibility_date') or script.get('compatibility_date')
+          # GET /workers/scripts/{name} returns raw script source, never JSON.
+          # Read runtime settings exclusively from JSON settings/version endpoints.
+          runtime=old.get('script_runtime',{})
+          resource_script=old.get('resources',{}).get('script',{})
+          compat=settings.get('compatibility_date') or runtime.get('compatibility_date') or resource_script.get('compatibility_date')
           flags=settings.get('compatibility_flags')
-          if flags is None:flags=script.get('compatibility_flags',[])
+          if flags is None:flags=runtime.get('compatibility_flags')
+          if flags is None:flags=resource_script.get('compatibility_flags',[])
           if not isinstance(compat,str) or not re.fullmatch(r'20\d\d-\d\d-\d\d',compat) or not isinstance(flags,list):
               sys.exit('STOP: original compatibility configuration unknown')
           assets=settings.get('assets')
