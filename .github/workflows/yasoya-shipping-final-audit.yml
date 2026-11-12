@@ -1,0 +1,88 @@
+name: YASOYA | 送料1500円版の公開前最終監査
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/yasoya-shipping-final-audit.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: Read-only candidate and legal page comparison
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check candidate and legal worker readiness without writes
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json,os,sys,urllib.request
+          auth={'Authorization':'Bearer '+os.environ['CF_API_TOKEN']}
+          account=os.environ['CF_ACCOUNT_ID']
+          root=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments'
+          baseline='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          def get(url):
+              req=urllib.request.Request(url,headers={**auth,'Accept':'application/json'})
+              with urllib.request.urlopen(req,timeout=30) as res:data=json.load(res)
+              if data.get('success') is not True:sys.exit('STOP: Cloudflare JSON API failure')
+              return data['result']
+          deps=get(root+'/deployments')['deployments']
+          active=[x['version_id'] for x in deps[0].get('versions',[]) if x.get('percentage')==100]
+          if active!=[baseline]:sys.exit('STOP: live Worker changed from baseline')
+          listing=get(root+'/versions?per_page=2')
+          items=listing.get('items',listing.get('versions',[])) if isinstance(listing,dict) else listing
+          if not items or items[0].get('id')==baseline:sys.exit('STOP: staged candidate is not latest upload')
+          cid=items[0]['id']
+          old=get(root+'/versions/'+baseline)
+          new=get(root+'/versions/'+cid)
+          def bindings(j):
+              x=j.get('resources',{}).get('bindings',[])
+              if isinstance(x,dict):x=x.get('bindings',x.get('items',[]))
+              return x
+          a,b=bindings(old),bindings(new)
+          def signature(bs):return sorted((x['name'],x['type']) for x in bs)
+          if len(a)!=43 or len(b)!=43 or signature(a)!=signature(b):sys.exit('STOP: binding mismatch')
+          runtime0=old.get('resources',{}).get('script_runtime',{})
+          runtime1=new.get('resources',{}).get('script_runtime',{})
+          for field in ('compatibility_date','compatibility_flags','exports','migration_tag'):
+              if runtime0.get(field) != runtime1.get(field):
+                  sys.exit('STOP: Worker runtime field differs: '+field)
+          handlers0=old.get('resources',{}).get('script',{})
+          handlers1=new.get('resources',{}).get('script',{})
+          if handlers0.get('handlers')!=handlers1.get('handlers'):
+              sys.exit('STOP: default Worker handlers differ')
+          if handlers0.get('named_handlers')!=handlers1.get('named_handlers'):
+              sys.exit('STOP: named Worker handlers differ')
+          if handlers0.get('etag')==handlers1.get('etag'):
+              sys.exit('STOP: candidate source did not change')
+          metadata=new.get('metadata',{})
+          message=(metadata.get('annotations') or {}).get('workers/message','')
+          # Do not reject absent API annotations; version was created by the guarded staging Action.
+          legal_url='https://yasoya-shipping-legal-20261113.tatsurou3523.workers.dev/tokushoho.html'
+          req=urllib.request.Request(legal_url,headers={'User-Agent':'Mozilla/5.0 YASOYA-final-audit'})
+          with urllib.request.urlopen(req,timeout=30) as res:
+              if res.status!=200:sys.exit('STOP: legal Worker not HTTP 200')
+              legal=res.read(500000).decode('utf8')
+          sentence='全国一律350円（税込）／商品合計1,500円（税込）以上で送料無料'
+          if legal.count(sentence)!=1 or '商品合計3,000円（税込）以上で送料無料' in legal:
+              sys.exit('STOP: legal Worker has wrong shipping notice')
+          current='https://yasoyahonten.awaiaune.com/tokushoho.html'
+          with urllib.request.urlopen(urllib.request.Request(current,headers={'User-Agent':'Mozilla/5.0 YASOYA-final-audit'}),timeout=30) as res:
+              existing=res.read(500000).decode('utf8')
+          if existing.count(sentence)!=0 or existing.count('商品合計3,000円（税込）以上で送料無料')!=1:
+              sys.exit('STOP: live legal page not still at previous notice')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## 送料1500円・本番切り替え直前の確認\n')
+              f.write('- 未公開候補Version ID: '+cid+'\n')
+              f.write('- 現在の公開Version ID: '+baseline+'\n')
+              f.write('- 新旧43個のバインディング: 名称・種類一致\n')
+              f.write('- 互換性日付/flags/DO exports/migration: 一致\n')
+              f.write('- fetch/DO handler一覧: 一致\n')
+              f.write('- Workerコードのハッシュ: 変更を確認\n')
+              f.write('- 特商法専用Worker: 新しい送料表記を確認\n')
+              f.write('- 既存特商法URL: まだ古い表記（正しく未切り替え）\n')
+              f.write('- **変更・デプロイ: 一切なし**\n')
+          print('PASS: inactive candidate',cid,'43 bindings, runtime, handlers and legal page checked')
+          PY
