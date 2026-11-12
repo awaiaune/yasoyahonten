@@ -43,7 +43,7 @@ export const CATALOG = Object.freeze({
 
 export const SHIPPING = Object.freeze({
     flatRate: 350,
-    freeThreshold: 3000
+    freeThreshold: 1500
 });
 
 export function calculateShipping(subtotal) {
