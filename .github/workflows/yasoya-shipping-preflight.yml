@@ -1,0 +1,108 @@
+name: YASOYA | 送料無料1500円 事前安全確認
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Read-only audit of current purchase Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check source patch is exactly one shipping constant
+        uses: actions/checkout@v4
+        with:
+          ref: feature/shipping-free-threshold-1500-20261112
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Source-only checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,sys
+          s=pathlib.Path('worker/src/catalog.js').read_text()
+          if s.count('freeThreshold: 1500')!=1 or 'freeThreshold: 3000' in s:
+              sys.exit('STOP: invalid threshold change')
+          if 'flatRate: 350' not in s: sys.exit('STOP: normal shipping changed')
+          print('PASS: GitHub source has 1500 JPY threshold, 350 JPY standard shipping')
+          PY
+      - name: Inspect deployed script, bindings and assets without modifying them
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,os,re,sys,urllib.error,urllib.request
+          account=os.environ['CF_ACCOUNT_ID']
+          root=f'https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/yasoya-honten-payments'
+          headers={'Authorization':'Bearer '+os.environ['CF_API_TOKEN'],'Accept':'application/json'}
+          def get(u, raw=False):
+              req=urllib.request.Request(u,headers=headers)
+              with urllib.request.urlopen(req,timeout=30) as response:
+                  data=response.read(5_000_000)
+                  return (data,response.headers.get('Content-Type','')) if raw else json.loads(data)
+          deploy=get(root+'/deployments')
+          versions=deploy.get('result',{}).get('deployments') or []
+          if not versions: sys.exit('STOP: deployment information missing')
+          active=[v for v in versions[0].get('versions',[]) if v.get('percentage')==100]
+          expected='f4a0fc4a-3023-495b-9821-ee9f5dfc4b82'
+          if len(active)!=1 or active[0].get('version_id')!=expected:
+              sys.exit('STOP: deployed production Worker version changed. No change made.')
+          recent=get(root+'/versions?per_page=1')
+          latest=recent.get('result',[])
+          if isinstance(latest,dict): latest=latest.get('items',[]) or latest.get('versions',[])
+          newest=latest[0].get('id','') if latest else ''
+          if newest!=expected:
+              sys.exit('STOP: latest uploaded Worker version differs from live version. No change made.')
+          detail=get(root+'/versions/'+expected)
+          binding_result=detail.get('result',{}).get('resources',{}).get('bindings',{})
+          if isinstance(binding_result,list): bindings=binding_result
+          elif isinstance(binding_result,dict): bindings=binding_result.get('bindings',[]) or binding_result.get('items',[])
+          else: bindings=[]
+          settings=get(root+'/settings')
+          s=settings.get('result',{}) if isinstance(settings,dict) else {}
+          ss=s.get('bindings',[])
+          if not bindings and isinstance(ss,list): bindings=ss
+          names=[x.get('name') for x in bindings if isinstance(x,dict)]
+          count=len(names)
+          if count<30: sys.exit('STOP: fewer than expected production bindings; no change made. Count='+str(count))
+          types=sorted(set(x.get('type','unknown') for x in bindings if isinstance(x,dict)))
+          has_assets=any((n or '')=='ASSETS' for n in names)
+          has_do=any((n or '')=='PURCHASE_COORDINATOR' for n in names)
+          if not has_assets or not has_do: sys.exit('STOP: required assets or durable object binding missing')
+          try:
+              data,content_type=get(root+'/content/v2',raw=True)
+          except urllib.error.HTTPError as err:
+              sys.exit('STOP: content/v2 unavailable, HTTP '+str(err.code))
+          # Look for a shipping threshold in the exact deployed script, without showing source or secrets.
+          patterns=[
+              rb'freeThreshold\s*:\s*3000\b',
+              rb'freeThreshold\s*:\s*3e3\b',
+              rb'freeThreshold\s*:\s*1500\b',
+          ]
+          hits=[len(re.findall(p,data,re.IGNORECASE)) for p in patterns]
+          body_len=len(data)
+          if not body_len: sys.exit('STOP: empty deployed script')
+          notes=[
+              '## 送料無料変更の本番事前確認（読み取りのみ）',
+              '- 本番Workerバージョン: '+expected,
+              '- 最新アップロード版と本番版: 一致',
+              '- 既存binding: '+str(count)+'件（ASSETS、PURCHASE_COORDINATORあり）',
+              '- Worker Content-Type: '+content_type.split(';')[0],
+              '- Worker content bytes: '+str(body_len),
+              '- Worker content SHA256: '+hashlib.sha256(data).hexdigest()[:16]+'…',
+              '- 本番コード freeThreshold:3000 ヒット: '+str(hits[0]),
+              '- 本番コード freeThreshold:3e3 ヒット: '+str(hits[1]),
+              '- 本番コード freeThreshold:1500 ヒット: '+str(hits[2]),
+              '- 本番Workerの変更: **なし**',
+              '',
+              '次に、現行バンドルとbindingを保持する更新手順を設計する。'
+          ]
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+              out.write('\n'.join(notes)+'\n')
+          print('PASS audit complete; production unchanged. Bindings:',count,'script MIME:',content_type.split(';')[0],'shipping matches:',hits)
+          PY
