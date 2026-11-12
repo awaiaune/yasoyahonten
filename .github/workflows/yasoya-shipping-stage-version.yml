@@ -1,5 +1,8 @@
 name: YASOYA | 送料無料1500円 非公開バージョン準備
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/yasoya-shipping-stage-version.yml]
   workflow_dispatch:
 permissions:
   contents: read
@@ -106,12 +109,19 @@ jobs:
           metadata_count=json.dumps(source_meta,ensure_ascii=False).encode().count(marker)
           print('DIAGNOSTIC raw-count:',raw_count,'nonmetadata parts:',len(parts),'metadata-count:',metadata_count,flush=True)
           print('DIAGNOSTIC part-counts (name,type,bytes,marker-count):',counts,flush=True)
-          matches=[i for i,p in enumerate(parts) if p[3].count(marker)>0]
-          if len(matches)!=1 or parts[matches[0]][3].count(marker)!=1:
-              sys.exit('STOP: multipart script marker mismatch; no upload. Raw='+str(raw_count)+'; matches='+str(len(matches)))
+          # The live bundle is minified with whitespace around the colon.
+          # Read-only diagnostics established exactly one regex match in the single JS module.
+          pattern=rb'(freeThreshold\s*:\s*)3e3\b'
+          matches=[i for i,p in enumerate(parts) if len(re.findall(pattern,p[3]))>0]
+          if len(matches)!=1 or len(re.findall(pattern,parts[matches[0]][3]))!=1:
+              sys.exit('STOP: expected exactly one shipping threshold in one module; no upload')
           i=matches[0]
-          if b'freeThreshold:1500' in parts[i][3]:sys.exit('STOP: already modified')
-          parts[i][3]=parts[i][3].replace(b'freeThreshold:3e3',b'freeThreshold:1500')
+          if re.search(rb'freeThreshold\s*:\s*1500\b',parts[i][3]):
+              sys.exit('STOP: module already modified; no upload')
+          original_script=parts[i][3]
+          parts[i][3],replacement_count=re.subn(pattern,lambda match:match.group(1)+b'1500',original_script,count=1)
+          if replacement_count!=1 or parts[i][3]==original_script:
+              sys.exit('STOP: shipping patch not exactly one replacement')
           js=[p for p in parts if 'javascript' in p[2]]
           main=source_meta.get('main_module') or (js[0][0] if len(js)==1 else None)
           if main not in [p[0] for p in js] or any('module' not in p[2] for p in js):
