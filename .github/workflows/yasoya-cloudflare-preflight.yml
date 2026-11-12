@@ -1,0 +1,87 @@
+name: YASOYA | Cloudflare本番確認（読み取り専用）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Check current production without deploying
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read Cloudflare version and purchase flags
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          token = os.environ.get("CF_API_TOKEN", "")
+          account = os.environ.get("CF_ACCOUNT_ID", "")
+          worker = "yasoya-honten-payments"
+
+          if not token or not account:
+              sys.exit("STOP: GitHub ActionsのSecretsにCLOUDFLARE_API_TOKENとCLOUDFLARE_ACCOUNT_IDを登録してください。")
+
+          base = f"https://api.cloudflare.com/client/v4/accounts/{account}/workers/scripts/{worker}"
+
+          def read(path):
+              req = urllib.request.Request(
+                  "https://api.cloudflare.com/client/v4" + path,
+                  headers={"Authorization": "Bearer " + token, "Accept": "application/json"},
+                  method="GET",
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=25) as response:
+                      body = json.load(response)
+              except urllib.error.HTTPError as err:
+                  sys.exit(f"STOP: Cloudflare GET failed (HTTP {err.code}): {path.split('?')[0]}")
+              except Exception as err:
+                  sys.exit(f"STOP: Cloudflareへの接続に失敗 ({type(err).__name__})")
+              if body.get("success") is not True:
+                  sys.exit(f"STOP: Cloudflare API did not confirm success: {path.split('?')[0]}")
+              return body.get("result") or {}
+
+          d = read(f"/accounts/{account}/workers/scripts/{worker}/deployments")
+          deployments = d.get("deployments", []) if isinstance(d, dict) else []
+          if not deployments:
+              sys.exit("STOP: 稼働中のデプロイを確認できません。")
+          versions = deployments[0].get("versions", [])
+          live = [v for v in versions if v.get("percentage") == 100]
+          if len(live) != 1:
+              sys.exit("STOP: 100%稼働のVersionが1つとは確認できません。")
+
+          version_id = live[0].get("version_id")
+          if not version_id:
+              sys.exit("STOP: 稼働VersionのIDを確認できません。")
+          details = read(f"/accounts/{account}/workers/scripts/{worker}/versions/{version_id}")
+          resources = details.get("resources") or {}
+          bindings = resources.get("bindings") or []
+          if not bindings:
+              sys.exit("STOP: VersionのBindingsを取得できません。")
+          by_name = {b.get("name"): b for b in bindings}
+          flags = {
+              n: by_name.get(n, {}).get("text")
+              for n in ("PRODUCTION_CHECKOUT_ENABLED", "PRODUCTION_MANAGED_CHECKOUT_ENABLED")
+          }
+          assets_found = "ASSETS" in by_name
+
+          print("STATUS: read-only preflight (NO DEPLOYMENT)")
+          print("Worker:", worker)
+          print("Version ID:", version_id)
+          print("Traffic: 100%")
+          print("Bindings:", len(bindings))
+          print("ASSETS:", "present" if assets_found else "not confirmed")
+          print("Purchase flags:", {k: "ON" if v == "1" else "NOT CONFIRMED" for k,v in flags.items()})
+          if any(v != "1" for v in flags.values()) or not assets_found:
+              sys.exit("STOP: Production configuration is not confirmed as expected.")
+          print("SUCCESS: 本番設定の読み取り確認ができました。コード・設定の変更は0件です。")
+          PY
