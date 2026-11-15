@@ -1,0 +1,77 @@
+name: YASOYA | D1 overnight analytics (read-only, temporary)
+on:
+  push:
+    branches: [fix/staging-d1-idle-reads-20261115]
+    paths: [.github/workflows/d1-overnight-readonly.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  analytics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Query Cloudflare GraphQL Analytics only (never connect to D1)
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import datetime,json,os,sys,urllib.request,urllib.error
+          target='d16c9e56-076a-4470-8d78-4fcfbe32b4dd'
+          utc=datetime.timezone.utc
+          now=datetime.datetime.now(utc)
+          start=now-datetime.timedelta(hours=22)
+          end=now-datetime.timedelta(minutes=10)
+          query='''query($account:string!,$start:Time!,$end:Time!,$db:string!){
+            viewer{accounts(filter:{accountTag:$account}){
+              d1AnalyticsAdaptiveGroups(limit:60,
+                filter:{datetime_geq:$start,datetime_lt:$end,databaseId:$db},
+                orderBy:[datetimeHour_DESC]){
+                  dimensions{datetimeHour}
+                  sum{rowsRead readQueries writeQueries rowsWritten}
+                }
+            }}
+          }'''
+          body=json.dumps({'query':query,'variables':{
+            'account':os.environ['CF_ACCOUNT'],
+            'start':start.isoformat(timespec='seconds').replace('+00:00','Z'),
+            'end':end.isoformat(timespec='seconds').replace('+00:00','Z'),
+            'db':target
+          }}).encode()
+          url='https://api.cloudflare.com/client/v4/graphql'
+          request=urllib.request.Request(url,data=body,headers={
+            'Authorization':'Bearer '+os.environ['CF_TOKEN'],
+            'Content-Type':'application/json',
+            'Accept':'application/json'
+          })
+          try:
+            with urllib.request.urlopen(request,timeout=35) as r:data=json.load(r)
+          except urllib.error.HTTPError as err:
+            print('NOT AVAILABLE: GraphQL Analytics HTTP',err.code,'(no D1 data queried)')
+            sys.exit(0)
+          if data.get('errors'):
+            print('NOT AVAILABLE: GraphQL errors; permissions/schema check required:',str(data['errors'])[:1000])
+            sys.exit(0)
+          groups=data.get('data',{}).get('viewer',{}).get('accounts',[])
+          if not groups:
+            print('NOT AVAILABLE: no D1 account analytics available')
+            sys.exit(0)
+          records=groups[0].get('d1AnalyticsAdaptiveGroups',[])
+          records=sorted(records,key=lambda x:x['dimensions']['datetimeHour'])
+          print('D1 staging rows_read per UTC hour, read-only (time is UTC):')
+          for item in records:
+            k=item['dimensions']['datetimeHour']; v=item.get('sum',{})
+            print(k,'rowsRead=',v.get('rowsRead'),'readQueries=',v.get('readQueries'),'rowsWritten=',v.get('rowsWritten'))
+          if not records:print('NO RECORDS: analytics not populated or access is incomplete')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as out:
+            out.write('## D1ステージング 一晩後の読み取り専用比較\n')
+            out.write('DB: yasoya-v53-staging-orders\n\n')
+            out.write('集計: Cloudflare GraphQL Analytics（実DBへのSQLなし）\n\n')
+            out.write('| UTC時間帯 | rows_read | readQueries |\n|---|---:|---:|\n')
+            for item in records:
+              v=item.get('sum',{}); t=item['dimensions']['datetimeHour']
+              out.write(f"| {t} | {v.get('rowsRead','?'):,} | {v.get('readQueries','?'):,} |\n")
+            out.write('\n注: 直近10分を除外。集計遅延・サンプリングの影響があり、時刻ごとの厳密な請求量とは異なる場合があります。\n')
+          PY
