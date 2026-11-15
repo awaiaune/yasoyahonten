@@ -13,7 +13,7 @@ export async function renderV53(request,env){
  const store=new Store(env),featuredRaw=match||u.pathname==='/products.html'?[]:await featuredProducts(store);
  const fallback=p=>production(env)&&!p.images.length&&['lemonbalm','yomogi'].includes(p.slug)?{...p,fallbackImage:'/images/'+p.slug+'.jpg'}:p;
  const featured=featuredRaw.map(fallback);
- const allProducts=(await new Store(env).publicProducts()).map(fallback),products=allProducts.filter(p=>p.status==='published'),p=match?allProducts.find(p=>p.slug===match[1]):null;
+ const allProducts=(await store.publicProducts()).map(fallback),products=allProducts.filter(p=>p.status==='published'),p=match?allProducts.find(p=>p.slug===match[1]):null;
  if(match&&!p){const retired=await store.retiredProductIds(),old=(await store.products()).find(n=>n.slug===match[1]&&retired.has(n.id));return new Response(old||retiredProduct(env,{id:match[1]})?'この商品は販売を終了しました。':'商品がありません。',{status:old||retiredProduct(env,{id:match[1]})?410:404});}
  const template=new URL(request.url);if(match)template.pathname='/products/lemonbalm.html';
  const asset=await env.ASSETS.fetch(new Request(template));if(asset.status!==200)return asset;
