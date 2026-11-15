@@ -9,9 +9,11 @@ export class StagingPurchaseCoordinator extends PurchaseCoordinator{
 }
 export default {async fetch(request,env,ctx){
  const headers={'Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow, noarchive'};
- let phase='setup_database';
+ // Reject unauthenticated requests before touching D1, including staging
+ // health checks, crawlers and stale external monitors.
+ let phase='access';
  try{
-  await assertStagingDatabase(env);phase='access';await assertAccess(request,env);phase='application';
+  await assertAccess(request,env);phase='setup_database';await assertStagingDatabase(env);phase='application';
   const url=new URL(request.url);if(url.origin!==env.SITE_URL)return new Response('Host rejected',{status:403,headers});
   let response;
   if(url.pathname==='/js/store-config.js')response=new Response('window.YASOYA_STORE_CONFIG=Object.freeze('+JSON.stringify({environment:'sandbox',squareApplicationId:env.SQUARE_SANDBOX_APPLICATION_ID,squareLocationId:env.SQUARE_LOCATION_ID,workerBaseUrl:url.origin,currency:'JPY'})+');window.YASOYA_RETIRED_VARIANT_IDS='+JSON.stringify(await new Store(env).retiredVariantIds())+';',{headers:{'Content-Type':'application/javascript'}});
