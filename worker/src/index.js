@@ -48,6 +48,16 @@ export default {
         try {
             const policy=externalPolicy(env);
             if(url.pathname==='/api/checkout-capabilities'&&request.method==='GET')return corsJson(checkoutCapabilities(env,policy),200,origin,allowedOrigins);
+            // A health probe must not load the entire managed product/history catalog.
+            if (request.method === "GET" && url.pathname === "/api/health") {
+                return corsJson({
+                    ok: true,
+                    service: "YASOYA HONTEN PAYMENTS",
+                    version: "2.0.0",
+                    environment: env.SQUARE_ENVIRONMENT || "sandbox",
+                    emailConfigured: Boolean(resendKey(env) && env.RESEND_FROM_EMAIL)
+                }, 200, origin, allowedOrigins);
+            }
             if(production(env)&&url.pathname.startsWith('/api/admin/')){await assertProductionAdmin(request,env);productionGrant(env,'read');}
             if (url.pathname === "/api/payments" && request.method === "POST") assertCheckout(env);
             if(url.pathname==='/api/payment-diagnostics'&&request.method==='POST'){
@@ -89,15 +99,7 @@ export default {
                     return corsJson(await r.json(),r.status,origin,allowedOrigins);
                 }
             }
-            if (request.method === "GET" && url.pathname === "/api/health") {
-                return corsJson({
-                    ok: true,
-                    service: "YASOYA HONTEN PAYMENTS",
-                    version: "2.0.0",
-                    environment: env.SQUARE_ENVIRONMENT || "sandbox",
-                    emailConfigured: Boolean(resendKey(env) && env.RESEND_FROM_EMAIL)
-                }, 200, origin, allowedOrigins);
-            }
+
 
             
             if (request.method === "POST" && url.pathname === "/api/inventory") {

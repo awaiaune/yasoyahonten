@@ -15,7 +15,10 @@ export class Supervision {
   try{
    const notifications=externalPolicy(this.m.env).mail?" UNION ALL SELECT next_due AS due FROM mg_job_notifications WHERE state IN ('pending','blocked')":'';
    const row=await this.s.one("SELECT MIN(due) AS due FROM (SELECT next_due AS due FROM mg_jobs WHERE state IN ('queued','running','retry')"+notifications+")");
-   return await this.arm(row?.due===null||row?.due===undefined?this.time()+WATCHDOG_MS:Math.max(this.time()+1000,Math.min(row.due,this.time()+WATCHDOG_MS)));
+   // An idle queue has no management work. Do not install a 60-second heartbeat.
+   // Other purchase/mail/trace subsystems own their alarms; never delete them here.
+   if(row?.due===null||row?.due===undefined)return false;
+   return await this.arm(Math.max(this.time()+1000,Math.min(row.due,this.time()+WATCHDOG_MS)));
   }catch{await this.alarmState('failed');return false;}
  }
  async scan(){

@@ -4,19 +4,25 @@ import {productionDatabase} from '../production-policy.js';
 import {CATALOG} from '../catalog.js';
 import { need, now } from './domain.js';
 export class Store {
- constructor(env){this.db=env.ORDERS_DB;this.env=env;}
+ constructor(env){this.db=env.ORDERS_DB;this.env=env;this._retiredIdsPromise=null;}
  stmt(sql,args=[]){return this.db.prepare(sql).bind(...args);}
  async one(sql,args=[]){return this.stmt(sql,args).first();}
  async all(sql,args=[]){return (await this.stmt(sql,args).all()).results||[];}
- async run(sql,args=[]){return this.stmt(sql,args).run();}
- async batch(items){return this.db.batch(items.map(([sql,args])=>this.stmt(sql,args)));}
+ async run(sql,args=[]){const result=await this.stmt(sql,args).run();this._retiredIdsPromise=null;return result;}
+ async batch(items){const result=await this.db.batch(items.map(([sql,args])=>this.stmt(sql,args)));this._retiredIdsPromise=null;return result;}
  audit(actor,action,id,detail){return ['INSERT INTO mg_audit VALUES(?,?,?,?,?,?)',[crypto.randomUUID(),actor,action,id,JSON.stringify(detail),now()]];}
  async product(id){const p=await this.one('SELECT * FROM mg_products WHERE id=?',[id]);if(!p)return null;const r=await this.one('SELECT data_json FROM mg_revisions WHERE product_id=? AND revision=?',[id,p.draft_revision]);return {...p,draft:JSON.parse(r.data_json)};}
  async products(){const rows=await this.all('SELECT p.*,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id AND r.revision=p.draft_revision ORDER BY p.sort_order,p.id');return rows.map(p=>{const {data_json,...row}=p;return {...row,draft:JSON.parse(data_json)};});}
  async retiredProductIds(){
   if(!retirementEnabled(this.env))return new Set();
-  const rows=await this.all("SELECT p.id,p.slug,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id WHERE r.revision=p.published_revision OR (r.revision=p.draft_revision AND p.status='archived') OR EXISTS(SELECT 1 FROM mg_audit a WHERE a.resource_id=p.id AND a.action IN ('site_published','release_published') AND json_extract(a.detail_json,'$.revision')=r.revision)");
-  return new Set(rows.filter(p=>retiredProduct(this.env,{id:p.id,slug:p.slug,...JSON.parse(p.data_json)})).map(p=>p.id));
+  // Read-only callers in one request share one in-flight query. No global/TTL
+  // cache: a new Store sees edits immediately, and writes invalidate this cache.
+  if(!this._retiredIdsPromise){
+   this._retiredIdsPromise=this.all("SELECT p.id,p.slug,r.data_json FROM mg_products p JOIN mg_revisions r ON r.product_id=p.id WHERE r.revision=p.published_revision OR (r.revision=p.draft_revision AND p.status='archived') OR EXISTS(SELECT 1 FROM mg_audit a WHERE a.resource_id=p.id AND a.action IN ('site_published','release_published') AND json_extract(a.detail_json,'$.revision')=r.revision)")
+    .then(rows=>new Set(rows.filter(p=>retiredProduct(this.env,{id:p.id,slug:p.slug,...JSON.parse(p.data_json)})).map(p=>p.id)))
+    .catch(error=>{this._retiredIdsPromise=null;throw error;});
+  }
+  return this._retiredIdsPromise;
  }
  async retiredVariantIds(){if(!retirementEnabled(this.env))return [];const ids=await this.retiredProductIds();return [...new Set(['goldenrod-leaf-10g','goldenrod-leaf-stem-20g',...(await this.products()).filter(p=>ids.has(p.id)).flatMap(p=>p.draft.variants.map(v=>v.id))])];}
  async publicProducts(){
