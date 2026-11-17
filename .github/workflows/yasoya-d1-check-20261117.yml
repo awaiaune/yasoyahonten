@@ -1,0 +1,99 @@
+name: YASOYA D1 usage check 2026-11-17 (read-only)
+on:
+  push:
+    branches:
+      - fix/staging-d1-idle-reads-20261115
+    paths:
+      - .github/workflows/yasoya-d1-check-20261117.yml
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Cloudflare GraphQL only; no D1 queries and no deployment
+        shell: bash
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json,os,urllib.request,urllib.error,datetime,sys
+          db='d16c9e56-076a-4470-8d78-4fcfbe32b4dd'
+          now=datetime.datetime.now(datetime.timezone.utc)
+          latest=now.replace(minute=0,second=0,microsecond=0)
+          since=latest-datetime.timedelta(hours=36)
+          fmt=lambda d:d.isoformat(timespec='seconds').replace('+00:00','Z')
+          q='''query($account:string!,$db:string!,$start:Time!,$end:Time!,$qstart:Time!,$qend:Time!){
+            viewer{accounts(filter:{accountTag:$account}){
+              d1AnalyticsAdaptiveGroups(limit:60,
+                filter:{datetime_geq:$start,datetime_lt:$end,databaseId:$db},
+                orderBy:[datetimeHour_DESC]){
+                  dimensions{datetimeHour}
+                  sum{rowsRead readQueries rowsWritten}
+              }
+              d1QueriesAdaptiveGroups(limit:12,
+                filter:{databaseId:$db,datetime_geq:$qstart,datetime_lt:$qend},
+                orderBy:[sum_rowsRead_DESC]){
+                  count sum{rowsRead rowsWritten} dimensions{query}
+              }
+            }}
+          }'''
+          body=json.dumps({'query':q,'variables':{
+            'account':os.environ['CF_ACCOUNT'],'db':db,
+            'start':fmt(since),'end':fmt(latest),
+            'qstart':fmt(latest-datetime.timedelta(hours=1)),'qend':fmt(latest)
+          }}).encode()
+          req=urllib.request.Request('https://api.cloudflare.com/client/v4/graphql',
+            method='POST',data=body,headers={
+            'Authorization':'Bearer '+os.environ['CF_TOKEN'],
+            'Content-Type':'application/json','Accept':'application/json'})
+          try:
+            with urllib.request.urlopen(req,timeout=35) as res: result=json.load(res)
+          except urllib.error.HTTPError as err:
+            print('ANALYTICS_UNAVAILABLE HTTP',err.code)
+            sys.exit(1)
+          if result.get('errors'):
+            print('ANALYTICS_UNAVAILABLE GraphQL:',str(result['errors'])[:700])
+            sys.exit(1)
+          accounts=result.get('data',{}).get('viewer',{}).get('accounts',[])
+          if not accounts:sys.exit('ANALYTICS_UNAVAILABLE: empty Cloudflare accounts')
+          data=accounts[0]
+          vals=sorted(data.get('d1AnalyticsAdaptiveGroups') or [],
+            key=lambda x:x.get('dimensions',{}).get('datetimeHour',''))
+          print('INFO: All times in UTC. Recent complete hourly D1 analytics:',flush=True)
+          for x in vals:
+            dt=x['dimensions']['datetimeHour']; nums=x.get('sum') or {}
+            print('HOUR',dt,'rowsRead',nums.get('rowsRead'),'readQueries',nums.get('readQueries'),'rowsWritten',nums.get('rowsWritten'),flush=True)
+          print('INFO: Top SQL insights in most recent complete hour; sample based:',flush=True)
+          for x in data.get('d1QueriesAdaptiveGroups') or []:
+            sql=' '.join(str(x.get('dimensions',{}).get('query') or '').split())
+            # Log SQL form only, not bound parameter values, secrets or customer records.
+            print('SQL', 'rowsRead',x.get('sum',{}).get('rowsRead'),'count',x.get('count'),'text',sql[:180],flush=True)
+          if len(vals)<3:sys.exit('NOT_ENOUGH_DATA: fewer than 3 hourly periods')
+          def n(x):return x.get('sum',{}).get('rowsRead')
+          complete=[x for x in vals if isinstance(n(x),int)]
+          if not complete:sys.exit('NOT_ENOUGH_DATA: no hours with rowsRead')
+          recent=complete[-min(6,len(complete)):]
+          avg=sum(n(x) for x in recent)/len(recent)
+          print('RESULT latest=',complete[-1]['dimensions']['datetimeHour'],
+            'rowsRead=',n(complete[-1]),'recent_hour_count=',len(recent),
+            'mean_rowsRead=',round(avg),
+            'prior_baseline_rowsRead=',122352,
+            'reduction_percent=',round((1-avg/122352)*100,2),flush=True)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## YASOYA D1 overnight comparison (read-only)\n\n')
+            f.write('DB: yasoya-v53-staging-orders / Cloudflare GraphQL Analytics\n\n')
+            f.write('Previous baseline: 122,352 rows_read/hour (2026-11-15); immediate post-fix: 8,976/hour (2026-11-16).\n\n')
+            f.write('| UTC hour | rows_read | readQueries |\n|---|---:|---:|\n')
+            for x in complete[-18:]:
+              d=x['dimensions']['datetimeHour']; k=x.get('sum') or {}
+              f.write('| '+str(d)+' | '+format(k.get('rowsRead',0),',')+' | '+format(k.get('readQueries',0),',')+' |\n')
+            f.write('\nLatest '+str(len(recent))+'-hour mean: **'+format(round(avg),',')+' rows_read/hour**; improvement vs baseline **'+str(round((1-avg/122352)*100,2))+'%**.\n')
+            f.write('\nSampled SQL Insights (most recent complete hour):\n\n')
+            for x in data.get('d1QueriesAdaptiveGroups') or []:
+              sql=' '.join(str(x.get('dimensions',{}).get('query') or '').split())[:150]
+              f.write('- '+str(x.get('sum',{}).get('rowsRead'))+' rows_read / '+str(x.get('count'))+' calls: '+sql.replace('\n',' ')+'\n')
+            f.write('\nNo D1 SQL executed, no infrastructure or site changes. Time aggregation may lag; SQL Insights uses sampling.\n')
+          PY
