@@ -1,0 +1,53 @@
+name: YASOYA | 実稼働版からUI候補を検証
+on:
+  push:
+    branches: [release/live-ui-20261123]
+    paths: [.github/workflows/live-ui-verify.yml, maintenance/ui-release-20261123/**]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: yasoya-ui-20261123-verify
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: yasoya-live-ui-audit
+          run-id: 45129197901
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/yasoya-ui-live
+      - name: Prepare exact reversible UI-only changes
+        run: python3 maintenance/ui-release-20261123/apply-patch.py --live "$RUNNER_TEMP/yasoya-ui-live" --out "$RUNNER_TEMP/yasoya-ui-candidate" --plan maintenance/ui-release-20261123/patch-plan.json
+      - name: Install isolated verification dependencies
+        run: npm install --prefix "$RUNNER_TEMP/yasoya-ui-deps" --no-audit --no-fund esbuild@0.28.2 miniflare@4.20260730.0 playwright@1.57.0
+      - name: Install test browser on the GitHub runner
+        run: node "$RUNNER_TEMP/yasoya-ui-deps/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Verify worker behavior, auth, HTML, desktop and mobile
+        env:
+          UI_BROWSER_TESTS: '1'
+        run: |
+          export UI_TEST_NODE_MODULES="$RUNNER_TEMP/yasoya-ui-deps/node_modules"
+          export UI_LIVE_DIR="$RUNNER_TEMP/yasoya-ui-live"
+          export UI_CANDIDATE_DIR="$RUNNER_TEMP/yasoya-ui-candidate"
+          export UI_SCREENSHOT_DIR="$RUNNER_TEMP/yasoya-ui-candidate/screenshots"
+          node --test --test-concurrency=1 maintenance/ui-release-20261123/live-ui.test.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yasoya-ui-verified-candidate
+          path: ${{ runner.temp }}/yasoya-ui-candidate
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yasoya-ui-original-snapshot
+          path: ${{ runner.temp }}/yasoya-ui-live
+          retention-days: 30
