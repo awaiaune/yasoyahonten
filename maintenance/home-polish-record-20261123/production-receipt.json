@@ -1,0 +1,290 @@
+{
+  "production": {
+    "state": "production-verified",
+    "timestamp": "2026-11-23T08:46:32.897053+00:00",
+    "workers": {
+      "yasoya-honten-payments": {
+        "baseline": "d467c29a-1e83-4362-b446-6f0df34b752a",
+        "candidate": "fc454b59-4ba4-4f46-91d5-b3e91645c013",
+        "bindingFingerprint": "b445a7639b39a8741661207ee964f2bcdbd266331ad449e6941b222aa05b2eb0",
+        "settingsFingerprint": "c5674b89b939c7ec18eeccfd08f9307e3572be2e772121a2893fe8d70c622a5c",
+        "parts": [
+          {
+            "name": "storefront-worker.js",
+            "filename": "storefront-worker.js",
+            "type": "application/javascript+module",
+            "size": 393407,
+            "sha256": "12ecc411449d796bffb483359f85d5528293814f1690148a4b7e603edce9f6ef"
+          }
+        ],
+        "verified": true
+      }
+    },
+    "changed": [
+      "yasoya-honten-payments"
+    ],
+    "checks": [
+      "home and index.html have SEO description in metadata only",
+      "plant names still generated from published p2.name",
+      "title/canonical/CSP preserved",
+      "shop/product pages/robots/sitemap/cart/checkout/admin JS byte-identical",
+      "updated name layout CSS present"
+    ],
+    "before": {
+      "/": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "eafd3b2b9d3f5bcf7eec214445d0b9027ad16f84435b8356e2e2cad2cd7daefd"
+      },
+      "/index.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/index.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "eafd3b2b9d3f5bcf7eec214445d0b9027ad16f84435b8356e2e2cad2cd7daefd"
+      },
+      "/products": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "f321744ab38f3312f43d704aae4be4d3afb656c9ad087656e6a2e249a5c5f4e2"
+      },
+      "/products/lemonbalm10.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products/lemonbalm10.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "d7503ae5d6e2d01eed991930fa4231f0d688b880450e43c16ecd33d6ad5ea2f8"
+      },
+      "/products/yomogi10.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products/yomogi10.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "1c93b2f898bdf94e4e789ac9e5bae32a8166758374598465f114d104a9596e6f"
+      },
+      "/robots.txt": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/robots.txt",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "403a8fe0c90e472974a3fe09e423b9aff445381d205bb3011fc8333652713aea"
+      },
+      "/sitemap.xml": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/sitemap.xml",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "fcf854c7f96448599c57aee591d14759579c626292d83886e08afe5bd633b4e8"
+      },
+      "/js/cart.js": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/js/cart.js",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "559ab7c82aa1072079ea1f0b80fd193add19748c264904174adfd5c99614534a"
+      },
+      "/checkout.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/checkout",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "bdfdf3e10e72ce88d14b3a70eb387dae4b180a9b4196b24535adeb6a845e8875"
+      },
+      "/css/editorial-v41-home.css": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/css/editorial-v41-home.css",
+        "release": "20261123",
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "0594a83262d1a965bb852f5ea04384435c7ae9c8de8bbe97c8364b7ffbb356f6"
+      },
+      "/js/admin-management.js": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/js/admin-management.js",
+        "release": "20261123",
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "e7e28a9f0841d4ec960ace8084ca907a870d6b84ae90dbdc8757b4d0e14ff9b7"
+      }
+    },
+    "after": {
+      "/": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "10118689d4ccd086aedd8f6f8e6865d92c9fd35d7f808ff900ed121325ae8411"
+      },
+      "/index.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/index.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "10118689d4ccd086aedd8f6f8e6865d92c9fd35d7f808ff900ed121325ae8411"
+      },
+      "/products": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "f321744ab38f3312f43d704aae4be4d3afb656c9ad087656e6a2e249a5c5f4e2"
+      },
+      "/products/lemonbalm10.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products/lemonbalm10.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "d7503ae5d6e2d01eed991930fa4231f0d688b880450e43c16ecd33d6ad5ea2f8"
+      },
+      "/products/yomogi10.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/products/yomogi10.html",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "1c93b2f898bdf94e4e789ac9e5bae32a8166758374598465f114d104a9596e6f"
+      },
+      "/robots.txt": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/robots.txt",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "403a8fe0c90e472974a3fe09e423b9aff445381d205bb3011fc8333652713aea"
+      },
+      "/sitemap.xml": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/sitemap.xml",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "fcf854c7f96448599c57aee591d14759579c626292d83886e08afe5bd633b4e8"
+      },
+      "/js/cart.js": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/js/cart.js",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "559ab7c82aa1072079ea1f0b80fd193add19748c264904174adfd5c99614534a"
+      },
+      "/checkout.html": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/checkout",
+        "release": null,
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "bdfdf3e10e72ce88d14b3a70eb387dae4b180a9b4196b24535adeb6a845e8875"
+      },
+      "/css/editorial-v41-home.css": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/css/editorial-v41-home.css",
+        "release": "20261123",
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "40fe021c4009832796c3ad7c042e8ddb03f57636381ff712dd7de84b75561b64"
+      },
+      "/js/admin-management.js": {
+        "status": 200,
+        "url": "https://yasoyahonten.awaiaune.com/js/admin-management.js",
+        "release": "20261123",
+        "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' https://web.squarecdn.com; connect-src 'self' https://connect.squareup.com https://*.squareup.com https://web.squarecdn.com https://o160250.ingest.sentry.io; frame-src 'self' https://*.squareup.com https://web.squarecdn.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://web.squarecdn.com; font-src 'self' https://square-fonts-production-f.squarecdn.com https://d1g145x70srn7h.cloudfront.net https://fonts.gstatic.com https://web.squarecdn.com; img-src 'self' data: blob:; base-uri 'self'; form-action 'self' https://api.squareup.com; frame-ancestors 'none'",
+        "sha256": "e7e28a9f0841d4ec960ace8084ca907a870d6b84ae90dbdc8757b4d0e14ff9b7"
+      }
+    },
+    "browser": [
+      {
+        "viewport": "mobile",
+        "size": 11,
+        "color": "rgb(255, 255, 255)",
+        "align": "left",
+        "filter": "none",
+        "dx": 0,
+        "gap": 24,
+        "after": "none",
+        "cart": "purchase block and cart code preserved byte-for-byte; no live cart or payment changes",
+        "slider": "YOMOGI link correct",
+        "gallery": "dots retained",
+        "fallback": "HTML name visible"
+      },
+      {
+        "viewport": "desktop",
+        "size": 13,
+        "color": "rgb(255, 255, 255)",
+        "align": "left",
+        "filter": "none",
+        "dx": 0,
+        "gap": 21,
+        "after": "none",
+        "cart": "purchase block and cart code preserved byte-for-byte; no live cart or payment changes",
+        "slider": "YOMOGI link correct",
+        "gallery": "dots retained",
+        "fallback": "HTML name visible"
+      }
+    ]
+  },
+  "sourceProof": {
+    "workers": {
+      "yasoya-honten-payments": {
+        "baseline": "d467c29a-1e83-4362-b446-6f0df34b752a",
+        "beforeParts": [
+          {
+            "name": "storefront-worker.js",
+            "filename": "storefront-worker.js",
+            "type": "application/javascript+module",
+            "size": 393955,
+            "sha256": "3ffa2c7e15efbcc6cad1c0c991efbc86cf1713fd5c409e53d7f25c7d5527f7e7"
+          }
+        ],
+        "afterParts": [
+          {
+            "name": "storefront-worker.js",
+            "filename": "storefront-worker.js",
+            "type": "application/javascript+module",
+            "size": 393407,
+            "sha256": "12ecc411449d796bffb483359f85d5528293814f1690148a4b7e603edce9f6ef"
+          }
+        ]
+      }
+    },
+    "changes": [
+      "remove visible botanical shop paragraph",
+      "keep description in existing home meta/OG/Twitter/JSON-LD",
+      "move and resize name beside swipe progress; keep all other asset overrides"
+    ],
+    "unchangedSourceSections": [
+      "production/access.js",
+      "production/storefront-worker.js",
+      "staging/safety.js",
+      "validation/catalog.js",
+      "validation/safety.js",
+      "worker/src/catalog.js",
+      "worker/src/checkout-contract.js",
+      "worker/src/external-policy.js",
+      "worker/src/index.js",
+      "worker/src/management/catalog-proof.js",
+      "worker/src/management/domain.js",
+      "worker/src/management/existing-production.js",
+      "worker/src/management/images.js",
+      "worker/src/management/importer.js",
+      "worker/src/management/integrated-policy.js",
+      "worker/src/management/presentation-images.js",
+      "worker/src/management/release.js",
+      "worker/src/management/sales-catalog-check.js",
+      "worker/src/management/sales-version-proof.js",
+      "worker/src/management/service.js",
+      "worker/src/management/site-publication.js",
+      "worker/src/management/square.js",
+      "worker/src/management/store.js",
+      "worker/src/management/storefront-selection.js",
+      "worker/src/management/storefront.js",
+      "worker/src/management/supervision.js",
+      "worker/src/management/sync-diagnostics.js",
+      "worker/src/order-mail-outbox.js",
+      "worker/src/payment-alerts.js",
+      "worker/src/payment-failure.js",
+      "worker/src/payment-trace.js",
+      "worker/src/production-policy.js",
+      "worker/src/purchase-ledger.js",
+      "worker/src/square-error-codes.js"
+    ],
+    "protectedSectionsVerified": 34,
+    "description": "\u516b\u8349\u5c4b\u672c\u5e97\u306f\u3001\u81ea\u7136\u4e7e\u71e5\u306e\u30cf\u30fc\u30d6\u30c6\u30a3\u30fc\u3092\u5c4a\u3051\u308b\u30aa\u30f3\u30e9\u30a4\u30f3\u30b7\u30e7\u30c3\u30d7\u3067\u3059\u3002\u30ec\u30e2\u30f3\u30d0\u30fc\u30e0\u30c6\u30a3\u30fc\u3084\u3088\u3082\u304e\u8336\u306a\u3069\u3001\u690d\u7269\u305d\u308c\u305e\u308c\u306e\u9999\u308a\u3068\u500b\u6027\u3092\u3001\u4e00\u676f\u306e\u304a\u8336\u3067\u697d\u3057\u3081\u307e\u3059\u3002"
+  }
+}
