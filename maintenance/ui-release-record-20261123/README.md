@@ -87,7 +87,7 @@ D1、R2画像、在庫、注文、DO、Square、購入受付フラグ、既存Se
 
 ## 6. Google Search Console
 
-Search Consoleを開いたがGoogleアカウントのログインが必要。URL検査・インデックス登録リクエストは未実施。サイトマップ再送信もしていない。サイト側のSEO確認とGoogle側の登録状態は別として扱う。
+Search Consoleを開いたがGoogleアカウントのログインが必要。安全な認証入力のリクエストは時間切れとなり、新しいタブで認証後の状態を確認してもログイン前の案内画面だった。URL検査・インデックス登録リクエストは未実施。サイトマップ再送信もしていない。サイト側のSEO確認とGoogle側の登録状態は別として扱う。
 
 ログイン後の検査対象は上記の実URL4件。`/products.html`は`/products`へ転送、古い`/products/lemonbalm.html`・`/products/yomogi.html`は404だったため検査対象にしない。
 
