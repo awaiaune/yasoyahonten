@@ -1,0 +1,70 @@
+name: YASOYA | 照合済みUIを本番反映
+on:
+  push:
+    branches: [release/live-ui-20261123]
+    paths: [.github/workflows/live-ui-deploy.yml, maintenance/ui-deploy-20261123.py, maintenance/ui-production-browser-20261123.mjs]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: yasoya-ui-20261123-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Confirm the pinned inactive staging run succeeded
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/awaiaune/yasoyahonten/actions/runs/45131496559 > "$RUNNER_TEMP/staging.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          j=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'staging.json').read_text())
+          assert j['conclusion']=='success' and j['head_sha']=='7d67c0ebdcea635eab7bf055d4c5f3fbf2f12fa8' and j['path']=='.github/workflows/live-ui-stage.yml'
+          print('Verified inactive candidate staging confirmed')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: yasoya-ui-staged-candidate
+          run-id: 45131496559
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/yasoya-ui-candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: yasoya-ui-original-snapshot
+          run-id: 45131236331
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/yasoya-ui-live
+      - name: Prepare browser verification before any production change
+        run: |
+          npm install --prefix "$RUNNER_TEMP/yasoya-ui-deps" --no-audit --no-fund playwright@1.57.0
+          node "$RUNNER_TEMP/yasoya-ui-deps/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Activate reviewed versions and verify exact production HTML/settings
+        id: activate
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 maintenance/ui-deploy-20261123.py --live "$RUNNER_TEMP/yasoya-ui-live" --candidate "$RUNNER_TEMP/yasoya-ui-candidate" --out "$RUNNER_TEMP/yasoya-ui-deployment"
+      - name: Verify actual public site on mobile and desktop
+        run: |
+          export UI_TEST_NODE_MODULES="$RUNNER_TEMP/yasoya-ui-deps/node_modules"
+          export UI_DEPLOYMENT_DIR="$RUNNER_TEMP/yasoya-ui-deployment"
+          node maintenance/ui-production-browser-20261123.mjs
+      - name: Restore the recorded original versions if live browser verification fails
+        if: failure() && steps.activate.outcome == 'success'
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 maintenance/ui-deploy-20261123.py --rollback --live "$RUNNER_TEMP/yasoya-ui-live" --candidate "$RUNNER_TEMP/yasoya-ui-candidate" --out "$RUNNER_TEMP/yasoya-ui-deployment"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yasoya-ui-production-receipt
+          path: ${{ runner.temp }}/yasoya-ui-deployment
+          retention-days: 30
