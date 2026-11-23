@@ -12,8 +12,8 @@ test('selecting top artwork excludes only that image from detail; clearing resto
  assert.deepEqual(detailImageIds({...product,featuredImageId:null}),[detail,top,second]);
  assert.deepEqual(detailImageIds({...product,images:[top]}),[]);
  assert.equal(presentationImageUrl(product),'/api/media/'+top);
- assert.equal(presentationImageUrl({...product,featuredImageId:null}),'/images/lemonbalm-home.jpg');
- assert.equal(presentationImageUrl({...product,slug:'yomogi',featuredImageId:null}),'/images/yomogi-home.jpg');
+ assert.equal(presentationImageUrl({...product,featuredImageId:null}),'/api/media/'+detail);
+ assert.equal(presentationImageUrl({...product,slug:'yomogi',featuredImageId:null}),'/api/media/'+detail);
 });
 const bundle=await build({stdin:{contents:`import {renderV53} from './worker/src/management/v53-render.js';import {Store} from './worker/src/management/store.js';const p=${JSON.stringify(product)};Store.prototype.publicProducts=async()=>[p];Store.prototype.one=async()=>({id:'settings',detail_json:JSON.stringify({productIds:[p.id]})});export default {fetch:renderV53};`,resolveDir:new URL('..',import.meta.url).pathname},bundle:true,write:false,format:'esm',platform:'browser'});
 test('real HTMLRewriter home/detail output keeps links/dots and excludes artwork, captions and text overlays',async t=>{
