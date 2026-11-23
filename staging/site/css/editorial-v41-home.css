@@ -1,5 +1,20 @@
 #botanicalTrack .v39-botanical-link{touch-action:pan-y;-webkit-tap-highlight-color:transparent}#botanicalTrack .v19-slide:not(.v24-active) .v39-botanical-link{pointer-events:none}
 /* Preserve the uploaded artwork, including its lettering and original colors. */
-#botanicalTrack .v19-slide>img{filter:none!important;object-fit:contain;background:transparent;transform:none!important}
+#botanicalTrack .v19-slide>img{filter:none!important;object-fit:cover;background:transparent;transform:none!important}
 #botanicalTrack .v19-slide::before,#botanicalTrack .v19-slide::after{content:none!important;display:none!important}
 #botanicalTrack .v19-copy{display:none!important}
+/* A subtle, real HTML label stays visible when the image is delayed or unavailable. */
+#botanicalTrack .v19-center-name{
+  position:absolute;top:50%;left:50%;width:calc(100% - 36px);
+  margin:0;transform:translate(-50%,-50%);z-index:2;pointer-events:none;
+  color:#fff;text-align:center;font:400 clamp(11px,1.05vw,15px)/1.65 Arial,sans-serif;
+  letter-spacing:.20em;text-shadow:0 2px 14px rgba(0,0,0,.72);
+  overflow-wrap:anywhere;
+}
+.v20-link .shop-description{
+  max-width:36rem;margin:1.5rem 0 0;font-size:1rem;
+  line-height:2;letter-spacing:.04em;
+}
+@media(max-width:700px){
+  #botanicalTrack .v19-center-name{font-size:11px;letter-spacing:.20em}
+}
