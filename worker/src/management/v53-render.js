@@ -2,7 +2,7 @@ import {production} from '../production-policy.js';
 import {featuredProducts,retiredProduct} from './storefront-selection.js';
 import {Store} from './store.js';
 import {escape} from './storefront.js';
-import {presentationImageUrl} from './presentation-images.js';
+import {presentationImageUrl,detailImageIds} from './presentation-images.js';
 const href=p=>'/products/'+p.slug+'.html';
 const image=p=>presentationImageUrl(p);
 const img=p=>image(p)?`<img src="${image(p)}" alt="${escape(p.alt)}" loading="lazy">`:'';
@@ -19,8 +19,9 @@ export async function renderV53(request,env){
  const asset=await env.ASSETS.fetch(new Request(template));if(asset.status!==200)return asset;
  let r=new HTMLRewriter();
  if(p){
-  const galleryImages=p.images.length?p.images:p.fallbackImage?[null]:[];
-  const gallery=galleryImages.map((id,i)=>`<figure class="v30-slide ${i===0?'is-active':''}" data-index="${i}" aria-hidden="${i!==0}"><img src="${id?'/api/media/'+id:p.fallbackImage}" alt="${escape(p.alt)}"><figcaption class="v30-caption"><span>${i+1}</span></figcaption></figure>`).join('');
+  const detailImages=detailImageIds(p);
+  const galleryImages=detailImages.length?detailImages:!p.images.length&&p.fallbackImage?[null]:[];
+  const gallery=galleryImages.map((id,i)=>`<figure class="v30-slide ${i===0?'is-active':''}" data-index="${i}" aria-hidden="${i!==0}"><img src="${id?'/api/media/'+id:p.fallbackImage}" alt="${escape(p.alt)}"></figure>`).join('');
   r=r.on('.v30-product',{element:e=>e.setAttribute('class','v30-product v53-managed-product')})
    .on('head',{element:e=>e.append('<link rel="stylesheet" href="/css/managed-product.css">',{html:true})})
    .on('body',{element:e=>e.append('<script src="/js/managed-product.js"></script>',{html:true})})
@@ -31,7 +32,8 @@ export async function renderV53(request,env){
    .on('.v30-slide',{element:e=>e.remove()})
    .on('.v30-gallery',{element:e=>e.prepend(gallery,{html:true})})
    .on('.v30-top h1',{element:e=>e.setInnerContent(p.name)})
-   .on('.v30-current',{element:e=>e.setInnerContent('1')})
+   .on('.v30-current',{element:e=>e.remove()})
+   .on('.v30-caption',{element:e=>e.remove()})
    .on('.v30-dots',{element:e=>e.setInnerContent(galleryImages.map((_,i)=>`<button type="button" data-go="${i}" aria-label="画像${i+1}" aria-current="${i===0}"></button>`).join(''),{html:true})})
    .on('.v30-purchase',{element:e=>e.setInnerContent(p.variants.map(v=>{
     const available=(!production(env)||(env.PRODUCTION_CHECKOUT_ENABLED==='1'&&env.PRODUCTION_MANAGED_CHECKOUT_ENABLED==='1'))&&p.status==='published'&&v.active&&p.checkoutVariantIds?.includes(v.id);
@@ -47,7 +49,7 @@ export async function renderV53(request,env){
    .on('.v35-all-grid',{element:e=>e.setInnerContent(products.map(p=>`<a class="v35-all-card" href="${href(p)}"><div class="v35-all-image">${img(p)}</div><span class="v35-all-en">${escape(p.name)}</span><span class="v35-all-jp">${escape(p.description.slice(0,80))}</span><span class="v35-all-link">VIEW BOTANICAL ↗</span></a>`).join(''),{html:true})})
    .on('#botanicals',{element:e=>{if(!featured.length)e.remove();}})
    .on('.v19-progress',{element:e=>e.setInnerContent(featured.map((_,i)=>`<span class="${i===0?'active':''}"></span>`).join(''),{html:true})})
-   .on('#botanicalTrack',{element:e=>e.setInnerContent(featured.map(p=>`<article class="v19-slide" aria-label="${escape(p.name)}">${img(p)}<div class="v19-copy"><span class="v21-eyebrow">BOTANICALS</span><h2>${escape(p.name)}</h2><span class="v21-detail">THE PLANT · NATURAL FORM</span></div><a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
+   .on('#botanicalTrack',{element:e=>e.setInnerContent(featured.map(p=>`<article class="v19-slide" aria-label="${escape(p.name)}">${img(p)}<h2 class="v19-center-name">${escape(p.name)}</h2><a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
  }
  r=r.on('meta[property="og:url"]',{element:e=>e.setAttribute('content',u.href)})
   .on('link[rel="canonical"]',{element:e=>e.setAttribute('href',u.href)})

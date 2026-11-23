@@ -26,7 +26,7 @@ export function draft(input){
  need(new Set(variants.map(v=>v.id)).size===variants.length,'バリエーションIDが重複しています。');
  const images=input.images||[];need(Array.isArray(images)&&images.length<=10&&images.every(i=>/^[a-f0-9]{64}$/.test(i))&&new Set(images).size===images.length,'画像の指定が正しくありません。');
  const featuredImageId=input.featuredImageId??null;
- need(featuredImageId===null||(typeof featuredImageId==='string'&&images.includes(featuredImageId)),'植物の代表写真は商品写真の中から選択してください。');
+ need(featuredImageId===null||(typeof featuredImageId==='string'&&images.includes(featuredImageId)),'トップページ表示用の画像は登録済みの写真から選択してください。');
  return {name:text(input.name,120),description:text(input.description||'',8000,false),variants,images,...(featuredImageId?{featuredImageId}:{}),alt:text(input.alt||input.name,200),sortOrder:integer(input.sortOrder??0,0,100000)};
 }
 export const now=()=>new Date().toISOString();
