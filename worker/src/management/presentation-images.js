@@ -9,7 +9,5 @@ export function detailImageIds(product) {
 }
 export function presentationImageUrl(product) {
  const id=presentationImageId(product);
- if(id&&id===product?.featuredImageId)return '/api/media/'+id;
- const poster={lemonbalm:'/images/lemonbalm-home.jpg',yomogi:'/images/yomogi-home.jpg'}[product?.slug];
- return poster||(id?'/api/media/'+id:product?.fallbackImage||'');
+ return id?'/api/media/'+id:product?.fallbackImage||'';
 }
