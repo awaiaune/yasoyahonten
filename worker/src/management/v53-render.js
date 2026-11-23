@@ -49,7 +49,7 @@ export async function renderV53(request,env){
    .on('.v35-all-grid',{element:e=>e.setInnerContent(products.map(p=>`<a class="v35-all-card" href="${href(p)}"><div class="v35-all-image">${img(p)}</div><span class="v35-all-en">${escape(p.name)}</span><span class="v35-all-jp">${escape(p.description.slice(0,80))}</span><span class="v35-all-link">VIEW BOTANICAL ↗</span></a>`).join(''),{html:true})})
    .on('#botanicals',{element:e=>{if(!featured.length)e.remove();}})
    .on('.v19-progress',{element:e=>e.setInnerContent(featured.map((_,i)=>`<span class="${i===0?'active':''}"></span>`).join(''),{html:true})})
-   .on('#botanicalTrack',{element:e=>e.setInnerContent(featured.map(p=>`<article class="v19-slide" aria-label="${escape(p.name)}">${img(p)}<a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
+   .on('#botanicalTrack',{element:e=>e.setInnerContent(featured.map(p=>`<article class="v19-slide" aria-label="${escape(p.name)}">${img(p)}<h2 class="v19-center-name">${escape(p.name)}</h2><a class="v39-botanical-link" aria-label="${escape(p.name)}" href="${href(p)}"></a></article>`).join('')||'<p>公開中の商品はありません。</p>',{html:true})});
  }
  r=r.on('meta[property="og:url"]',{element:e=>e.setAttribute('content',u.href)})
   .on('link[rel="canonical"]',{element:e=>e.setAttribute('href',u.href)})
