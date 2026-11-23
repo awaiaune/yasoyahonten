@@ -47,7 +47,7 @@ for name in ['yasoya-honten-payments','yasoya-honten-admin']:
  except urllib.error.HTTPError as e:report['workers'][name]={'errorHTTP':e.code}
 
 base='https://yasoyahonten.awaiaune.com'
-paths=['/','/products.html','/products/lemonbalm.html','/products/yomogi.html','/robots.txt','/sitemap.xml','/js/admin-management.js','/js/admin-ui.js','/js/admin.js','/css/admin.css']
+paths=['/','/products.html','/products/lemonbalm10.html','/products/yomogi10.html','/robots.txt','/sitemap.xml','/js/admin-management.js','/js/admin-ui.js','/js/admin.js','/css/admin.css']
 seen=set()
 def public(path):
  try:
@@ -63,7 +63,7 @@ for depth in range(2):
    if meta.get('status')==200 and ('html' in meta.get('type','')):
     for ref in re.findall(r'(?:src|href)=["\x27]([^"\x27]+)',data.decode('utf8','replace')):
      u=urlparse(urljoin(base+path,ref));p=unquote(u.path)
-     if u.netloc==urlparse(base).netloc and re.fullmatch(r'/(?:js|css|images)/[A-Za-z0-9_./-]+\.(?:js|css|jpg|jpeg|png|webp|svg|ico)',p) and '..' not in pathlib.PurePosixPath(p).parts:paths.append(p)
+     if u.netloc==urlparse(base).netloc and (re.fullmatch(r'/products/[a-z0-9-]+\.html',p) or re.fullmatch(r'/(?:js|css|images)/[A-Za-z0-9_./-]+\.(?:js|css|jpg|jpeg|png|webp|svg|ico)',p)) and '..' not in pathlib.PurePosixPath(p).parts:paths.append(p)
 for label,path in [('domains',f'/accounts/{ACCOUNT}/workers/domains'),('scripts',f'/accounts/{ACCOUNT}/workers/scripts')]:
  try:
   r=get(path)
