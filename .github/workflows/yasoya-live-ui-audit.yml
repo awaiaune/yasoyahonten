@@ -1,0 +1,26 @@
+name: YASOYA | 本番UI読み取り監査 20261123
+on:
+  push:
+    branches: [audit/live-ui-20261123]
+    paths: [.github/workflows/yasoya-live-ui-audit.yml, maintenance/live-ui-audit.py]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Read current live modules and public assets only
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 maintenance/live-ui-audit.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yasoya-live-ui-audit
+          path: ${{ runner.temp }}/yasoya-live-ui-audit
+          retention-days: 1
