@@ -1,1 +1,5 @@
 #botanicalTrack .v39-botanical-link{touch-action:pan-y;-webkit-tap-highlight-color:transparent}#botanicalTrack .v19-slide:not(.v24-active) .v39-botanical-link{pointer-events:none}
+/* Preserve the uploaded artwork, including its lettering and original colors. */
+#botanicalTrack .v19-slide>img{filter:none!important;object-fit:contain;background:#20382e;transform:none!important}
+#botanicalTrack .v19-slide::before,#botanicalTrack .v19-slide::after{content:none!important;display:none!important}
+#botanicalTrack .v19-copy{display:none!important}

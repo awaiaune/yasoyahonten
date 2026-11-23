@@ -119,15 +119,15 @@
     for (const [i,id] of current.draft.images.entries()) {
       const div = document.createElement('div'); div.className = 'image-entry'; const img = document.createElement('img'); img.alt = current.draft.alt || current.draft.name || '商品写真'; div.append(img);
       preview(id).then(url => img.src = url).catch(() => img.alt = '写真を取得できません');
-      const label = document.createElement('p'); label.className = 'image-label'; label.textContent = i === 0 ? 'メイン写真' : `写真 ${i+1}`; div.append(label);
+      const label = document.createElement('p'); label.className = 'image-label'; label.textContent = id === current.draft.featuredImageId ? 'トップページ表示用' : `商品ページ用 ${i+1}`; div.append(label);
       const controls = document.createElement('div'); controls.className = 'image-controls'; div.append(controls);
       for (const [label,accessible,disabled,action] of [
         ['↑',`写真${i+1}を前へ`,i === 0,() => [current.draft.images[i-1],current.draft.images[i]] = [id,current.draft.images[i-1]]],
         ['↓',`写真${i+1}を後ろへ`,i === current.draft.images.length-1,() => [current.draft.images[i+1],current.draft.images[i]] = [id,current.draft.images[i+1]]],
-        ['メインにする',`写真${i+1}をメインにする`,i === 0,() => { current.draft.images.splice(i,1); current.draft.images.unshift(id); }],
-        ['外す',`写真${i+1}を外す`,false,() => current.draft.images.splice(i,1)]]) {
+        [id === current.draft.featuredImageId ? 'トップページ表示用を解除' : 'トップページ表示用',`写真${i+1}のトップページ表示用を${id === current.draft.featuredImageId ? '解除' : '選択'}`,false,() => { if (current.draft.featuredImageId === id) delete current.draft.featuredImageId; else current.draft.featuredImageId = id; }],
+        ['外す',`写真${i+1}を外す`,false,() => { current.draft.images.splice(i,1); if (current.draft.featuredImageId === id) delete current.draft.featuredImageId; }]]) {
         const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.setAttribute('aria-label',accessible); b.disabled = disabled;
-        b.onclick = () => { if (busy) return; if (label === '外す' && !confirm('この写真を下書きから外しますか？保存するまで公開内容は変わりません。')) return; capture(); action(); setDirty(true); drawImages(label === 'メインにする' ? id : undefined); }; controls.append(b);
+        b.onclick = () => { if (busy) return; if (label === '外す' && !confirm('この写真を下書きから外しますか？保存するまで公開内容は変わりません。')) return; capture(); action(); setDirty(true); drawImages(id); }; controls.append(b);
       }
       list.append(div);
     }
