@@ -1,0 +1,54 @@
+name: YASOYA | 検証済みUIを未公開バージョンへ保存
+on:
+  push:
+    branches: [release/live-ui-20261123]
+    paths: [.github/workflows/live-ui-stage.yml, maintenance/ui-stage-20261123.py]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: yasoya-ui-20261123-stage
+  cancel-in-progress: false
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Require successful verification of this exact candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/awaiaune/yasoyahonten/actions/runs/45131236331 > "$RUNNER_TEMP/verification.json"
+          python3 - <<'PY'
+          import json,os,pathlib
+          j=json.loads((pathlib.Path(os.environ['RUNNER_TEMP'])/'verification.json').read_text())
+          assert j['conclusion']=='success' and j['head_sha']=='d4812c9c531eeba52d00a8920e01b94e5c7cb878' and j['path']=='.github/workflows/live-ui-verify.yml'
+          print('Successful browser/worker verification confirmed')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          name: yasoya-ui-verified-candidate
+          run-id: 45131236331
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/yasoya-ui-candidate
+      - uses: actions/download-artifact@v4
+        with:
+          name: yasoya-ui-original-snapshot
+          run-id: 45131236331
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/yasoya-ui-live
+      - name: Upload inactive versions, inherit assets/bindings, verify live is unchanged
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: python3 maintenance/ui-stage-20261123.py --live "$RUNNER_TEMP/yasoya-ui-live" --candidate "$RUNNER_TEMP/yasoya-ui-candidate"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: yasoya-ui-staged-candidate
+          path: ${{ runner.temp }}/yasoya-ui-candidate
+          retention-days: 30
