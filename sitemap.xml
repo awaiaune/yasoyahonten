@@ -1,41 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/products.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/products/lemonbalm.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/products/yomogi.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/products/goldenrod.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/project.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/contact.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/tokushoho.html</loc>
-    </url>
-
-    <url>
-        <loc>https://yasoyahonten.awaiaune.com/privacy-policy.html</loc>
-    </url>
-
+  <!-- Static fallback only. The production Cloudflare Worker builds its sitemap
+       from published, indexable products in the management database. -->
+  <url>
+    <loc>https://yasoyahonten.awaiaune.com/</loc>
+  </url>
+  <url>
+    <loc>https://yasoyahonten.awaiaune.com/products</loc>
+  </url>
+  <url>
+    <loc>https://yasoyahonten.awaiaune.com/products/lemonbalm10.html</loc>
+  </url>
+  <url>
+    <loc>https://yasoyahonten.awaiaune.com/products/yomogi10.html</loc>
+  </url>
 </urlset>
